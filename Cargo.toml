@@ -1,0 +1,62 @@
+﻿[workspace]
+resolver = "3"
+members = ["crates/wa-types", "crates/wa-core", "apps/desktop/src-tauri"]
+# `vendor/wacore-appstate` is a patched path dependency, not a member: its default
+# `simd` feature needs nightly (`#![feature(portable_simd)]`), which the repo
+# deliberately avoids, so its tests are run standalone with `--no-default-features`.
+exclude = ["vendor/wacore-appstate"]
+
+[patch.crates-io]
+whatsapp-rust = { path = "vendor/whatsapp-rust" }
+wacore-appstate = { path = "vendor/wacore-appstate" }
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+# The distributed binary statically links `wacore-libsignal`, whose files carry
+# Signal's `AGPL-3.0-only` headers (see LICENSE.md and README.md), so the app is
+# a combined work released under the AGPL. The individual crates may still be
+# read as MIT where their own files say so, but the work as a whole is AGPL.
+license = "AGPL-3.0-only"
+authors = ["you"]
+
+[workspace.dependencies]
+anyhow = "1"
+async-channel = "2"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# `simd` is deliberately off: it pulls `#![feature(portable_simd)]`, which needs
+# a nightly toolchain. Everything else mirrors the crate's default feature set.
+whatsapp-rust = { version = "0.7", default-features = false, features = [
+    "sqlite-storage",
+    "tokio-transport",
+    "tokio-runtime",
+    "tokio-native",
+    "ureq-client",
+    "signal",
+    "voip-mlow",
+] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+[profile.dev]
+# Faster incremental builds; full debug info is useful for breakpoints, not
+# everyday UI/Rust iteration.
+debug = 1
+incremental = true
+
+# Debug builds of this workspace are dominated by the cryptography stack.
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+# CI/release speed: `codegen-units = 1` + thin LTO made the portable build take
+# minutes. Parallel codegen trades some binary size for wall time.
+lto = false
+codegen-units = 16
+strip = true
+

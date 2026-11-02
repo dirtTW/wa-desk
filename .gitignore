@@ -1,0 +1,17 @@
+/target
+**/target
+**/gen
+**/node_modules
+/dist/
+*.db
+*.db-shm
+*.db-wal
+ai.json
+ai.key
+contacts.json
+msgcache/
+media/
+.env
+.DS_Store
+.playwright-mcp/
+.opencode/

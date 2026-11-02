@@ -1,0 +1,25 @@
+[package]
+name = "wa-core"
+description = "Session layer around the unofficial whatsapp-rust protocol client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-channel.workspace = true
+base64.workspace = true
+serde_json = "1"
+tokio.workspace = true
+tracing.workspace = true
+whatsapp-rust.workspace = true
+qrcode.workspace = true
+ureq = "3"
+sha2 = "0.10"
+wa-types = { path = "../wa-types" }
+
+[dev-dependencies]
+chrono = "0.4"
+flate2 = "1"
+serde_json = "1"

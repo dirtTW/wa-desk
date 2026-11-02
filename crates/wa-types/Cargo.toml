@@ -1,0 +1,9 @@
+﻿[package]
+name = "wa-types"
+description = "Serializable UI vocabulary shared by WA Desk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true

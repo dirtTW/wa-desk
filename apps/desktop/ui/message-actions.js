@@ -1,0 +1,430 @@
+/* WA Desk frontend: message-actions. Loaded in order by index.html; all files share the classic-script global scope. */
+
+/* ---------------------------------------------------- message actions */
+
+let menuMessage = null;
+let pressTimer = null;
+let pressBubble = null;
+
+function bubbleMessage(node) {
+  const bubble = node && node.closest ? node.closest(".bubble") : null;
+  if (!bubble || !state.active) return null;
+  const entry = state.chats.get(state.active);
+  if (!entry) return null;
+  return entry.messages.find((message) => message.id === bubble.dataset.id) || null;
+}
+
+function cancelPress() {
+  clearTimeout(pressTimer);
+  pressTimer = null;
+  if (pressBubble) pressBubble.classList.remove("press");
+  pressBubble = null;
+}
+
+function openMessageMenu(message, x, y) {
+  cancelPress();
+  menuMessage = message;
+
+  const menu = $("msg-menu");
+  const isOwn = Boolean(message.from_me);
+  const canEdit = isOwn && message.kind === "text" && !message.deleted && !message.deletedForMe;
+
+  menu.querySelector('[data-action="edit"]').hidden = !canEdit;
+  menu.querySelector('[data-action="forward"]').hidden =
+    Boolean(message.deleted) || Boolean(message.deletedForMe);
+  menu.querySelector('[data-action="reply"]').hidden =
+    Boolean(message.deleted) || Boolean(message.deletedForMe);
+  menu.querySelector('[data-action="copy"]').hidden =
+    Boolean(message.deleted) || Boolean(message.deletedForMe) || !String(message.text || "").trim();
+  // "Message <sender>" only makes sense for someone else's group message.
+  const chat = state.chats.get(message.chat);
+  const senderJid = message.sender;
+  const canMessageSender = Boolean(chat && chat.isGroup && senderJid && !message.from_me);
+  const senderRow = menu.querySelector('[data-action="message-sender"]');
+  senderRow.hidden = !canMessageSender;
+  menu.querySelector('[data-action="reply-privately"]').hidden = !canMessageSender;
+  menu.querySelector('[data-action="message-info"]').hidden = !isOwn;
+  // Starring mirrors the app-state `star` collection, so the row flips between
+  // Star/Unstar like the official message menu.
+  const starRow = menu.querySelector('[data-action="star"]');
+  starRow.hidden = Boolean(message.deleted) || Boolean(message.deletedForMe);
+  if (!starRow.hidden) {
+    $("msg-star-label").textContent = state.starred.has(message.id)
+      ? "Unstar message"
+      : "Star message";
+  }
+  if (canMessageSender) {
+    $("message-sender-label").textContent = `Message ${
+      contactNameFor(senderJid) || message.sender_name || "sender"
+    }`;
+  }
+  menu.hidden = false;
+
+  const rect = menu.getBoundingClientRect();
+  const left = Math.max(8, Math.min(x, window.innerWidth - rect.width - 10));
+  const top = Math.max(8, Math.min(y, window.innerHeight - rect.height - 10));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  clampMessageMenu();
+}
+
+function closeMessageMenu() {
+  $("msg-menu").hidden = true;
+  menuMessage = null;
+}
+
+// Quote a message in the composer. WhatsApp shows the author and a one-line
+// preview in an inset card ABOVE the input while the reply is pending, with the
+// quoted author's colour on the left bar and the name.
+function startReply(message) {
+  state.reply = message;
+  const name = message.from_me
+    ? "You"
+    : contactNameFor(message.sender) || message.sender_name || "Unknown";
+  const preview =
+    String(message.text || "").trim() ||
+    MEDIA_LABELS[message.kind] ||
+    "Message";
+  const banner = $("reply-banner");
+  // The official paints the bar and the author name with the colour it assigns
+  // that participant (the same palette as group sender names).
+  const colour = globalThis.WAChatUtils?.senderColor(message.sender) || "var(--accent)";
+  banner.style.setProperty("--reply-colour", colour);
+  $("reply-banner-name").textContent = name;
+  $("reply-banner-text").textContent = preview.slice(0, 140);
+  banner.hidden = false;
+  const input = $("input");
+  if (input) input.focus();
+}
+
+function cancelReply() {
+  state.reply = null;
+  $("reply-banner").hidden = true;
+}
+
+async function copyMessageText(message) {
+  const text = String(message.text || "");
+  if (!text.trim()) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Copied to clipboard");
+  } catch {
+    toast("Could not copy the message");
+  }
+}
+
+/* ------------------------------------------------------- multi-select mode */
+
+function startSelection(message) {
+  state.selecting = true;
+  state.selected = new Set();
+  if (message && message.id) state.selected.add(message.id);
+  state.forwardQueue = null;
+  $("select-bar").hidden = false;
+  $("messages").classList.add("select-mode");
+  updateSelectBar();
+  renderChat();
+}
+
+function exitSelection() {
+  state.selecting = false;
+  state.selected = new Set();
+  state.forwardQueue = null;
+  $("select-bar").hidden = true;
+  $("messages").classList.remove("select-mode");
+  renderChat();
+}
+
+function toggleSelection(id) {
+  if (!state.selecting || !id) return;
+  if (state.selected.has(id)) state.selected.delete(id);
+  else state.selected.add(id);
+  const node = document.querySelector(`#messages [data-id="${CSS.escape(id)}"]`);
+  if (node) node.classList.toggle("selected", state.selected.has(id));
+  if (state.selected.size === 0) {
+    exitSelection();
+    return;
+  }
+  updateSelectBar();
+}
+
+function updateSelectBar() {
+  const count = state.selected.size;
+  $("select-count").textContent = count === 1 ? "1 selected" : `${count} selected`;
+  $("select-forward").disabled = count === 0;
+  $("select-delete").disabled = count === 0;
+}
+
+/* ------------------------------------------------- delete confirmation */
+
+function askDelete(items) {
+  const list = (items || []).filter(Boolean);
+  if (!list.length) return;
+  state.deletePending = { items: list };
+  $("delete-confirm-title").textContent =
+    list.length > 1 ? `Delete ${list.length} messages?` : "Delete message?";
+  // "Delete for everyone" is only offered in the dialog: every chosen message
+  // must be one of ours and live outside the "Message yourself" chat.
+  const canEveryone =
+    list.every((item) => Boolean(item.fromMe) && !item.deleted) &&
+    !isSelfChat(list[0].chat);
+  $("delete-everyone-ok").hidden = !canEveryone;
+  $("delete-confirm").hidden = false;
+}
+
+function closeDeleteConfirm() {
+  state.deletePending = null;
+  $("delete-confirm").hidden = true;
+}
+
+async function confirmDelete(everyone) {
+  const pending = state.deletePending;
+  if (!pending) return;
+  closeDeleteConfirm();
+  // Mark the bubbles first, exactly like WhatsApp Web: the stanza/app-state
+  // mutation goes out in the background and the UI never waits for its ack.
+  for (const item of pending.items) {
+    const entry = state.chats.get(item.chat);
+    const message = entry && entry.messages.find((candidate) => candidate.id === item.id);
+    if (message) {
+      message.deleted = true;
+      if (!everyone) message.deletedForMe = true;
+    }
+  }
+  if (state.selecting) exitSelection();
+  renderChatList();
+  renderChat();
+  scheduleSave();
+
+  for (const item of pending.items) {
+    const args = { chat: item.chat, id: item.id };
+    if (everyone) {
+      invoke("delete_for_everyone", args).catch((err) => toast(String(err)));
+    } else {
+      invoke("delete_for_me", {
+        ...args,
+        fromMe: Boolean(item.fromMe),
+        participant: item.participant || null,
+      }).catch((err) => toast(String(err)));
+    }
+  }
+}
+
+function selectedMessages() {
+  const chat = state.chats.get(state.active);
+  if (!chat) return [];
+  return [...state.selected]
+    .map((id) => chat.messages.find((message) => message.id === id))
+    .filter(Boolean);
+}
+
+function forwardSelection() {
+  const list = selectedMessages();
+  if (!list.length) return;
+  state.forwardQueue = list.map((message) => ({
+    id: message.id,
+    text: message.text || "",
+  }));
+  openForwardPicker(list[0]);
+}
+
+async function deleteSelection() {
+  const list = selectedMessages();
+  if (!list.length) return;
+  askDelete(
+    list.map((message) => ({
+      chat: message.chat,
+      id: message.id,
+      fromMe: message.from_me,
+      participant: message.sender,
+      deleted: message.deleted,
+    })),
+  );
+}
+
+// Scroll to the message a reply quotes and flash it, like WhatsApp Web.
+function jumpToQuoted(id) {
+  if (!id) return;
+  const node = document.querySelector(
+    `#messages [data-id="${CSS.escape(String(id))}"]`,
+  );
+  if (!node) {
+    toast("That message isn't loaded in this chat yet.");
+    return;
+  }
+  node.scrollIntoView({ block: "center", behavior: "smooth" });
+  node.classList.remove("quote-target");
+  // Force a reflow so a repeated jump restarts the highlight animation.
+  void node.offsetWidth;
+  node.classList.add("quote-target");
+  setTimeout(() => node.classList.remove("quote-target"), 1600);
+}
+
+// Keep the open menu inside the window: `#msg-menu` is capped at the viewport
+// height, so it scrolls instead of overflowing off the bottom edge.
+function clampMessageMenu() {
+  const menu = $("msg-menu");
+  if (!menu || menu.hidden) return;
+  const rect = menu.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8));
+  const top = Math.max(8, Math.min(rect.top, window.innerHeight - rect.height - 8));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function showMessageInfo(message) {
+  const rows = [
+    ["Type", message.kind || "text"],
+    ["Sent", new Date(message.timestamp).toLocaleString()],
+    ["From", message.from_me ? "You" : message.sender_name || message.sender || "Unknown"],
+    ["Message ID", message.id],
+    [
+      "Status",
+      message.pending
+        ? "Sending…"
+        : message.failed
+          ? "Failed"
+          : message.status === "read"
+            ? "Read"
+            : message.status === "delivered"
+              ? "Delivered"
+              : "Sent",
+    ],
+  ];
+  $("msg-info-body").innerHTML = rows
+    .map(
+      ([label, value]) =>
+        `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value))}</dd></div>`,
+    )
+    .join("");
+  $("msg-info").hidden = false;
+}
+
+function startEdit(message) {  state.editing = { chat: message.chat, id: message.id };
+  const input = $("input");
+  input.value = message.text || "";
+  autosize(input);
+  updateSendState();
+  $("edit-banner").hidden = false;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function cancelEdit() {
+  state.editing = null;
+  $("edit-banner").hidden = true;
+  $("input").value = "";
+  autosize($("input"));
+  updateSendState();
+}
+
+/* ------------------------------------------------------------ starring */
+
+// Starring rides the app-state `star` collection (the phone and every linked
+// client show the same list); the local set is applied optimistically so the
+// menu flips immediately.
+async function toggleStar(message) {
+  const starred = !state.starred.has(message.id);
+  try {
+    await invoke("chat_star", {
+      chat: message.chat,
+      id: message.id,
+      starred,
+      fromMe: Boolean(message.from_me),
+      // The wire needs the author for someone else's group message.
+      participant: message.from_me ? null : message.sender || null,
+    });
+    applyStar(message.chat, message.id, starred);
+    toast(starred ? "Message starred" : "Message unstarred");
+  } catch (err) {
+    toast(String(err));
+  }
+}
+
+// Shared by the command's own update and the incoming `star_message` event (a
+// full app-state sync replays every star, rebuilding the list on each start).
+function applyStar(chatJid, id, starred) {
+  if (!id) return;
+  if (starred) state.starred.add(id);
+  else state.starred.delete(id);
+  const chat = state.chats.get(chatJid);
+  const message = chat && chat.messages.find((entry) => entry.id === id);
+  if (message) message.starred = starred;
+  if (state.starredOpen) renderStarredScreen();
+  if (state.active === chatJid) renderChat();
+  scheduleSave();
+}
+
+async function applyMessageAction(action, message) {
+  if (!message) return;
+
+  if (action === "edit") {
+    startEdit(message);
+    return;
+  }
+
+  if (action === "forward") {
+    closeMessageMenu();
+    openForwardPicker(message);
+    return;
+  }
+
+  if (action === "reply") {
+    startReply(message);
+    return;
+  }
+
+  if (action === "select") {
+    startSelection(message);
+    return;
+  }
+
+  if (action === "star") {
+    toggleStar(message);
+    return;
+  }
+
+  if (action === "ask-ai" || action === "report") {
+    toast(
+      action === "report"
+        ? "Reporting isn't supported by WA Desk yet."
+        : "Ask Meta AI isn't available in WA Desk yet.",
+    );
+    return;
+  }
+
+  if (action === "message-info") {
+    showMessageInfo(message);
+    return;
+  }
+
+  if (action === "reply-privately") {
+    if (!message.sender) return;
+    openChatFromPicker(message.sender, message.sender_name || "");
+    startReply(message);
+    return;
+  }
+
+  if (action === "copy") {
+    copyMessageText(message);
+    return;
+  }
+
+  if (action === "message-sender") {
+    openChatFromPicker(message.sender, message.sender_name || "");
+    return;
+  }
+
+  if (action === "delete") {
+    askDelete([
+      {
+        chat: message.chat,
+        id: message.id,
+        fromMe: message.from_me,
+        participant: message.sender,
+        deleted: message.deleted,
+      },
+    ]);
+  }
+}
+

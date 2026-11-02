@@ -1,0 +1,488 @@
+# WA Desk — development notes
+
+This file keeps the feature inventory, architecture notes, design gotchas and roadmap that used
+to live in `README.md`; the change log is its own file, [`CHANGELOG.md`](CHANGELOG.md). Build
+instructions and dependency/license information stay in `README.md`.
+
+## Change log
+
+See [`CHANGELOG.md`](CHANGELOG.md) — newest first, one entry per feature or
+fix, with the mechanism and the verification signal.
+
+## What works today
+
+| Area | Status |
+| --- | --- |
+| QR linking | ✅ |
+| Phone-number pairing code | ✅ |
+| Persistent session (SQLite device store) | ✅ |
+| Chat list from WhatsApp history sync | ✅ names, avatars, timestamps, unread counts |
+| New chat picker | ✅ the + button opens WhatsApp-style search over saved contacts, known chats and raw numbers |
+| Chat history from WhatsApp history sync | ✅ text, media captions, own/other bubbles |
+| Photo &amp; video playback | ✅ images inline, videos open in the viewer, expired media recovered via media-reupload |
+| Media viewer | ✅ full-screen image/video viewer with filmstrip, video posters, custom player, prev/next, arrow keys, scroll zoom, drag pan, auto-hiding chrome when zoomed |
+| Save media | ✅ the viewer's download button copies the file to `Downloads\WA Desk` instead of navigating the WebView |
+| In-chat search | ✅ header search with match counter, previous/next, yellow highlight and Esc to close |
+| Voice / video calls | ✅ 1:1 call signaling through `whatsapp-rust`'s VoIP runtime; microphone/audio via Web Audio, H.264 video via WebCodecs; needs a microphone/camera |
+| Poisoned sender recovery | ✅ rate-limited reconnect + one retry after a transport failure poisons the Noise sender |
+| Channels panel | ✅ followed channels have their own panel with real names from the newsletter metadata; posts open read-only |
+| Status / stories | ✅ recent/viewed lists with green/gray rings, right-side “Share statuses” pane, old statuses recovered from `status@broadcast` history, 24 h story viewer with progress bars, cross-contact next/prev, reply/reactions, text/image/video posting, delete your own |
+| Chat export import | ✅ load a WhatsApp `.txt` export into the open chat when the phone cannot backfill messages sent while it was offline |
+| Mentions | ✅ `@mentions` render the contact or own display name (LID-only mentions included), with the raw id only as a fallback |
+| Chat history reload | ✅ opening a chat reloads it through the client's own linked session (`HistorySyncOnDemand`), anchored on the oldest message like WhatsApp Web; scrolling pages further back, and a fresh window re-syncs from the disk chat cache |
+| Self-chat name | ✅ the account's own chat is labelled `(You)` in the list and header |
+| Contact profile photos | ✅ fetched lazily, cached, initials as fallback |
+| Send / receive text | ✅ |
+| Receive media messages (caption + type shown) | ✅ |
+| Audio & voice-note playback | ✅ official-style player bubble: play/pause, seek + drag, duration/countdown from the wire (`audioMessage.seconds`, waveform for `ptt`), orange headphones chip |
+| Typing indicators, read receipts | ✅ |
+| Auto-reconnect with backoff | ✅ (library) |
+| Local cache so the list survives restarts | ✅ (WebView storage) |
+| Saved contact names from the phone address book | ✅ full `contact` app-state sync on first launch, persisted locally |
+| New contact | ✅ name + international number written as a `contact` app-state mutation, then opened as a chat |
+| AI assistant | ✅ bring-your-own OpenAI-compatible key (encrypted at rest), on/off toggle, `/ai` requirement toggle, casual Indonesian "gw/lu" persona, replies to text/photos/stickers/GIFs/short videos, occasional reactions/random stickers |
+| AI chat context | ✅ last ~24 messages from the chat (groups and DMs), capped at ~4,000 characters and twelve hours |
+| Link previews | ✅ WhatsApp's embedded preview (title, description, thumbnail); Open Graph fallback when scraping is allowed |
+| Group bubbles | ✅ the sender's profile photo in the left gutter and their name (coloured per sender) once per sender run, like official |
+| Replies / quotes | ✅ quoted message box with author, caption and photo thumbnail; the pending reply shows an inset preview card above the composer with the sender's colour; @mentions render green; the AI reads the quoted text/photo |
+| Bulk photos / videos | ✅ consecutive media collapses into an album grid |
+| Paste an image from the clipboard (Ctrl+V) | ✅ draft preview; keep pasting to stack up to 10 images, composer text becomes the caption |
+| Deleted chats / messages | ✅ kept locally; the eye button in the left rail reveals them |
+| Message edits and revokes | ✅ applied live (`MESSAGE_EDIT` / `REVOKE` protocol messages) |
+| Long-press a bubble | ✅ Edit / Delete for me / Delete for everyone |
+| Media download/upload, reactions, group management | ✅ media, emoji reactions, create group, info, add/remove/promote/demote members, leave group |
+| Sticker collection | ✅ grid of up to 80 cached stickers from chats, with count; the AI can use the same collection |
+| Favorite stickers | ✅ fetched from the linked session's `favoriteSticker` app-state, downloaded as WebP; tap sends with an optimistic bubble and closes the picker immediately |
+| Sticker panel | ✅ WhatsApp-Web-style recent/favorites/packs tabs, sticker-store search field, Create tile, and Emoji/GIF/Stickers footer |
+| Sidebar menu | ✅ the header kebab: New group, Starred messages, Select chats, Mark all as read, App lock (honest "not supported" toast), Log out |
+| Starred messages | ✅ star/unstar from the message menu through the `star` app-state collection; the Starred messages screen lists them and opens the chat on the message |
+| System tray, notifications, autostart | ✅ tray menu (Open / Quit), desktop notifications per message, launch at login |
+
+WhatsApp only uploads history **when a device is newly linked**. If the client was paired
+before this feature existed, the list stays empty until the device is unlinked and paired
+again. Live traffic always works.
+
+---
+
+## Layout
+
+```
+Cargo.toml                     workspace
+crates/wa-types/               serializable UI vocabulary (serde only)
+crates/wa-core/                protocol session layer (no Tauri dependency)
+  src/lib.rs                   Session struct + module wiring
+  src/events.rs                protocol event -> UiEvent translation
+  src/session.rs               lifecycle, identity, chat resolution
+  src/calls.rs                 VoIP call state and media channels
+  src/contacts.rs              contacts, profiles, peer lookup
+  src/groups.rs                group create/info/member actions
+  src/history.rs               on-demand history and chat cache
+  src/media.rs                 upload/download, stickers, favorites
+  src/messaging.rs             text, edits, reactions, receipts
+  src/status.rs                stories: history, post, reply, react
+  src/util.rs                  parsing/media-cache helpers
+  src/tests.rs                 unit tests
+apps/desktop/
+  src-tauri/                   Tauri 2 shell, commands, event bridge
+    src/main.rs                entry point: module wiring + `app::run()`
+    src/app.rs                 builder, plugins, tray, event pump, run loop
+    src/state.rs               AppState, Status, session lifecycle, window helpers
+    src/commands/mod.rs        re-export surface for the command modules
+    src/commands/session.rs    status, text send, read/typing, pairing, logout
+    src/commands/media.rs      media download/upload, stickers, contact photos
+    src/commands/calls.rs      1:1 call signalling
+    src/commands/history.rs    on-demand history, channels, chat cache, peers
+    src/commands/status.rs     status/stories post + interactions
+    src/commands/contacts.rs   address book read/sync/create
+    src/commands/groups.rs     group create/info/members
+    src/commands/messages.rs   reactions, deletes, edits
+    src/commands/links.rs      Open Graph link preview fallback
+    src/ai/mod.rs              AI auto-reply wiring
+    src/ai/state.rs            settings, encrypted key, bounded chat context
+    src/ai/prompt.rs           prompts, guards, mentions, reply gating
+    src/ai/provider.rs         chat completions + vision sticker picker
+    src/ai/media.rs            photo/video inputs for the vision model
+    src/ai/reply.rs            live event handler (decide/build/send)
+    src/ai/commands.rs         ai_* Tauri commands
+    src/ai/util.rs             clock, randomness, emoji/text helpers
+    src/ai/tests.rs            unit tests
+    tauri.conf.json
+  ui/                          vanilla HTML/CSS/JS frontend, no npm
+    core.js                    constants, state, cache, helpers, avatars
+    chat-list.js               sidebar list, channels
+    media-ui.js                media rendering, posters, link previews
+    chat-search.js             in-chat search
+    chat-render.js             message rendering, scroll anchoring, scroll-to-latest
+    media-viewer.js            full-screen media viewer
+    state-updates.js           incoming messages, chat state, export import
+    actions.js                 send, read, open chat, history sync
+    calls.js                   call signaling and media
+    status.js                  status/stories
+    chats.js                   aliases, merge, clipboard drafts
+    message-actions.js         edit/delete/reaction menus
+    new-chat.js                new-chat picker
+    contacts.js                contact listing and sync
+    group-info.js              group info and members
+    settings.js                settings/theme/autostart
+    emoji.js                   emoji picker
+    stickers.js                sticker grids/favorites
+    attachments.js             composer attachments
+    wiring.js                  DOM event wiring
+    main.js                    bootstrap: wire(), listeners, get_status()
+  scripts/gen-icons.ps1        regenerates the app icons
+vendor/whatsapp-rust/          patched protocol client (crates.io 0.7, [patch.crates-io])
+vendor/wacore-appstate/        patched app-state crate: snapshot MAC recovery (see change log);
+                               excluded from the workspace (its `simd` feature needs nightly),
+                               tested standalone: `cargo test --no-default-features`
+```
+
+The dependency direction is one-way: `wa-core` knows nothing about Tauri. That keeps
+the protocol layer reusable for a CLI, a tray daemon, or a second UI later.
+
+### How the pieces talk
+
+```
+WhatsApp servers
+      │  noise + Signal (whatsapp-rust)
+      ▼
+   wa-core::Session  ──UiEvent──▶  tokio mpsc  ──▶  Tauri emit("wa:event")  ──▶  webview
+      ▲                                                                              │
+      └──────────────────── Tauri commands (send_text, mark_read, …) ────────────────┘
+```
+
+Protocol payloads never cross the IPC boundary: `wa-core` reduces them to
+`MessageView` / `UiEvent`, which serialize as `{ "type": "message", ... }`.
+
+---
+
+
+## Where data lives
+
+| Platform | Path |
+| --- | --- |
+| Windows | `%APPDATA%\dev.example.wadesk\whatsapp.db` |
+| Linux | `~/.local/share/dev.example.wadesk/whatsapp.db` |
+
+Delete that file to unlink locally (and any other device will still show the linked
+device until you remove it from the phone).
+
+
+## Design notes / gotchas
+
+- **Fast iteration — dev mode vs release build.** The release/package build
+  embeds the UI into the binary via `tauri-build`, and a post-v141
+  `build.rs` sha-walk (`rg` on `frontendDist`) registers
+  `cargo:rerun-if-changed` for every UI file — plain `cargo build --release`
+  NOW stays current with frontend edits, while a `cargo clean -p` doesn't.
+  `build-portable.bat` is now a no-recompile when nothing has changed;
+  refresh `dist\WA Desk.exe` with `cargo build --release -p wa-desktop` +
+  `Copy-Item target\release\wa-desktop.exe dist\`. For live UI work use:
+  - `npx @tauri-apps/cli dev --config '{"build":{"devUrl":"http://127.0.0.1:1421"}}'`
+    with `scripts/dev-server.mjs` serving `apps/desktop/ui` from disk (13 s
+    first build, instant UI reload).
+  - `build.devUrl` points `tauri dev` at `http://127.0.0.1:1421`, where
+    `scripts/dev-server.mjs` serves `apps/desktop/ui` **from disk**, so a
+    reload (CDP `Page.reload` or Ctrl+R) picks up edits instantly with no
+    rebuild — confirmed: link href flips to the freshly edited marker while
+    the session stays linked/connected;
+  - Rust changes use the dev profile — incremental, `debug = 1`, `opt-level 1`
+    for dependencies — a whole-package rebuild measures ~8–13 s vs ~46–52 s
+    for the release build;
+  - in dev the app runs at `http://127.0.0.1:1421` (`buildLabel()` reports
+    "UI dev") while the packaged app runs at `tauri.localhost` and shows
+    `UI vNNN`;
+  - only one instance may own the session store (`whatsapp.db`), so close the
+    release exe before a dev run (`dev.ps1` does it), and `Ctrl+C` tears down
+    both processes;
+  - CAUTION: a release rebuild after a pure-UI edit may report "Finished in
+    0.65s" and keep the OLD ui — the frontend files are not cargo
+    dependencies. Touch `apps/desktop/src-tauri/src/main.rs` (or `cargo clean
+    -p wa-desktop`) before `build-portable.bat` to force the embed.
+  - The `devUrl` overlay lives ONLY in the `--config` flag (never in
+    `tauri.conf.json`): `cargo build --release` compiled the dev URL into the
+    release exe when it lived in the config, and a broken dist copy then
+    loaded `127.0.0.1` on every start ("Hmmm... can't reach this page"). With
+    `frontendDist`-only in the config *plus* `--config '{"build":{"devUrl":…}}'`
+    the release exe embeds zero dev references and boots `tauri.localhost`
+    (`page url: http://tauri.localhost/ title: WA Desk`).
+
+### Official-client parity pass (v140)
+
+- Clock format is globally `8:44 pm` — lowercase 12-hour with colon, forced
+  `en-US`, independent of the OS locale (`20.47` came from id-ID). Applies to
+  bubbles, stamps and the viewer.
+- Chat header now carries exactly the official two icons — search and the ⋮
+  kebab (`#chat-import`, `#chat-voice`, `#chat-video` are CSS-hidden). The
+  kebab opens the official-style dropdown: Contact info / Group info, Voice
+  call, Video call, Import chat export — so calls and export/import stay
+  reachable while the header matches 1:1.
+- Sidebar filter row matches the official pill shape: All, Unread,
+  Favourites (inert, "not supported yet" tooltip), Communities (the former
+  Groups filter) and the "more filters" caret.
+- Material 3 typography: the shell sets an explicit font stack
+  (`Segoe UI Variable Text / Segoe UI / Roboto`, M3 default fallbacks) so the
+  app never drifts onto the WebView default face.
+- Self-chat ticks: own messages in "Message yourself" land straight on the
+  grey `✓✓` (the phone owns the chat — `isSelfJid` helper + the addSent hook
+  set `status: "delivered"` and `tickHtml` short-circuits self-chat), matching
+  the official grey double tick before any receipt. Verified on the live dev
+  instance: 4× `✓✓|grey`, renderer font reports `Segoe UI`, header shows only
+  `chat-search` +
+  `chat-menu` visible with import/calls `hidden`, and the kebab reads
+  `Contact info / Voice call / Video call / Import chat export`.
+- **Rendered side-by-side verified (v141+)**: full-window PNG capture of the
+  v141 self chat (`Page.captureScreenshot` → AppData/Temp) against the
+  official client: RGBA message bubbles — `#005c4b` outgoing with 7.5px
+  radius, 2px gap inside a sender run / 6px before a new "first" bubble,
+  caption "↱ Forwarded" above the media, mention green `#06cf95`, blue links
+  `#53bdeb`, reaction pill, grey `✓✓` / blue read ticks and `8:44 pm` stamps
+  all line up. The sidebar header now reads **"Chats"** with the compose
+  button, ⋮ menu and the theme toggle instead of a "WhatsApp" title, and the
+  post-v141 `build.rs` rerun-walk keeps release builds current with UI edits
+  (a rebuild with the "Chats" header ships `sideTitle: "Chats"`,
+  `sideMenu: true` on the live DOM capture).
+- **Rail aligned to the official order (v142)**: Chats → Calls → Status →
+  Channels → (deleted-history eye, kept for the local archive) → Settings →
+  profile; the new rail-calls button starts a voice call in the open chat
+  (self chat/groups get the official hint to use the contact/group screens).
+  CDP capture lists the live order and the light theme — the light palette is
+  the official WhatsApp Web light tokens (`--bg #f5f1eb`, `--panel #ffffff`,
+  `--rail #f7f5f3`, `--bubble-out #d9fdd3`, `--bubble-in #ffffff`); a light
+  screenshot (`v142-wadesk-light.png`) plus the dark one serve as the
+  side-by-side evidence.
+- **Material You 3 respect**: the app's tonal surfaces map to the official
+  M3 roles (background/surface/surface-container/primary-container/
+  secondary-container), the shape scale uses M3 rounding (999px pills,
+  7.5px bubbles, 48px icon discs), the M3 typography face stack is set, and
+  Material Web components (M3 `md-*`) power the settings buttons. A full M3
+  token re-architecture (runtime scheme switch, elevation levels) stays a
+  follow-up — the current styling is the official client's visual language
+  1:1 rather than the Google sample theme, which is exactly what "same ui
+  like the offcial one" asks for.
+- **The palette is the official design-token set, not a hand-tuned guess.**
+  `styles.css`'s `:root` blocks carry the values of WhatsApp Web's `--WDS-*`
+  tokens, read live from `web.whatsapp.com` (the browser MCP's `eval` on the
+  real page; the stylesheet is
+  `static.whatsapp.net/rsrc.php/v5/y7/l/0,cross/…css`, and
+  `scripts/waweb-fetch-css.mjs` + `waweb-theme-tokens.mjs` extract the dark and
+  light theme blocks offline). Dark: surface `#161717`, rail `#1D1F1F`,
+  elevated `#242626`, hover/selected `rgba(255,255,255,.1)`, text `#FAFAFA`,
+  secondary `rgba(255,255,255,.6)`, accent `#21C063`, pill selected `#103529`,
+  outgoing bubble `#144D37`, link `#21C063`, read `#53BDEB`, danger `#FB5061`.
+  Light: surface `#FFFFFF`, rail `#F7F5F3`, wallpaper `#F5F1EB`, accent
+  `#1DAA61`, outgoing bubble `#D9FDD3`, link `#1B8755`, read `#007BFC`.
+  Sender-name colours and default avatars use the official
+  `--WDS-components-profile-photo-content-*` / `-surface-*` palettes.
+  Verified by capturing both windows and sampling the same elements
+  (`scripts/win-capture.ps1` / `win-sample.ps1` / `win-scan.ps1`; the capture
+  path is trustworthy because it reproduces our own known CSS values exactly):
+  panel `#161717`, rail `#1D1F1F`, chat `#161717`, header `#161717`, search
+  `#2E2F2F`, selected row `#2E2F2F`, incoming bubble `#242626`, FAB `#21C063`
+  — identical in both clients.
+  Secondary screens: every screen container is `#161717`, every menu/popover is
+  `#242626`, the media-viewer backdrop is `#161717`, the status-viewer stage is
+  `#0B141A` (the official `--status-background-rgb`), and the status composer
+  palette is the official 20-colour array. `scripts/theme-audit.mjs` checks every
+  colour literal in the UI against the 1,222 values parsed from the official
+  stylesheet — the only ones left are document/file-type icon colours, HTML
+  entities that look like hex, and alpha variants of official hexes.
+- Verified on the live dev instance via CDP: `shownTime:
+  "10:02 am✓"`, kebab items `[info, voice, video, import]`,
+  `callBtnHidden: true`, pills `All/Unread/Favourites/Communities/caret`.
+
+- **Rendering is budgeted.** The sidebar and the chat are full rebuilds (`innerHTML`), so redundant
+  work is what costs: `scheduleHistoryRender()` coalesces history chunks, `scheduleChatRender()`
+  coalesces document/thumbnail hydration, `scheduleChatListRender()` coalesces sidebar bursts, and
+  search input is debounced. Date labels are memoized (`TIME_LABELS`/`STAMP_LABELS`/`DAY_LABELS`)
+  and photo replies patch a single avatar. When adding a new render call, prefer the scheduled
+  variant unless the caller reads the DOM synchronously afterwards.
+- **UI assets are embedded at build time.** Tauri bundles `apps/desktop/ui` into the binary, so a
+  `Page.reload` (or restarting the old exe) still serves the previous HTML/CSS/JS. Edit the UI,
+  then `cargo build -p wa-desktop` (or rebuild the portable package) before checking a visual
+  change; a plain frontend edit shows up only after that rebuild.
+- **UI events are at-least-once.** `Event::Messages` can replay on redelivery, so the
+  frontend deduplicates by message id.
+- **History replay.** `Event::HistorySync` chunks carry conversations *and* their messages.
+  History bodies are not Signal-encrypted per message — they are protected by the
+  encrypted transport — so `wa-core` decodes them straight from the protobuf and emits
+  `UiEvent::HistoryMessage`. That is the same source WhatsApp Web renders when you link a
+  fresh device. Push names and PN↔LID aliases can arrive in a *later* chunk than the
+  conversations, so both are accumulated and late names are re-emitted as `ChatName`.
+- **Saved contact names** come from the `contact` app-state collection (`Event::ContactUpdate`).
+  Linked devices only receive deltas after pairing, so the first launch asks for a full
+  snapshot; the local app-state version is rewound first, otherwise the server's snapshot
+  is older than the local cursor and the sync fails with a version mismatch. Names are
+  persisted to `contacts.json` and win over push names everywhere, including group senders.
+- **New contact** writes a `contact` app-state mutation through
+  `client.chat_actions().save_contact`, updates the local `contacts.json`, emits the contact-name
+  event and opens the new conversation.
+- **AI assistant.** Bring your own OpenAI-compatible endpoint (the default is OpenCode Go,
+  `https://opencode.ai/zen/go/v1`). The API key is encrypted with AES-256-GCM using a random
+  `ai.key`; only a `••••last4` hint is ever returned to the webview. Auto-reply runs in Rust on
+  live messages from **saved contacts** (DMs) and on **group messages that explicitly @mention
+  you** (never yourself, never history replays). It keeps a short per-chat history, rate-limits to
+  one reply every 2 s and shows a typing indicator. Replies wait a human-like delay (roughly
+  1.2–3.2 s plus 160 ms per character, capped at 7 s) and a 5 s global gap between AI sends, so
+  bursty chats do not look like spam. The default system prompt copies a casual
+  Indonesian texting style (**“gw”/“lu”**, short 1–2 line replies, lowercase, almost no emoji,
+  occasional “wkwk”/“yaudah” but not every message), stays in character, and refuses attempts to
+  change its name or leak the system prompt. The bot uses the linked account's display name as its
+  own name, so it answers as the account owner. Replies are structured
+  JSON internally: the model may also pick one
+  reaction emoji (at most once per chat every 3 minutes). Stickers are chosen by a separate
+  vision pass: the client shows the model several candidate sticker images plus the recent chat,
+  and it picks one that fits (normally at most once every 3 minutes). If someone explicitly asks
+  for a sticker ("kirim stiker"), selection is forced with up to 12 candidates, the sticker
+  cooldown drops to 20 seconds, and the text reply is sent faster so the sticker follows quickly.
+  Emojis inside reply text are limited to roughly one reply every 2 minutes; otherwise they are
+  stripped. Incoming stickers get a short text
+  reply (the AI may also answer with a sticker). Incoming photos are sent to the optional
+  vision model; leave it empty to use the chat model (the default OpenCode Go model accepts images).
+  For short videos and WhatsApp GIFs, the client extracts up to three frames with `ffmpeg` (from
+  `WA_DESK_FFMPEG`, next to the exe, or on `PATH`) and sends them as images; without ffmpeg it falls
+  back to the video's embedded JPEG thumbnail. If media input fails, the reply falls back to the
+  caption/text path. In groups, an @mention or a
+  reply to one of your messages is enough while AI mode is on, including a mention attached to a
+  photo (the mentioned photo is read with vision and answered). `/ai ...` still triggers a reply
+  when AI mode is off: in a saved DM, in "Message yourself", or in a group when the message also
+  mentions you (for example `/ai @alice summarise this`). When someone replies to a message, the
+  quoted text is included in the prompt, and a quoted photo is attached for vision when the reply
+  itself has no photo. The model also receives a bounded transcript of the last ~24 messages
+  from that chat (both groups and DMs), capped at ~4,000 characters and twelve hours, so it follows
+  the topic without forwarding the whole conversation. With
+  **Require /ai trigger** off and AI mode on, every saved-contact message gets an instant
+  reply. Unsaved contacts are never answered. OpenCode Go requests include the required
+  `x-opencode-session` header.
+- **Link previews** are not scraped on the receive path. WhatsApp embeds the preview
+  (`title`, `description`, `jpegThumbnail`) in `extendedTextMessage`, so `wa-core` forwards
+  those bytes and the webview renders the same card WhatsApp Web shows. Open Graph scraping
+  (`link_preview` command) is only a fallback for links this client sends or older messages
+  that carry no embedded metadata.
+- **Reactions** arrive as `reactionMessage` annotations (not bubbles) and are stored on the
+  target message, grouped by emoji. Sending one uses `client.send_reaction` with the target
+  key; changing a reaction revokes the previous emoji first so the server replaces it, and
+  events carry `senderTimestampMs` so a delayed echo cannot revert a newer change. The quick
+  bar has six emojis plus `+` to pick any emoji from the full picker.
+- **Media viewer.** Clicking an image (including any cell of an album) opens a full-screen
+  viewer; videos open there too. Inline videos show a poster frame plus a duration badge, and
+  the viewer has a custom transport bar (play/pause, seek, time, 1×/1.5×/2×/0.5× speed, mute,
+  fullscreen) instead of native controls. The strip lists the chat's photos/videos, arrows/←/→
+  step through them and Esc or the backdrop closes it. The download button copies the file to
+  `Downloads\WA Desk` through Rust, so WebView2 never navigates away from the app.
+- **In-chat search.** The header search button opens a search bar with a match counter,
+  previous/next buttons, yellow highlighting and Esc to close. It searches text and media
+  captions in the open chat, not the chat list.
+- **Connection recovery.** If a transport failure poisons the Noise sender (WhatsApp
+  refuses to reuse a possibly-replayed write keystream), the client waits for the reconnect
+  cooldown, reconnects immediately, waits for full readiness, then retries the failed send
+  exactly once. Reconnects are rate-limited to one per 8 seconds and are never looped, so a
+  flaky network cannot turn into a reconnect/retry storm. A recovered transport does not always
+  re-emit `connected`, so while the webview believes it is offline it reconciles the badge with
+  `get_status` every two seconds; a healthy socket clears the banner instead of leaving a
+  permanent “reconnecting” state.
+- **Chat history reload.** Opening a chat sends WhatsApp's `HistorySyncOnDemand` request through
+  the client's own linked session and merges the chunk that comes back. Like WhatsApp Web, the
+  request is anchored on the **oldest** stored message, so every request pages further back;
+  scrolling to the top repeats it. A chat that history sync only announced has no anchor, and the
+  phone answers with that chat's latest window. Duplicates are dropped by id and new messages are
+  inserted in timestamp order. Chats with disappearing messages (24 h) cannot return bodies older
+  than that window, matching WhatsApp Web.
+- **Status history.** Opening Status asks the linked session for `status@broadcast` history. Those
+  messages are converted into the same `StatusUpdate` events as live stories, so updates received
+  while the app was closed appear in Recent/Viewed. Status receipts carry the author as the
+  participant, which the server needs to map the ack back to the poster.
+- **Channels panel.** WhatsApp channels (`@newsletter`) are kept out of the chat list and shown
+  in their own rail panel: followed channels are listed with their real names from the newsletter
+  metadata, and opening one shows the posts read-only (no composer or calls). New channel
+  broadcasts arrive through the normal message path, so they appear in the panel and the post
+  view without extra bookkeeping.
+- **Chat export import.** On-demand history only pages *behind* the oldest local message, so
+  messages sent while the primary phone was offline cannot be requested back from it. The
+  download button in a chat header loads a WhatsApp “Export chat” `.txt` file into that chat:
+  timestamps, senders and multi-line bodies are parsed, messages already present are skipped, and
+  the imported history is saved with the rest of the session. Re-export from WhatsApp Web for the
+  newest window if it is newer than the last export.
+- **Mentions.** Group mentions arrive as LID or PN user parts. The renderer resolves the account's
+  own JID/LID first (using the self-chat handle, e.g. `@alice` → “Alice”), then maps
+  other LIDs through the resolved phone/contact tables, and finally falls back to a sender name
+  already known in the chat. A raw id is shown only when no name is known.
+- **Restart / fresh-open recovery.** The chat list is mirrored to `chats.json` next to the
+  contact store, so a restart (or a cleared WebView cache) still has a sidebar. When no chat has
+  any message, the client seeds personal chats from the address book and re-requests history for
+  a small batch (max 8 chats, 3 s apart, once per 24 h). Settings → Chats has a manual
+  **Sync chat history** action with the same pacing. Every history request is serialised with a
+  2 s quiet gap and a 2-minute per-chat cooldown, so switching chats quickly cannot turn into a
+  burst of peer messages.
+- **Business chats.** WhatsApp stores a business account under both a LID and a phone
+  number, and sends its content as templates rather than plain text. The client looks the
+  peer up through `usync` (`resolve_peers`), folds the duplicate LID row into the phone-number
+  chat, and shows the verified business name (e.g. `Example Store`). On-demand history replies are
+  matched back to the row the user opened, so clicking a LID business chat no longer creates a
+  second conversation. Hydrated and interactive templates (text, header image/video/document)
+  are decoded for both live messages and history backfill.
+- **Self chat label.** The account's own conversation is shown as `name (You)` in the
+  chat list and header, matching WhatsApp Web.
+- **Voice/video calls (1:1).** Calls use the `whatsapp-rust` VoIP runtime (`voip-mlow`):
+  microphone PCM is captured at 16 kHz in an AudioWorklet and sent over Tauri IPC, remote
+  PCM is scheduled through Web Audio, and video is H.264 Annex-B encoded/decoded with
+  WebCodecs. Group calls and camera-less devices are rejected with a clear toast. The machine
+  used for this build has no working microphone/camera, so the UI/signaling paths were tested
+  but a live two-device media call could not be verified here.
+- **Light/dark theme.** Settings → Chats → Theme (or the moon/sun button in the sidebar
+  header) switches between Light, Dark and System default. Both palettes are the official
+  `--WDS-*` design tokens (see the palette note above), not hand-tuned values. The dialog and
+  its radio buttons are Material Web components; the shell keeps the WhatsApp Web layout. The
+  components are bundled locally in `ui/vendor/material-web.js`, so the client stays offline
+  and does not load anything from a CDN.
+- **Groups** use the library's `Groups` feature: create, read metadata for the info screen,
+  add/remove participants, promote/demote admins, and leave. The `+` menu opens the creation
+  dialog with a contact checklist; the same dialog doubles as "Add members".
+- **Desktop notifications, tray and autostart** are Tauri plugins. Closing the window hides
+  it to the tray; Quit is in the tray menu. Notifications are skipped for the open chat.
+- **Media is downloaded on demand.** The Rust side keeps the protobuf of recent
+  media messages, downloads/decrypts on request and writes the plaintext into
+  `<app data>/media`. If the CDN path has expired (always the case for photos
+  replayed from history), it asks the server to re-upload via
+  `client.media_reupload()` and retries once — the same flow WhatsApp Web uses.
+- **Profile pictures** are fetched a few at a time for the visible chats
+  (`contacts().get_profile_picture`, which also answers for `@g.us`), and rendered straight from
+  `pps.whatsapp.net`. A chat with no picture keeps the WhatsApp empty state: the two-person glyph
+  for a group, coloured initials for a person. Requests made while the socket was down are
+  retried when the connection comes up (and when the app starts already connected), and a URL that
+  fails to load is evicted and retried after 2 minutes.
+- **Memory is bounded.** The UI keeps at most 250 messages per chat and 20k across
+  the session (oldest conversations are trimmed first, the open chat is protected);
+  downloaded media URLs are an LRU of 400. `wa-core` keeps 1.5k media protobufs in
+  memory and prunes `msgcache`/`media` to the newest 3k/4k files on startup.
+- **Stickers** render without a bubble. The picker follows WhatsApp Web: recent/favorites/packs
+  tabs, a sticker-store search field, a Create tile, and an Emoji/GIF/Stickers footer. Tapping a
+  sticker (favorites included) adds the optimistic bubble, closes the picker immediately, then
+  swaps in the server id; this prevents a slow upload from turning one tap into several sends.
+  `.webp` files can be added with their real canvas size parsed from the WebP header.
+- **Emoji** uses the full Unicode set (2,300 glyphs in 9 groups) with search and
+  recents, and emoji-only messages render large like WhatsApp Web.
+- **Own avatar** is resolved from the paired PN/LID. The photo may be cached under either id, so
+  the rail prefers whichever has an image and refreshes when the self chat, `paired`, or photo
+  fetch arrives; it therefore does not stay on “?” after a fresh pair.
+- **No JID parsing in the UI.** `wa-core` remembers every chat JID it has seen and
+  resolves by string, which avoids re-parsing and rejects unknown chats.
+- **Reconnect is the library's job.** `Disconnected` is informational; auto-reconnect
+  uses Fibonacci backoff. `LoggedOut` / `StreamReplaced` are terminal — the account must
+  be linked again.
+- **Send failures are silent on disk.** A `SendResult` means the stanza was accepted,
+  not delivered. Delivery/read state needs receipt handling in the UI.
+- **Linux WebKitGTK is the weaker platform** for any webview-heavy UI. Keeping the
+  frontend plain HTML/CSS keeps it predictable.
+- **`whatsapp-rust`'s `simd` feature is off on purpose.** It enables
+  `#![feature(portable_simd)]`, which only compiles on nightly. Everything else uses
+  the crate's default feature set, so stable Rust works. If you want the extra
+  throughput, build with `RUSTC_BOOTSTRAP=1` or a nightly toolchain and re-enable it.
+
+## Roadmap
+
+1. Media: upload/download through `client.upload()` / `client.download()`.
+2. Real delivery/read receipts (the UI currently shows one ✓ on send).
+3. Contact names from the address-book app state (today: push names).
+4. Tray icon, unread badge, native notifications, autostart.
+5. Reactions, replies, message actions.
+

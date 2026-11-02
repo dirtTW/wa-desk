@@ -1,0 +1,387 @@
+//! Tauri application wiring: plugins, webview permissions, tray and the
+//! protocol event pump between `wa-core` and the webview.
+
+use std::sync::atomic::Ordering;
+
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
+use wa_core::{Session, UiEvent};
+
+use crate::ai;
+use crate::state::{AppState, show_main};
+
+pub fn run() {
+    init_tracing();
+    if !claim_single_instance() {
+        return;
+    }
+    configure_webview2();
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .manage(AppState::default())
+        .invoke_handler(tauri::generate_handler![
+            crate::commands::session::get_status,
+            crate::commands::session::send_text,
+            crate::commands::session::forward_message,
+            crate::commands::session::mark_read,
+            crate::commands::session::mark_read_messages,
+            crate::commands::chat::chat_archive,
+            crate::commands::chat::chat_mute,
+            crate::commands::chat::chat_read_mark,
+            crate::commands::chat::chat_star,
+            crate::commands::chat::chat_delete,
+            crate::commands::chat::chat_clear,
+            crate::commands::chat::chat_block,
+            crate::commands::chat::chat_pin,
+            crate::commands::session::set_typing,
+            crate::commands::session::request_pair_code,
+            crate::commands::media::fetch_media,
+            crate::commands::media::media_thumbnail,
+            crate::commands::media::link_thumbnail,
+            crate::commands::media::open_link,
+            crate::commands::media::cached_media_path,
+            crate::commands::media::document_info,
+            crate::commands::media::file_thumbnail,
+            crate::commands::media::download_media,
+            crate::commands::media::open_media,
+            crate::commands::media::reveal_media,
+            crate::commands::calls::start_call,
+            crate::commands::calls::accept_call,
+            crate::commands::calls::reject_call,
+            crate::commands::calls::hangup_call,
+            crate::commands::calls::set_call_muted,
+            crate::commands::calls::call_audio_frame,
+            crate::commands::calls::call_video_frame,
+            crate::commands::session::reconnect_session,
+            crate::commands::session::restart_session,
+            crate::commands::history::fetch_chat_history,
+            crate::commands::history::resolve_peers,
+            crate::commands::history::sync_channels,
+            crate::commands::history::fetch_channel_history,
+            crate::commands::history::sync_chat_history,
+            crate::commands::history::save_chat_cache,
+            crate::commands::history::load_chat_cache,
+            crate::commands::media::fetch_favorite_stickers,
+            crate::commands::media::send_favorite_sticker,
+            crate::commands::media::contact_photo,
+            crate::commands::media::send_attachment,
+            crate::commands::media::send_sticker,
+            crate::commands::media::forward_sticker,
+            crate::commands::status::post_status_text,
+            crate::commands::status::post_status_media,
+            crate::commands::status::fetch_status_history,
+            crate::commands::status::mark_status_viewed,
+            crate::commands::status::react_status,
+            crate::commands::status::reply_status,
+            crate::commands::status::delete_status,
+            crate::commands::status::watch_status_ids,
+            crate::commands::session::set_push_name,
+            crate::commands::session::set_status_text,
+            crate::commands::contacts::get_contacts,
+            crate::commands::contacts::sync_contacts,
+            crate::commands::contacts::save_contact,
+            crate::commands::contacts::resolve_phone,
+            crate::commands::links::link_preview,
+            crate::commands::messages::send_reaction,
+            crate::commands::groups::create_group,
+            crate::commands::groups::group_info,
+            crate::commands::groups::leave_group,
+            crate::commands::groups::group_add_members,
+            crate::commands::groups::group_remove_members,
+            crate::commands::groups::group_promote_members,
+            crate::commands::groups::group_demote_members,
+            crate::ai::commands::get_ai_settings,
+            crate::ai::commands::save_ai_settings,
+            crate::ai::commands::set_ai_enabled,
+            crate::ai::commands::test_ai,
+            crate::ai::commands::ai_draft_reply,
+            crate::ai::commands::ai_reply_now,
+            crate::ai::commands::set_ai_stickers,
+            crate::ai::commands::set_ai_context,
+            crate::commands::messages::delete_for_me,
+            crate::commands::messages::delete_for_everyone,
+            crate::commands::messages::edit_message,
+            crate::commands::session::logout,
+            crate::notifications::set_notify_state,
+            crate::notifications::test_notify
+        ])
+        .setup(|app| {
+            #[cfg(windows)]
+            allow_webview_microphone_and_camera(app);
+
+            // Register the toast identity (AUMID) so notifications show as
+            // "WA Desk" instead of falling back to Windows PowerShell.
+            #[cfg(windows)]
+            crate::notifications::register_aumid();
+
+            // Lock the webview zoom: Ctrl+wheel would otherwise scale the
+            // whole UI and break the rail/panel alignment. Closing hides to
+            // the tray; Quit is on the tray menu.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_zoom(1.0);
+                let hide_window = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = hide_window.hide();
+                    }
+                });
+            }
+
+            let (db_path, media_dir) = {
+                let dir = app.path().app_data_dir()?;
+                std::fs::create_dir_all(&dir)?;
+                app.manage(ai::AiState::load(&dir));
+                // Purge every store file that is not the active generation
+                // before the session opens one: nothing holds them at startup,
+                // so this cleans up after a logout whose wipe could not unlink
+                // the old file.
+                let store = crate::state::store_path(&dir, crate::state::store_generation(&dir));
+                crate::state::purge_stale_stores(&dir, &store);
+                (
+                    store.to_string_lossy().into_owned(),
+                    dir.join("media"),
+                )
+            };
+            tracing::info!(%db_path, media_dir = %media_dir.display(), "device store");
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
+
+            // Keep the inputs needed to open a fresh session after logout.
+            {
+                let state = app.state::<AppState>();
+                *state.db_path.lock().expect("db path lock") = Some(db_path.clone());
+                *state.media_dir.lock().expect("media dir lock") = Some(media_dir.clone());
+                *state.event_tx.lock().expect("event tx lock") = Some(tx.clone());
+            }
+
+            spawn_event_pump(app.handle().clone(), rx);
+            spawn_session_start(app.handle().clone(), db_path, media_dir, tx);
+            install_tray(app)?;
+
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(on_run_event);
+}
+
+/// A second copy cannot work: WebView2 refuses to share its user-data folder and
+/// the SQLite store takes an exclusive lock, so the loser used to die with a raw
+/// "failed to create webview" panic. Claim a named mutex first and say so.
+///
+/// The handle is deliberately leaked: Windows releases it when the process ends,
+/// which is exactly the lifetime we want.
+#[cfg(windows)]
+fn claim_single_instance() -> bool {
+    use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
+    use windows::core::{HSTRING, w};
+
+    unsafe {
+        let Ok(handle) = CreateMutexW(None, true, &HSTRING::from("Local\\wa-desk-single-instance"))
+        else {
+            return true; // cannot tell: let the app try
+        };
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            MessageBoxW(
+                None,
+                w!("WA Desk is already running.\n\nOpen the existing window, or quit it from the tray icon, and try again."),
+                w!("WA Desk"),
+                MB_OK | MB_ICONINFORMATION,
+            );
+            return false;
+        }
+        // The mutex is never closed: Windows releases it when the process ends,
+        // which is exactly the lifetime we want.
+        let _ = handle;
+        true
+    }
+}
+
+#[cfg(not(windows))]
+fn claim_single_instance() -> bool {
+    true
+}
+
+fn init_tracing() {    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "wa_core=info,wa_desktop=info,whatsapp_rust=warn".into()),
+        )
+        .init();
+}
+
+/// Keep the WebView2 process tree predictable: bound the JS heap and stop
+/// background download/update work the UI does not need.
+fn configure_webview2() {
+    #[cfg(windows)]
+    {
+        let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        if !existing.contains("max-old-space-size") {
+            let extra = "--js-flags=--max-old-space-size=256 \
+                         --disable-background-networking --disable-component-update \
+                         --disable-sync --disk-cache-size=33554432 --media-cache-size=33554432";
+            unsafe {
+                std::env::set_var(
+                    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                    format!("{existing} {extra}").trim(),
+                );
+            }
+        }
+    }
+}
+
+/// Calls need microphone/camera access; WebView2 asks by default and the
+/// default prompt is not reachable from this shell.
+#[cfg(windows)]
+fn allow_webview_microphone_and_camera(app: &tauri::App) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.with_webview(|webview| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::*;
+        use webview2_com::PermissionRequestedEventHandler;
+        unsafe {
+            let Ok(core) = webview.controller().CoreWebView2() else {
+                return;
+            };
+            let mut token = 0i64;
+            let _ = core.add_PermissionRequested(
+                &PermissionRequestedEventHandler::create(Box::new(|_, args| {
+                    let Some(args) = args else { return Ok(()) };
+                    let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+                    args.PermissionKind(&mut kind)?;
+                    if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE
+                        || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA
+                    {
+                        args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+                    }
+                    Ok(())
+                })),
+                &mut token,
+            );
+        }
+    });
+}
+
+/// Protocol events -> webview, plus the AI handler for each event.
+fn spawn_event_pump(
+    handle: tauri::AppHandle,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+) {
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            tracing::debug!(kind = event.kind(), "ui event");
+            if let Err(err) = handle.emit("wa:event", &event) {
+                tracing::warn!(%err, "could not emit ui event");
+            }
+            // Windows push notifications straight from the pump: they must
+            // not depend on the webview being alive.
+            crate::notifications::handle_event(
+                &handle,
+                &handle.state::<AppState>(),
+                &event,
+            );
+            // A logged-out session is terminal: the credentials on disk are dead
+            // (we unlinked, or the phone removed this device), so wipe the store
+            // and open a fresh session — otherwise the login screen spins on
+            // "Session ended (LoggedOut)" and never shows a QR.
+            if matches!(event, UiEvent::LoggedOut { .. }) {
+                let logout_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::state::restart_after_logout(&logout_handle).await;
+                });
+            }
+            let ai_handle = handle.clone();
+            let ai_event = event.clone();
+            tauri::async_runtime::spawn(async move {
+                ai::handle_event(&ai_handle, &ai_event).await;
+            });
+        }
+    });
+}
+
+/// Opening the SQLite store and resolving the WhatsApp web version touches the
+/// network, so it must not block the setup callback.
+fn spawn_session_start(
+    handle: tauri::AppHandle,
+    db_path: String,
+    media_dir: std::path::PathBuf,
+    event_tx: tokio::sync::mpsc::UnboundedSender<UiEvent>,
+) {
+    tauri::async_runtime::spawn(async move {
+        match Session::start(&db_path, media_dir, event_tx).await {
+            Ok(session) => {
+                let state = handle.state::<AppState>();
+                *state.session.lock().expect("session lock") = Some(session);
+                let _ = handle.emit("wa:event", serde_json::json!({ "type": "ready" }));
+            }
+            Err(err) => {
+                tracing::error!(%err, "session start failed");
+                let _ = handle.emit(
+                    "wa:event",
+                    serde_json::json!({ "type": "fatal", "message": err.to_string() }),
+                );
+            }
+        }
+    });
+}
+
+/// Tray icon: chat apps stay reachable when the window is hidden.
+fn install_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let show_item = MenuItemBuilder::with_id("show", "Open WA Desk").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit WA Desk").build(app)?;
+    let tray_menu = MenuBuilder::new(app)
+        .items(&[&show_item, &quit_item])
+        .build()?;
+    let mut tray = TrayIconBuilder::with_id("wa-tray")
+        .menu(&tray_menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray = tray.icon(icon);
+    }
+    tray.build(app)?;
+    Ok(())
+}
+
+/// Give the protocol layer a chance to flush before the process dies.
+fn on_run_event(handle: &tauri::AppHandle, event: tauri::RunEvent) {
+    if let tauri::RunEvent::ExitRequested { api, .. } = event {
+        let state = handle.state::<AppState>();
+        if state.exiting.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let session = state.session.lock().expect("session lock").take();
+        if let Some(session) = session {
+            api.prevent_exit();
+            let handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                session.shutdown().await;
+                handle.exit(0);
+            });
+        }
+    }
+}

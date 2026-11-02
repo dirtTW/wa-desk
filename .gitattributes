@@ -1,0 +1,18 @@
+# Normalize line endings across Windows and Linux checkouts.
+* text=auto
+
+# Windows-only scripts must keep CRLF so cmd.exe and PowerShell parse them.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts must keep LF.
+*.sh text eol=lf
+
+# Keep binary assets untouched.
+*.png binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.woff binary
+*.woff2 binary
