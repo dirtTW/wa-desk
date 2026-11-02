@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [Unreleased]
+
+- **`aes-gcm` 0.10 → 0.11** — the bump deferred from #4. The 0.11 release
+  removed `aead::OsRng` and `AeadCore::generate_nonce` and deprecated
+  `Nonce::from_slice`, so `ai/state.rs` and `ai/util.rs` were migrated to the
+  new `aead::Generate` trait (`<[u8; 32]>::generate()`,
+  `AeadNonce::<Aes256Gcm>::generate()`) and to `TryFrom` for the decoded nonce.
+  The on-disk format is unchanged — still
+  `base64(12-byte nonce).base64(ciphertext)` — so an existing `ai.key` and any
+  stored API key still decrypt. The Dependabot `ignore` for the aes-gcm major
+  bump is removed now that the migration landed.
+
 ## [0.1.0-rc.1] — 2026-11-02
 
 First pre-release: the client itself, the AGPL relicensing, the Windows

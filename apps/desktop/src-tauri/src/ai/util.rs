@@ -18,9 +18,8 @@ pub(super) fn random_below(upper: usize) -> usize {
     if upper <= 1 {
         return 0;
     }
-    use aes_gcm::aead::rand_core::RngCore as _;
-    let mut bytes = [0u8; 8];
-    aes_gcm::aead::OsRng.fill_bytes(&mut bytes);
+    use aes_gcm::aead::Generate as _;
+    let bytes = <[u8; 8]>::generate();
     (u64::from_le_bytes(bytes) % upper as u64) as usize
 }
 
@@ -78,9 +77,8 @@ pub(super) fn user_part(jid: &str) -> String {
 
 /// Random id sent as `x-opencode-session`, so each app run is a new session.
 pub(super) fn new_session_id() -> String {
-    use aes_gcm::aead::rand_core::RngCore as _;
-    let mut bytes = [0u8; 8];
-    aes_gcm::aead::OsRng.fill_bytes(&mut bytes);
+    use aes_gcm::aead::Generate as _;
+    let bytes = <[u8; 8]>::generate();
     let mut id = String::from("wa-desk-");
     for byte in bytes {
         id.push_str(&format!("{byte:02x}"));
