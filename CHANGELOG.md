@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.1.0-rc.3] — 2026-11-02
+
+- **The Account screen shows the real app version.** The `Build` row used to
+  print the UI cache-bust number (`UI v141`); `get_status` now returns the app
+  version from `tauri.conf.json` (`Status::version`), the webview stores it as
+  `state.version`, and `buildLabel()` renders `<version> · WA Desk`.
+- **Releases are published by CI.** A new `release` job in
+  `.github/workflows/build.yml` runs on a `v*` tag: it builds the Windows MSI
+  and NSIS installers, creates the GitHub release (pre-release when the tag has
+  a pre-release suffix) and uploads the installers plus the plain binaries from
+  the `build` matrix.
+
 ## [0.1.0-rc.2] — 2026-11-02
 
 - **`aes-gcm` 0.10 → 0.11** — the bump deferred from #4. The 0.11 release

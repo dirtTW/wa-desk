@@ -29,6 +29,7 @@ async function main() {
 
   try {
     const status = await invoke("get_status");
+    state.version = status.version;
     state.ready = status.ready;
     state.linked = status.linked;
     state.connected = status.connected;

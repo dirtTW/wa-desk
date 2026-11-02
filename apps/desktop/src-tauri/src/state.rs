@@ -24,6 +24,8 @@ pub struct AppState {
 
 #[derive(Debug, Serialize)]
 pub struct Status {
+    /// The app version, from `tauri.conf.json` (e.g. `0.1.0-rc.3`).
+    pub version: String,
     /// The session object exists (store opened, client built).
     pub ready: bool,
     /// Device credentials are present in the store.

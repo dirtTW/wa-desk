@@ -764,12 +764,9 @@ function invokeWithTimeout(command, args, timeoutMs) {
 }
 
 function buildLabel() {
-  const link = [...document.querySelectorAll('link[rel="stylesheet"]')].find((node) =>
-    node.href.includes("styles.css"),
-  );
-  const match = link && link.href.match(/\?v=(\d+)/);
-  const ui = match ? `UI v${match[1]}` : "UI dev";
-  return `${ui} · ${document.title}`;
+  // The app version from `tauri.conf.json` (served by `get_status`), not the
+  // UI cache-bust number.
+  return `${state.version || "dev"} · ${document.title}`;
 }
 
 function showLoginError(message) {

@@ -1,14 +1,15 @@
 //! Session lifecycle, connection state and plain text chat handling.
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::state::{AppState, Status, session, start_session};
 
 #[tauri::command]
-pub fn get_status(state: State<'_, AppState>) -> Status {
+pub fn get_status(app: AppHandle, state: State<'_, AppState>) -> Status {
     let guard = state.session.lock().expect("session lock");
     let status = match guard.as_ref() {
         Some(session) => Status {
+            version: app.package_info().version.to_string(),
             ready: true,
             linked: session.is_paired(),
             connected: session.is_connected(),
@@ -17,6 +18,7 @@ pub fn get_status(state: State<'_, AppState>) -> Status {
             lid: session.own_lid(),
         },
         None => Status {
+            version: app.package_info().version.to_string(),
             ready: false,
             linked: false,
             connected: false,
