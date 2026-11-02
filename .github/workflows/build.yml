@@ -95,8 +95,15 @@ jobs:
             $body.Add("**Full Changelog**: https://github.com/$env:GITHUB_REPOSITORY/compare/$prev...$tag")
           }
           Set-Content -Path release-body.md -Value $body -Encoding utf8
+          if ($body.Count -eq 0) {
+            Write-Error "CHANGELOG.md has no '## [$version]' section"
+            exit 1
+          }
           Write-Output '----- release body -----'
           Get-Content release-body.md
+          # `git describe` above exits non-zero when there is no previous tag,
+          # and Actions' pwsh wrapper exits with $LASTEXITCODE. Reset it.
+          exit 0
       - name: Push the artifacts to the release
         shell: pwsh
         env:
