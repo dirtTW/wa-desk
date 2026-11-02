@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Rust dependencies — the workspace root Cargo.toml / Cargo.lock.
+  # Rust dependencies - the workspace root Cargo.toml / Cargo.lock.
   # `vendor/whatsapp-rust` and `vendor/wacore-appstate` are pinned local
   # patches (via [patch.crates-io] / an excluded workspace member), so they are
   # deliberately not tracked here.
@@ -20,7 +20,7 @@ updates:
           - "minor"
           - "patch"
 
-  # Keep the workflow actions current (checkout, upload-artifact, rust-cache, …)
+  # Keep the workflow actions current (checkout, upload-artifact, rust-cache, ...)
   # so the CI never breaks on a deprecated runner runtime.
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -34,7 +34,7 @@ updates:
         patterns:
           - "*"
 
-  # e2e test tooling (playwright-core). Development only — not shipped.
+  # e2e test tooling (playwright-core). Development only - not shipped.
   - package-ecosystem: "npm"
     directory: "/tests/e2e"
     schedule:
