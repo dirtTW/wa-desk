@@ -801,7 +801,10 @@ fn status_replies_quote_the_status() {
         .expect("the reply quotes the status");
     assert_eq!(context.remote_jid.as_deref(), Some("status@broadcast"));
     assert_eq!(context.stanza_id.as_deref(), Some("STATUS9"));
-    assert_eq!(context.participant.as_deref(), Some("628111@s.whatsapp.net"));
+    assert_eq!(
+        context.participant.as_deref(),
+        Some("628111@s.whatsapp.net")
+    );
     assert!(
         context.quoted_message.as_option().is_some(),
         "the status body rides along as the quote"
@@ -1064,7 +1067,7 @@ fn deleted_and_cleared_chats_are_reported_for_the_local_archive() {
 #[test]
 fn view_once_fanouts_become_placeholder_bubbles() {
     use whatsapp_rust::wacore::types::events::{
-        DecryptFailMode, UndecryptableMessage, UnavailableType,
+        DecryptFailMode, UnavailableType, UndecryptableMessage,
     };
     use whatsapp_rust::wacore::types::message::MessageInfo;
 
@@ -1085,8 +1088,14 @@ fn view_once_fanouts_become_placeholder_bubbles() {
             .build()
     };
 
-    harness.dispatch_event(Event::UndecryptableMessage(build("VO1", DecryptFailMode::Show)));
-    harness.dispatch_event(Event::UndecryptableMessage(build("VO2", DecryptFailMode::Hide)));
+    harness.dispatch_event(Event::UndecryptableMessage(build(
+        "VO1",
+        DecryptFailMode::Show,
+    )));
+    harness.dispatch_event(Event::UndecryptableMessage(build(
+        "VO2",
+        DecryptFailMode::Hide,
+    )));
 
     // The fanout's push name joins the names map for the sender's user part,
     // so the placeholder and later folds label the real sender.
@@ -1115,7 +1124,7 @@ fn view_once_fanouts_become_placeholder_bubbles() {
 #[test]
 fn fanout_push_names_never_rename_groups() {
     use whatsapp_rust::wacore::types::events::{
-        DecryptFailMode, UndecryptableMessage, UnavailableType,
+        DecryptFailMode, UnavailableType, UndecryptableMessage,
     };
     use whatsapp_rust::wacore::types::message::MessageInfo;
 
@@ -1145,7 +1154,11 @@ fn fanout_push_names_never_rename_groups() {
     // …but the GROUP's id must stay clean: its name is the subject, not a
     // member's push name.
     assert!(
-        !harness.names.lock().expect("names").contains_key("120363000000000001"),
+        !harness
+            .names
+            .lock()
+            .expect("names")
+            .contains_key("120363000000000001"),
         "a group id must never receive a member's push name"
     );
 
@@ -1161,10 +1174,12 @@ fn fanout_push_names_never_rename_groups() {
         conversation: Some("hello group".to_owned()),
         ..Default::default()
     };
-    harness.dispatch_event(batch(vec![InboundMessage::builder()
-        .message(std::sync::Arc::new(body))
-        .info(std::sync::Arc::new(info))
-        .build()]));
+    harness.dispatch_event(batch(vec![
+        InboundMessage::builder()
+            .message(std::sync::Arc::new(body))
+            .info(std::sync::Arc::new(info))
+            .build(),
+    ]));
 
     let renamed = harness
         .drain()
@@ -1218,12 +1233,19 @@ fn pin_updates_from_other_clients_reach_the_ui() {
         .collect();
     assert_eq!(
         pins,
-        vec![("6281234567890@s.whatsapp.net", true), ("6281234567890@s.whatsapp.net", false)]
+        vec![
+            ("6281234567890@s.whatsapp.net", true),
+            ("6281234567890@s.whatsapp.net", false)
+        ]
     );
 
     // The chat gets registered so later messages/events share the fold.
     assert!(
-        harness.chats.lock().expect("chats").contains_key("6281234567890@s.whatsapp.net"),
+        harness
+            .chats
+            .lock()
+            .expect("chats")
+            .contains_key("6281234567890@s.whatsapp.net"),
         "a pin event registers the chat for later folds"
     );
 
@@ -1339,7 +1361,11 @@ fn reply_quotes_recover_view_once_media() {
 
     dispatch(
         None,
-        &batch(vec![inbound("6281234567890@s.whatsapp.net", "REPLY1", reply)]),
+        &batch(vec![inbound(
+            "6281234567890@s.whatsapp.net",
+            "REPLY1",
+            reply,
+        )]),
         None,
         None,
         &harness.chats,
@@ -1818,10 +1844,16 @@ fn channel_page_decodes_plaintext_posts() {
                 .attr("t", "1700000000")
                 .attr("type", "text")
                 .children([
-                    NodeBuilder::new("plaintext").bytes(body("halo channel")).build(),
+                    NodeBuilder::new("plaintext")
+                        .bytes(body("halo channel"))
+                        .build(),
                     // Counters the desktop app shows under the card.
-                    NodeBuilder::new("views_count").attr("count", "95000").build(),
-                    NodeBuilder::new("forwards_count").attr("count", "14000").build(),
+                    NodeBuilder::new("views_count")
+                        .attr("count", "95000")
+                        .build(),
+                    NodeBuilder::new("forwards_count")
+                        .attr("count", "14000")
+                        .build(),
                     NodeBuilder::new("reactions")
                         .children([
                             NodeBuilder::new("reaction")
@@ -1841,7 +1873,9 @@ fn channel_page_decodes_plaintext_posts() {
                 .attr("server_id", "40")
                 .attr("t", "1699990000")
                 .attr("type", "text")
-                .children([NodeBuilder::new("plaintext").bytes(body("post kedua")).build()])
+                .children([NodeBuilder::new("plaintext")
+                    .bytes(body("post kedua"))
+                    .build()])
                 .build(),
             // No server_id: cannot be paged or keyed, so it is skipped.
             NodeBuilder::new("message")
@@ -1871,5 +1905,8 @@ fn channel_page_decodes_plaintext_posts() {
     // Sorted by count so the busiest reaction pill comes first.
     assert_eq!(stats.reactions[0].code, "👍");
     assert_eq!(stats.reactions[0].count, 900);
-    assert!(page.posts[1].0.stats.is_none(), "no counters on the second post");
+    assert!(
+        page.posts[1].0.stats.is_none(),
+        "no counters on the second post"
+    );
 }

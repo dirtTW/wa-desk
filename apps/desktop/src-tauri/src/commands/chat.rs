@@ -9,24 +9,40 @@ use tauri::State;
 use crate::state::{AppState, session};
 
 #[tauri::command]
-pub async fn chat_archive(state: State<'_, AppState>, chat: String, archived: bool) -> Result<(), String> {
+pub async fn chat_archive(
+    state: State<'_, AppState>,
+    chat: String,
+    archived: bool,
+) -> Result<(), String> {
     session(&state)?.archive_chat(&chat, archived).await
 }
 
 #[tauri::command]
-pub async fn chat_mute(state: State<'_, AppState>, chat: String, until_ms: i64) -> Result<(), String> {
+pub async fn chat_mute(
+    state: State<'_, AppState>,
+    chat: String,
+    until_ms: i64,
+) -> Result<(), String> {
     session(&state)?.mute_chat(&chat, until_ms).await
 }
 
 #[tauri::command]
-pub async fn chat_pin(state: State<'_, AppState>, chat: String, pinned: bool) -> Result<(), String> {
+pub async fn chat_pin(
+    state: State<'_, AppState>,
+    chat: String,
+    pinned: bool,
+) -> Result<(), String> {
     // Non-blocking: the patch runs in the background; the fn has no awaits on
     // the ack chain, so the invoke returns before the patch does.
     session(&state)?.pin_chat(&chat, pinned).await
 }
 
 #[tauri::command]
-pub async fn chat_read_mark(state: State<'_, AppState>, chat: String, unread: bool) -> Result<(), String> {
+pub async fn chat_read_mark(
+    state: State<'_, AppState>,
+    chat: String,
+    unread: bool,
+) -> Result<(), String> {
     session(&state)?.mark_chat_unread(&chat, unread).await
 }
 
@@ -55,6 +71,10 @@ pub async fn chat_clear(state: State<'_, AppState>, chat: String) -> Result<(), 
 }
 
 #[tauri::command]
-pub async fn chat_block(state: State<'_, AppState>, chat: String, blocked: bool) -> Result<(), String> {
+pub async fn chat_block(
+    state: State<'_, AppState>,
+    chat: String,
+    blocked: bool,
+) -> Result<(), String> {
     session(&state)?.block_contact(&chat, blocked).await
 }

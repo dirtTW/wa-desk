@@ -287,7 +287,9 @@ fn channel_stats(node: &whatsapp_rust::wacore_binary::NodeRef<'_>) -> Option<Cha
                 count,
             });
         }
-        stats.reactions.sort_by_key(|reaction| std::cmp::Reverse(reaction.count));
+        stats
+            .reactions
+            .sort_by_key(|reaction| std::cmp::Reverse(reaction.count));
         // The server sends every emoji and its tally (hundreds of them). Keep the
         // busiest few for the pills plus one total, so the persisted chat cache
         // does not grow by kilobytes per post.
@@ -300,7 +302,8 @@ fn channel_stats(node: &whatsapp_rust::wacore_binary::NodeRef<'_>) -> Option<Cha
         );
         stats.reactions.truncate(3);
     }
-    (stats.views.is_some() || stats.forwards.is_some() || !stats.reactions.is_empty()).then_some(stats)
+    (stats.views.is_some() || stats.forwards.is_some() || !stats.reactions.is_empty())
+        .then_some(stats)
 }
 
 /// Message view + optional body (media post, or a link post with a CDN
@@ -347,7 +350,10 @@ pub(crate) fn decode_channel_page(
             messages,
         };
     };
-    for node in children.iter().filter(|node| node.tag.as_ref() == "message") {
+    for node in children
+        .iter()
+        .filter(|node| node.tag.as_ref() == "message")
+    {
         messages += 1;
         let Some(server_id) = node
             .get_attr("server_id")

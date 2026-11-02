@@ -265,17 +265,10 @@ impl Session {
                             match plain_direct_media(&cached.message) {
                                 Some(parts) => parts,
                                 None => {
-                                    let raw = raw_media(&cached.message).ok_or_else(
-                                        || {
-                                            "this message has no downloadable media"
-                                                .to_string()
-                                        },
-                                    )?;
-                                    (
-                                        raw.direct_path.to_owned(),
-                                        raw.media_type,
-                                        raw.mimetype,
-                                    )
+                                    let raw = raw_media(&cached.message).ok_or_else(|| {
+                                        "this message has no downloadable media".to_string()
+                                    })?;
+                                    (raw.direct_path.to_owned(), raw.media_type, raw.mimetype)
                                 }
                             };
                         let conn = self
@@ -408,8 +401,6 @@ impl Session {
     /// The bytes are cached on disk (`lthumb-…`), so reopening the channel is
     /// instant instead of re-downloading every post's image.
     pub async fn link_thumbnail(&self, message_id: &str) -> Result<Option<String>, String> {
-        
-
         let cached = {
             let cache = self.messages.lock().expect("media lock");
             cache
@@ -428,9 +419,10 @@ impl Session {
         let safe = format!("lthumb-{}", safe_media_id(message_id));
         let disk_file = self.media_dir.join(&safe);
         if disk_file.exists()
-            && let Ok(bytes) = tokio::fs::read(&disk_file).await {
-                return Ok(Some(data_uri_for_thumbs(&bytes)));
-            }
+            && let Ok(bytes) = tokio::fs::read(&disk_file).await
+        {
+            return Ok(Some(data_uri_for_thumbs(&bytes)));
+        }
 
         let conn = self
             .client
@@ -687,8 +679,14 @@ impl Session {
     /// encrypted `ServerErrorReceipt` and an `<rmr>` naming the original message.
     /// The library helper addresses `<jid>:55@s.whatsapp.net`, which targets this
     /// device instead of the account, so the primary never answers.
-    async fn request_media_reupload(&self, message_id: &str, cached: &CachedMedia) -> Option<String> {
-        use whatsapp_rust::wacore::media_retry::{encrypt_media_retry_receipt, parse_media_retry_notification};
+    async fn request_media_reupload(
+        &self,
+        message_id: &str,
+        cached: &CachedMedia,
+    ) -> Option<String> {
+        use whatsapp_rust::wacore::media_retry::{
+            encrypt_media_retry_receipt, parse_media_retry_notification,
+        };
         use whatsapp_rust::{NodeBuilder, NodeFilter};
 
         let chat: Jid = cached.chat.parse().ok()?;

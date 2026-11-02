@@ -73,10 +73,7 @@ pub fn register_aumid() {
     }
 }
 #[tauri::command]
-pub async fn set_notify_state(
-    app: AppHandle,
-    prefs: NotifyPrefs,
-) -> Result<(), String> {
+pub async fn set_notify_state(app: AppHandle, prefs: NotifyPrefs) -> Result<(), String> {
     let state = app.state::<AppState>();
     set_prefs(&state, prefs);
     Ok(())
@@ -117,18 +114,16 @@ fn body_text(view: &MessageView) -> String {
 }
 
 pub fn handle_event(handle: &AppHandle, state: &AppState, event: &UiEvent) {
-    let UiEvent::Message(view) = event else { return };
+    let UiEvent::Message(view) = event else {
+        return;
+    };
     // Our own sends (from any device) are not notification news.
     if view.from_me {
         return;
     }
     let (enabled, active, muted) = {
         let prefs = state.notify.lock().expect("notify lock");
-        (
-            prefs.enabled,
-            prefs.active.clone(),
-            prefs.muted.clone(),
-        )
+        (prefs.enabled, prefs.active.clone(), prefs.muted.clone())
     };
     if !enabled {
         return;
@@ -169,10 +164,8 @@ fn show(handle: &AppHandle, view: &MessageView) {
 /// native toasts use) without blocking the pump.
 #[cfg(windows)]
 fn play_sound() {
+    use windows::Win32::Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC, SND_FLAGS, SND_SYSTEM};
     use windows::core::PCWSTR;
-    use windows::Win32::Media::Audio::{
-        PlaySoundW, SND_ALIAS, SND_ASYNC, SND_FLAGS, SND_SYSTEM,
-    };
     let alias: Vec<u16> = "Notification.Default\0".encode_utf16().collect();
     unsafe {
         let ok = PlaySoundW(
@@ -205,7 +198,13 @@ pub async fn test_notify(_app: AppHandle, state: tauri::State<'_, AppState>) -> 
         sender: None,
         sender_name: Some("Diagnostics".to_owned()),
         sender_phone: None,
-        id: format!("diagnostic-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or_default()),
+        id: format!(
+            "diagnostic-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or_default()
+        ),
         from_me: false,
         is_group: false,
         timestamp: std::time::SystemTime::now()

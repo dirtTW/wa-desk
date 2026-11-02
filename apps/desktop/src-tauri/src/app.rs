@@ -144,10 +144,7 @@ pub fn run() {
                 // the old file.
                 let store = crate::state::store_path(&dir, crate::state::store_generation(&dir));
                 crate::state::purge_stale_stores(&dir, &store);
-                (
-                    store.to_string_lossy().into_owned(),
-                    dir.join("media"),
-                )
+                (store.to_string_lossy().into_owned(), dir.join("media"))
             };
             tracing::info!(%db_path, media_dir = %media_dir.display(), "device store");
 
@@ -193,7 +190,9 @@ fn claim_single_instance() -> bool {
         if GetLastError() == ERROR_ALREADY_EXISTS {
             MessageBoxW(
                 None,
-                w!("WA Desk is already running.\n\nOpen the existing window, or quit it from the tray icon, and try again."),
+                w!(
+                    "WA Desk is already running.\n\nOpen the existing window, or quit it from the tray icon, and try again."
+                ),
                 w!("WA Desk"),
                 MB_OK | MB_ICONINFORMATION,
             );
@@ -211,7 +210,8 @@ fn claim_single_instance() -> bool {
     true
 }
 
-fn init_tracing() {    tracing_subscriber::fmt()
+fn init_tracing() {
+    tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "wa_core=info,wa_desktop=info,whatsapp_rust=warn".into()),
@@ -285,11 +285,7 @@ fn spawn_event_pump(
             }
             // Windows push notifications straight from the pump: they must
             // not depend on the webview being alive.
-            crate::notifications::handle_event(
-                &handle,
-                &handle.state::<AppState>(),
-                &event,
-            );
+            crate::notifications::handle_event(&handle, &handle.state::<AppState>(), &event);
             // A logged-out session is terminal: the credentials on disk are dead
             // (we unlinked, or the phone removed this device), so wipe the store
             // and open a fresh session — otherwise the login screen spins on

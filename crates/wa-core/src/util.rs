@@ -221,7 +221,8 @@ pub(crate) fn is_forwarded(message: &wa::Message) -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn message_text(message: &wa::Message) -> Option<String> {    if let Some(text) = message.text_content().filter(|text| !text.is_empty()) {
+pub(crate) fn message_text(message: &wa::Message) -> Option<String> {
+    if let Some(text) = message.text_content().filter(|text| !text.is_empty()) {
         return Some(text.to_owned());
     }
     if let Some(caption) = message.get_caption().filter(|text| !text.is_empty()) {
@@ -394,13 +395,13 @@ pub(crate) fn audio_view(message: &wa::Message) -> Option<AudioView> {
 /// status broadcast; the official client prints those with the "· Status" card
 /// rather than a plain reply quote.
 pub(crate) fn quotes_status(message: &wa::Message) -> bool {
-    context_info(message)
-        .and_then(|context| context.remote_jid.as_deref())
+    context_info(message).and_then(|context| context.remote_jid.as_deref())
         == Some("status@broadcast")
 }
 
 /// Reads the first `contextInfo` attached to a chat message.
-pub(crate) fn context_info(message: &wa::Message) -> Option<&wa::ContextInfo> {    let base = message.get_base_message();
+pub(crate) fn context_info(message: &wa::Message) -> Option<&wa::ContextInfo> {
+    let base = message.get_base_message();
     base.extended_text_message
         .as_option()
         .and_then(|m| m.context_info.as_option())
@@ -722,18 +723,37 @@ pub(crate) fn plain_direct_media(
     message: &wa::Message,
 ) -> Option<(String, MediaType, Option<&str>)> {
     let base = message.get_base_message();
-    let (direct_path, media_type, mimetype) = if let Some(media) = base.image_message.as_option()
-    {
-        (media.direct_path.as_deref()?, MediaType::Image, media.mimetype.as_deref())
+    let (direct_path, media_type, mimetype) = if let Some(media) = base.image_message.as_option() {
+        (
+            media.direct_path.as_deref()?,
+            MediaType::Image,
+            media.mimetype.as_deref(),
+        )
     } else if let Some(media) = base.video_message.as_option() {
-        (media.direct_path.as_deref()?, MediaType::Video, media.mimetype.as_deref())
+        (
+            media.direct_path.as_deref()?,
+            MediaType::Video,
+            media.mimetype.as_deref(),
+        )
     } else if let Some(media) = base.audio_message.as_option() {
-        (media.direct_path.as_deref()?, MediaType::Audio, media.mimetype.as_deref())
+        (
+            media.direct_path.as_deref()?,
+            MediaType::Audio,
+            media.mimetype.as_deref(),
+        )
     } else if let Some(media) = base.sticker_message.as_option() {
-        (media.direct_path.as_deref()?, MediaType::Sticker, media.mimetype.as_deref())
+        (
+            media.direct_path.as_deref()?,
+            MediaType::Sticker,
+            media.mimetype.as_deref(),
+        )
     } else {
         let media = base.document_message.as_option()?;
-        (media.direct_path.as_deref()?, MediaType::Document, media.mimetype.as_deref())
+        (
+            media.direct_path.as_deref()?,
+            MediaType::Document,
+            media.mimetype.as_deref(),
+        )
     };
     let direct_path = direct_path.trim();
     if direct_path.is_empty() {
@@ -748,16 +768,36 @@ pub(crate) fn plain_direct_media(
 pub(crate) fn plain_media_url(message: &wa::Message) -> Option<(String, &'static str)> {
     let base = message.get_base_message();
     let (url, mimetype, media_type) = if let Some(media) = base.image_message.as_option() {
-        (media.url.as_deref(), media.mimetype.as_deref(), MediaType::Image)
+        (
+            media.url.as_deref(),
+            media.mimetype.as_deref(),
+            MediaType::Image,
+        )
     } else if let Some(media) = base.video_message.as_option() {
-        (media.url.as_deref(), media.mimetype.as_deref(), MediaType::Video)
+        (
+            media.url.as_deref(),
+            media.mimetype.as_deref(),
+            MediaType::Video,
+        )
     } else if let Some(media) = base.audio_message.as_option() {
-        (media.url.as_deref(), media.mimetype.as_deref(), MediaType::Audio)
+        (
+            media.url.as_deref(),
+            media.mimetype.as_deref(),
+            MediaType::Audio,
+        )
     } else if let Some(media) = base.sticker_message.as_option() {
-        (media.url.as_deref(), media.mimetype.as_deref(), MediaType::Sticker)
+        (
+            media.url.as_deref(),
+            media.mimetype.as_deref(),
+            MediaType::Sticker,
+        )
     } else {
         let media = base.document_message.as_option()?;
-        (media.url.as_deref(), media.mimetype.as_deref(), MediaType::Document)
+        (
+            media.url.as_deref(),
+            media.mimetype.as_deref(),
+            MediaType::Document,
+        )
     };
     let url = url?.trim();
     if url.is_empty() {

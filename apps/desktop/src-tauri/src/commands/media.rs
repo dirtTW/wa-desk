@@ -18,7 +18,10 @@ pub fn media_thumbnail(state: State<'_, AppState>, id: String) -> Result<Option<
 /// Large link-preview image shipped as a CDN path on channel/broadcast link
 /// posts; fetched on demand and returned as a data URI.
 #[tauri::command]
-pub async fn link_thumbnail(state: State<'_, AppState>, id: String) -> Result<Option<String>, String> {
+pub async fn link_thumbnail(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<String>, String> {
     session(&state)?.link_thumbnail(&id).await
 }
 

@@ -46,11 +46,18 @@ pub(crate) fn dispatch(
         // the mapping yet). When the LID chat does not exist but a
         // phone-number chat does, fold to it so those events can land.
         if jid.server == Server::Lid
-            && !chats.lock().expect("chats lock").contains_key(jid.to_string().as_str())
+            && !chats
+                .lock()
+                .expect("chats lock")
+                .contains_key(jid.to_string().as_str())
             && let Some(pn) = aliases.lock().expect("aliases lock").get(jid.user.as_str())
         {
             let pn_jid = Jid::new(pn.clone(), Server::Pn);
-            if chats.lock().expect("chats lock").contains_key(pn_jid.to_string().as_str()) {
+            if chats
+                .lock()
+                .expect("chats lock")
+                .contains_key(pn_jid.to_string().as_str())
+            {
                 return pn_jid;
             }
         }
@@ -560,15 +567,14 @@ pub(crate) fn dispatch(
         // placeholder bubble ("You received a view once message…"), so mirror
         // that instead of silently dropping the fanout.
         Event::UndecryptableMessage(update) => {
-            if update.decrypt_fail_mode != whatsapp_rust::wacore::types::events::DecryptFailMode::Show {
+            if update.decrypt_fail_mode
+                != whatsapp_rust::wacore::types::events::DecryptFailMode::Show
+            {
                 return;
             }
             // Status broadcasts have their own surface; newsletters the same.
             let raw_chat = &update.info.source.chat;
-            if matches!(
-                raw_chat.server,
-                Server::Broadcast | Server::Newsletter
-            ) {
+            if matches!(raw_chat.server, Server::Broadcast | Server::Newsletter) {
                 return;
             }
             let kind = match update.unavailable_type {
@@ -754,8 +760,8 @@ pub(crate) fn dispatch(
                     if kind == "text" && text.is_empty() {
                         continue;
                     }
-                    let wants_link_thumb =
-                        link_preview(&inbound.message).is_some_and(|link| link.thumb_path.is_some());
+                    let wants_link_thumb = link_preview(&inbound.message)
+                        .is_some_and(|link| link.thumb_path.is_some());
                     if kind != "text" || wants_link_thumb {
                         remember_message(
                             messages,
@@ -943,9 +949,9 @@ pub(crate) fn dispatch(
                             }
                         })
                     });
-                    let sender_name = quoted_sender
-                        .as_ref()
-                        .and_then(|sender| look_up_name(sender.user.as_str(), names, aliases, contacts));
+                    let sender_name = quoted_sender.as_ref().and_then(|sender| {
+                        look_up_name(sender.user.as_str(), names, aliases, contacts)
+                    });
                     let sender_phone = quoted_sender
                         .as_ref()
                         .and_then(|sender| phone_for(sender, aliases));

@@ -97,7 +97,8 @@ pub struct Session {
     contacts: Arc<Mutex<HashMap<String, String>>>,
     /// Message ids of stories this account posted. Status "view" receipts name
     /// one of these ids, which is how a view is told apart from a chat receipt.
-    own_statuses: Arc<Mutex<std::collections::HashSet<String>>>,    /// Where the saved-contact names and the one-off sync marker live.
+    own_statuses: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// Where the saved-contact names and the one-off sync marker live.
     contacts_path: PathBuf,
     /// Recently seen messages, so the UI can ask for their media later without
     /// having to ship protobuf around.

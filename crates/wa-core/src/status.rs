@@ -32,13 +32,7 @@ impl Session {
         let sent = self
             .client
             .status()
-            .send_text(
-                text,
-                background,
-                font_type,
-                &recipients,
-                Default::default(),
-            )
+            .send_text(text, background, font_type, &recipients, Default::default())
             .await
             .map_err(|e| format!("could not post status: {e}"))?;
         // Remember the id so later "view" receipts can be attributed to it.
@@ -56,7 +50,9 @@ impl Session {
         let mut recipients: Vec<Jid> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for jid in self.chats.lock().expect("chats lock").values() {
-            if !matches!(jid.server, Server::Pn | Server::Lid) || self.is_self_chat(&jid.to_string()) {
+            if !matches!(jid.server, Server::Pn | Server::Lid)
+                || self.is_self_chat(&jid.to_string())
+            {
                 continue;
             }
             if seen.insert(jid.to_string()) {
@@ -245,12 +241,10 @@ impl Session {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(|value| wa::Message {
-                extended_text_message: MessageField::some(
-                    wa::message::ExtendedTextMessage {
-                        text: Some(value.to_owned()),
-                        ..Default::default()
-                    },
-                ),
+                extended_text_message: MessageField::some(wa::message::ExtendedTextMessage {
+                    text: Some(value.to_owned()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             })
     }
@@ -297,7 +291,8 @@ pub(crate) fn status_reply_body(
     }
 }
 
-fn status_font_type(font: &str) -> wa::message::extended_text_message::FontType {    use wa::message::extended_text_message::FontType;
+fn status_font_type(font: &str) -> wa::message::extended_text_message::FontType {
+    use wa::message::extended_text_message::FontType;
     match font {
         "serif" => FontType::SystemText,
         "script" => FontType::FbScript,

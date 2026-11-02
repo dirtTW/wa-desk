@@ -110,7 +110,11 @@ pub enum UiEvent {
     /// A chat was archived or unarchived (app-state sync, every client).
     ChatArchive { chat: String, archived: bool },
     /// A chat's mute state changed; `until` is Unix ms (huge value = "always").
-    ChatMute { chat: String, until: i64, timestamp: i64 },
+    ChatMute {
+        chat: String,
+        until: i64,
+        timestamp: i64,
+    },
     /// The chat was marked read or unread (app-state sync, every client).
     ChatReadMark { chat: String, read: bool },
     /// A message was starred or unstarred (app-state sync, every client; a

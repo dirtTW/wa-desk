@@ -8,7 +8,11 @@ impl Session {
     /// The library builds the forward copy (`is_forwarded`, bumped forwarding
     /// score, quoted chain stripped, `message_secret` dropped) and relays any
     /// media from its original CDN blob instead of re-uploading it.
-    pub async fn forward_message(&self, chats: &[String], message_id: &str) -> Result<usize, String> {
+    pub async fn forward_message(
+        &self,
+        chats: &[String],
+        message_id: &str,
+    ) -> Result<usize, String> {
         let cached = {
             let mut cache = self.messages.lock().expect("media lock");
             match cache.get(message_id).cloned() {
@@ -251,7 +255,14 @@ impl Session {
                     }
                     match client
                         .chat_actions()
-                        .delete_message_for_me(&chat, participant_jid.as_ref(), &id, from_me, true, None)
+                        .delete_message_for_me(
+                            &chat,
+                            participant_jid.as_ref(),
+                            &id,
+                            from_me,
+                            true,
+                            None,
+                        )
                         .await
                     {
                         Ok(()) => {
@@ -319,7 +330,11 @@ impl Session {
                 if outcome.is_ok() {
                     break;
                 }
-                if !outcome.as_ref().err().is_some_and(|e| e.to_string().contains("still conflicting")) {
+                if !outcome
+                    .as_ref()
+                    .err()
+                    .is_some_and(|e| e.to_string().contains("still conflicting"))
+                {
                     break;
                 }
                 tracing::warn!(chat = %jid, pinned, "chat pin patch conflicted; retrying to keep every client in sync");
@@ -370,7 +385,10 @@ impl Session {
             self.client.chat_actions().unarchive_chat(&jid, None).await
         }
         .map_err(|e| format!("archive failed: {e}"))?;
-        let _ = self.tx.send(UiEvent::ChatArchive { chat: jid.to_string(), archived });
+        let _ = self.tx.send(UiEvent::ChatArchive {
+            chat: jid.to_string(),
+            archived,
+        });
         Ok(())
     }
 
