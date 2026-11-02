@@ -14,7 +14,10 @@ and the roadmap live in [`AGENTS.md`](AGENTS.md).
   `.github/workflows/build.yml` runs on a `v*` tag: it builds the Windows MSI
   and NSIS installers, creates the GitHub release (pre-release when the tag has
   a pre-release suffix) and uploads the installers plus the plain binaries from
-  the `build` matrix.
+  the `build` matrix. The release body is generated automatically
+  (`gh release create --generate-notes`), categorised by `.github/release.yml`
+  (Dependabot PRs carry a `dependencies` label). Every version heading below
+  links to the diff against the previous release.
 
 ## [0.1.0-rc.2] — 2026-11-02
 
@@ -615,3 +618,9 @@ Everything below is part of this release.
   offline.
 - Status/stories: recent/viewed lists, `status@broadcast` history retrieval,
   progress-bar viewer, reply/reactions, text/image/video posting, and delete-own.
+
+<!-- Version comparison links. The earlier pre-release tags were removed, so the
+     diffs are anchored on their release commits. -->
+[0.1.0-rc.3]: https://github.com/dirtTW/wa-desk/compare/68a19c0...v0.1.0-rc.3
+[0.1.0-rc.2]: https://github.com/dirtTW/wa-desk/compare/ab8027f...68a19c0
+[0.1.0-rc.1]: https://github.com/dirtTW/wa-desk/compare/83c1dc2...ab8027f

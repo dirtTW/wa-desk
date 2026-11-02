@@ -10,6 +10,8 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
     commit-message:
       prefix: "deps"
     groups:
@@ -27,6 +29,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    labels:
+      - "dependencies"
     commit-message:
       prefix: "ci"
     groups:
@@ -39,6 +43,8 @@ updates:
     directory: "/tests/e2e"
     schedule:
       interval: "monthly"
+    labels:
+      - "dependencies"
     commit-message:
       prefix: "deps"
     groups:
