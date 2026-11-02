@@ -5807,7 +5807,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "flate2",
  "qrcode",
@@ -5825,7 +5825,7 @@ name = "wa-desktop"
 version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
- "base64 0.22.1",
+ "base64 0.23.1",
  "serde",
  "serde_json",
  "tauri",
