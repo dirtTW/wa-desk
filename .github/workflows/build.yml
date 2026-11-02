@@ -10,7 +10,7 @@ jobs:
   check:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -36,7 +36,7 @@ jobs:
             binary: target/release/wa-desktop
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: System dependencies (Linux)
         if: runner.os == 'Linux'
@@ -46,7 +46,7 @@ jobs:
             libssl-dev libxdo-dev librsvg2-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p wa-desktop
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.binary }}
