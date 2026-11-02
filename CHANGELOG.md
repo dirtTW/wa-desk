@@ -4,7 +4,7 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [Unreleased]
+## [0.1.0-rc.2] — 2026-11-02
 
 - **`aes-gcm` 0.10 → 0.11** — the bump deferred from #4. The 0.11 release
   removed `aead::OsRng` and `AeadCore::generate_nonce` and deprecated
