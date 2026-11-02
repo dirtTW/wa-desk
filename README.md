@@ -114,7 +114,7 @@ without requiring the Tauri CLI and creates:
 
 The exe is self-contained (UI assets are embedded). It still uses the system WebView2 runtime
 included with Windows 10/11. Settings, chats and media stay in
-`%APPDATA%\dev.example.wadesk`; copy that folder as well when moving to another PC. This is a
+`%APPDATA%\io.github.dirttw.wadesk`; copy that folder as well when moving to another PC. This is a
 portable executable, not a fully portable data store.
 
 For AI reading of GIFs/short videos, put `ffmpeg.exe` next to `WA Desk.exe` (or on `PATH`);

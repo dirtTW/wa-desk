@@ -42,7 +42,7 @@ pub fn set_prefs(state: &AppState, prefs: NotifyPrefs) {
 
 /// The toast identity: the Tauri identifier, used as the AppUserModelID.
 #[cfg(windows)]
-const AUMID: &str = "dev.example.wadesk";
+const AUMID: &str = "io.github.dirttw.wadesk";
 
 /// Register the toast identity once per start. Unpackaged apps register
 /// their AppUserModelID under `HKCU\Software\Classes\AppUserModelId` with a

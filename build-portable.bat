@@ -46,7 +46,7 @@ if errorlevel 1 goto :fail
   echo Windows 10/11 and Microsoft Edge. No separate installer is needed.
   echo.
   echo Chat data, settings and media are stored in:
-  echo   %%APPDATA%%\dev.example.wadesk
+  echo   %%APPDATA%%\io.github.dirttw.wadesk
   echo To move the client to another PC, copy that folder as well.
   echo.
   echo This is an unofficial client, not affiliated with WhatsApp or Meta.

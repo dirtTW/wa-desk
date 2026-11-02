@@ -4,6 +4,14 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+- **Bundle identifier is now `io.github.dirttw.wadesk`** (was the placeholder
+  `dev.example.wadesk`), so the installer's `Manufacturer` reads `dirttw`, the
+  MSI `UpgradeCode` is regenerated from the real id, and the app data moves to
+  `%APPDATA%\io.github.dirttw.wadesk` (Linux:
+  `~/.local/share/io.github.dirttw.wadesk`). Updated in `tauri.conf.json`, the
+  Windows toast `AUMID` (`notifications.rs`), the portable `README.txt`
+  (`build-portable.bat`), `README.md` and `AGENTS.md`. An existing linked
+  session keeps working by moving the old data folder to the new name.
 - **Windows installers (MSI + NSIS) with uninstallers, and a PII-free first
   commit.** `npx @tauri-apps/cli build` (Tauri CLI 2.12.4) produces
   `bundle/msi/WA Desk_0.1.0_x64_en-US.msi` and

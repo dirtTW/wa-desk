@@ -160,8 +160,8 @@ Protocol payloads never cross the IPC boundary: `wa-core` reduces them to
 
 | Platform | Path |
 | --- | --- |
-| Windows | `%APPDATA%\dev.example.wadesk\whatsapp.db` |
-| Linux | `~/.local/share/dev.example.wadesk/whatsapp.db` |
+| Windows | `%APPDATA%\io.github.dirttw.wadesk\whatsapp.db` |
+| Linux | `~/.local/share/io.github.dirttw.wadesk/whatsapp.db` |
 
 Delete that file to unlink locally (and any other device will still show the linked
 device until you remove it from the phone).
