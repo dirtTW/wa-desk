@@ -21,7 +21,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 ureq = "3"
 aes-gcm = "0.10"
-base64 = "0.22"
+base64 = "0.23"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
