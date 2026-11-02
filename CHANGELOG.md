@@ -12,12 +12,13 @@ and the roadmap live in [`AGENTS.md`](AGENTS.md).
   `state.version`, and `buildLabel()` renders `<version> · WA Desk`.
 - **Releases are published by CI.** A new `release` job in
   `.github/workflows/build.yml` runs on a `v*` tag: it builds the Windows MSI
-  and NSIS installers, creates the GitHub release (pre-release when the tag has
-  a pre-release suffix) and uploads the installers plus the plain binaries from
-  the `build` matrix. The release body is generated automatically
-  (`gh release create --generate-notes`), categorised by `.github/release.yml`
-  (Dependabot PRs carry a `dependencies` label). Every version heading below
-  links to the diff against the previous release.
+  and NSIS installers, then creates the GitHub release and uploads the
+  installers plus the plain binaries from the `build` matrix. The release body
+  is the matching section of this file — the job extracts it with PowerShell —
+  plus a diff link to the previous tag; the release is marked pre-release when
+  the tag carries a pre-release suffix.
+
+Full diff: [`68a19c0...v0.1.0-rc.3`](https://github.com/dirtTW/wa-desk/compare/68a19c0...v0.1.0-rc.3)
 
 ## [0.1.0-rc.2] — 2026-11-02
 

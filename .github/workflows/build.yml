@@ -56,8 +56,9 @@ jobs:
   # On a version tag: build the Windows installers (MSI + NSIS, both with an
   # uninstaller), then push every artifact — the installers and the plain
   # binaries from `build` — to the GitHub release for that tag. The release is
-  # created if it does not exist yet, and marked pre-release when the tag has a
-  # semver pre-release suffix (e.g. `v0.1.0-rc.3`).
+  # created if it does not exist yet, its body is the matching `CHANGELOG.md`
+  # section (plus a diff link to the previous tag), and it is marked
+  # pre-release when the tag has a semver pre-release suffix.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
@@ -66,6 +67,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/download-artifact@v8
@@ -74,21 +77,41 @@ jobs:
       - name: Build the Windows installers
         working-directory: apps/desktop
         run: npx --yes "@tauri-apps/cli@^2" build --bundles msi,nsis
+      - name: Compose the release body from CHANGELOG.md
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $version = $tag -replace '^v', ''
+          $body = [System.Collections.Generic.List[string]]::new()
+          $found = $false
+          foreach ($line in Get-Content CHANGELOG.md) {
+            if (-not $found -and $line.StartsWith("## [$version]")) { $found = $true; continue }
+            if ($found -and $line.StartsWith('## [')) { break }
+            if ($found) { $body.Add($line) }
+          }
+          $prev = git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>$null
+          if ($LASTEXITCODE -eq 0 -and $prev) {
+            $body.Add('')
+            $body.Add("**Full Changelog**: https://github.com/$env:GITHUB_REPOSITORY/compare/$prev...$tag")
+          }
+          Set-Content -Path release-body.md -Value $body -Encoding utf8
+          Write-Output '----- release body -----'
+          Get-Content release-body.md
       - name: Push the artifacts to the release
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          pre=""
-          case "$tag" in
-            *-*) pre="--prerelease" ;;
-          esac
-          gh release view "$tag" >/dev/null 2>&1 || \
-            gh release create "$tag" --title "WA Desk $tag" $pre --generate-notes
-          shopt -s globstar nullglob
-          assets=(dist/**/* target/release/bundle/msi/*.msi target/release/bundle/nsis/*.exe)
-          printf 'attaching to %s:\n' "$tag"
-          printf '  %s\n' "${assets[@]}"
-          gh release upload "$tag" "${assets[@]}" --clobber
+          $tag = $env:GITHUB_REF_NAME
+          $pre = if ($tag -match '-') { '--prerelease' } else { $null }
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "WA Desk $tag" $pre --notes-file release-body.md
+          }
+          $assets = @()
+          $assets += Get-ChildItem -Path dist -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          $assets += Get-ChildItem -Path target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          $assets += Get-ChildItem -Path target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          Write-Output "attaching to ${tag}:"
+          $assets | ForEach-Object { Write-Output "  $_" }
+          gh release upload $tag @assets --clobber
