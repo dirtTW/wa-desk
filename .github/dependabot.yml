@@ -19,6 +19,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # aes-gcm 0.11 changed the aead API (generate_nonce removed,
+      # Nonce::from_slice deprecated) and needs a manual migration in the AI
+      # key encryption before it can land. Tracked in issue/PR #4.
+      - dependency-name: "aes-gcm"
+        update-types:
+          - "version-update:semver-major"
 
   # Keep the workflow actions current (checkout, upload-artifact, rust-cache, ...)
   # so the CI never breaks on a deprecated runner runtime.

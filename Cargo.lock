@@ -5803,7 +5803,7 @@ dependencies = [
 
 [[package]]
 name = "wa-core"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5822,7 +5822,7 @@ dependencies = [
 
 [[package]]
 name = "wa-desktop"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.23.1",
@@ -5843,7 +5843,7 @@ dependencies = [
 
 [[package]]
 name = "wa-types"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "serde",
 ]

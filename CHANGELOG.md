@@ -4,6 +4,25 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.1.0-rc.1] — 2026-11-02
+
+First pre-release: the client itself, the AGPL relicensing, the Windows
+installers and CI.
+
+- The app version is `0.1.0-rc.1`. The MSI `ProductVersion` is the numeric
+  `0.1.0.1` because Windows Installer rejects a non-numeric pre-release
+  identifier, so `bundle.windows.wix.version` pins it.
+- **Dependency bumps (Dependabot):** `sha2` 0.10.9 → 0.11.1 (#3) and
+  `base64` 0.22.1 → 0.23.1 (#2). The `aes-gcm` 0.10.3 → 0.11.1 bump is
+  **deferred** — it needs an API migration in the AI key encryption
+  (`generate_nonce` removed, `Nonce::from_slice` deprecated) and is tracked
+  in #4.
+- CI actions moved to `actions/checkout@v7` and `actions/upload-artifact@v7`
+  (Node 24), and Dependabot now watches cargo, GitHub Actions and the e2e npm
+  package.
+
+Everything below is part of this release.
+
 - **Bundle identifier is now `io.github.dirttw.wadesk`** (was the placeholder
   `dev.example.wadesk`), and `bundle.publisher` / `bundle.copyright` are set to
   `dirttw`, so the installer's `Manufacturer` and the exe's `CompanyName` read
