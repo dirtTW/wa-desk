@@ -32,6 +32,8 @@
     "active": true,
     "targets": "all",
     "category": "SocialNetworking",
+    "publisher": "dirttw",
+    "copyright": "Copyright (C) 2026 dirttw. Licensed under AGPL-3.0-only.",
     "shortDescription": "Unofficial WhatsApp desktop client",
     "longDescription": "A native WhatsApp client built on the unofficial whatsapp-rust protocol library. Not affiliated with WhatsApp or Meta.",
     "resources": {
