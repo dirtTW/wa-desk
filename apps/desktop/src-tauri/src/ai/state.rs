@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use aes_gcm::aead::{Aead, AeadCore, OsRng};
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::aead::{Aead, Generate, Nonce as AeadNonce};
+use aes_gcm::{Aes256Gcm, KeyInit};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use serde::{Deserialize, Serialize};
@@ -405,9 +405,7 @@ pub(super) fn load_or_create_key(path: &Path) -> std::io::Result<[u8; 32]> {
         return Ok(key);
     }
 
-    let mut key = [0u8; 32];
-    use aes_gcm::aead::rand_core::RngCore as _;
-    OsRng.fill_bytes(&mut key);
+    let key = <[u8; 32]>::generate();
     std::fs::write(path, key)?;
     #[cfg(unix)]
     {
@@ -419,7 +417,7 @@ pub(super) fn load_or_create_key(path: &Path) -> std::io::Result<[u8; 32]> {
 
 pub(super) fn encrypt(key: &[u8; 32], plaintext: &str) -> Result<String, String> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = AeadNonce::<Aes256Gcm>::generate();
     let ciphertext = cipher
         .encrypt(&nonce, plaintext.as_bytes())
         .map_err(|e| format!("cannot encrypt API key: {e}"))?;
@@ -434,9 +432,11 @@ pub(super) fn decrypt(key: &[u8; 32], encoded: &str) -> Result<String, String> {
     let (nonce, ciphertext) = encoded.split_once('.').ok_or("malformed encrypted key")?;
     let nonce = B64.decode(nonce).map_err(|e| e.to_string())?;
     let ciphertext = B64.decode(ciphertext).map_err(|e| e.to_string())?;
+    let nonce = AeadNonce::<Aes256Gcm>::try_from(nonce.as_slice())
+        .map_err(|_| "malformed encrypted key".to_string())?;
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|_| "could not decrypt the stored API key".to_string())?;
     String::from_utf8(plaintext).map_err(|e| e.to_string())
 }
