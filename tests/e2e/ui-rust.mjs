@@ -488,6 +488,102 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# in-chat search (rust, chat-search.js removed)");
+const searchCheck = await page.evaluate(async () => {
+  const plans = {
+    wrap: await invoke("ui_search_hit_index", { total: 5, requested: 5 }),
+    back: await invoke("ui_search_hit_index", { total: 5, requested: -1 }),
+    wrapBack: await invoke("ui_search_hit_index", { total: 5, requested: -6 }),
+    none: await invoke("ui_search_hit_index", { total: 0, requested: 3 }),
+    kept: await invoke("ui_search_keep_hit", { total: 2, current: 4 }),
+    keptNone: await invoke("ui_search_keep_hit", { total: 0, current: 2 }),
+  };
+  const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
+    node.getAttribute("src"),
+  );
+  const loadsSearchFile = scripts.some((src) => String(src).includes("chat-search.js"));
+  const hasSearchFn = typeof runChatSearch === "function";
+
+  // Live: search a single letter so the chat has several hits, then step.
+  const chat = [...state.chats.values()]
+    .filter((entry) => entry.messages.length > 5)
+    .sort((a, b) => b.messages.length - a.messages.length)[0];
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 1200));
+    const needle = "a";
+    openChatSearch();
+    // Type into the box like a person: the counter reads the input, and a
+    // repaint re-runs the search with this value.
+    document.getElementById("chat-search-input").value = needle;
+    await runChatSearch(needle);
+    await new Promise((r) => setTimeout(r, 1200));
+    const hits = document.querySelectorAll("#messages .bubble.search-hit").length;
+    const first = document.getElementById("chat-search-count").textContent;
+    const activeFirst = document.querySelectorAll("#messages .bubble.search-active").length;
+    if (hits > 1) {
+      await scrollToChatSearchHit(chatSearchIndex + 1);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    const second = document.getElementById("chat-search-count").textContent;
+    // Stepping back past the start wraps to the last hit. Read the index the
+    // call returns rather than the label: a repaint may re-paint it later.
+    await scrollToChatSearchHit(-1);
+    const wrappedIndex = chatSearchIndex;
+    await new Promise((r) => setTimeout(r, 400));
+    const wrapped = `${wrappedIndex + 1}/${hits}`;
+    closeChatSearch();
+    await new Promise((r) => setTimeout(r, 300));
+    live = {
+      hits,
+      first,
+      second,
+      wrapped,
+      wrappedIndex,
+      activeFirst,
+      cleared: document.querySelectorAll("#messages .bubble.search-hit").length,
+      barHidden: document.getElementById("chat-search-bar").hidden,
+    };
+  }
+  return { plans, scripts, loadsSearchFile, hasSearchFn, live };
+});
+check(
+  "hit stepping wraps both ways and survives a shorter list",
+  searchCheck.plans.wrap === 0 &&
+    searchCheck.plans.back === 4 &&
+    searchCheck.plans.wrapBack === 4 &&
+    searchCheck.plans.none === -1 &&
+    searchCheck.plans.kept === 1 &&
+    searchCheck.plans.keptNone === -1,
+  JSON.stringify(searchCheck.plans),
+);
+check(
+  "chat-search.js is no longer loaded",
+  !searchCheck.loadsSearchFile && searchCheck.hasSearchFn,
+  `${searchCheck.scripts.length} scripts, loadsSearchFile=${searchCheck.loadsSearchFile}`,
+);
+if (searchCheck.live) {
+  const { hits, first, second, wrapped, activeFirst, cleared, barHidden } = searchCheck.live;
+  check(
+    "the live search paints hits, steps and clears",
+    hits > 0 &&
+      first === `1/${hits}` &&
+      activeFirst === 1 &&
+      (hits === 1 || second === `2/${hits}`) &&
+      wrapped === `${hits}/${hits}` &&
+      cleared === 0 &&
+      barHidden,
+    JSON.stringify(searchCheck.live),
+  );
+  check(
+    "stepping past the first hit wraps to the last",
+    searchCheck.live.wrappedIndex === searchCheck.live.hits - 1 ||
+      searchCheck.live.hits === 1,
+    String(searchCheck.live.wrappedIndex),
+  );
+}
+
 console.log("\n# contact views + sent echo (rust)");
 const sentViews = await page.evaluate(async () => {
   const me = state.meJid || "62111@s.whatsapp.net";
@@ -1552,12 +1648,16 @@ const menuActions = await page.evaluate(async () => {
 
   // Live: the delete dialog must actually open from a selection. This was
   // broken by a snake_case argument (`self_chat`) that Tauri never bound.
-  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 2);
+  // "Delete for everyone" only shows for our own message, so the chat must
+  // contain one.
+  const chat = [...state.chats.values()].find((entry) =>
+    entry.messages.some((m) => m.text && m.from_me),
+  );
   let live = null;
   if (chat) {
     await openChat(chat.jid);
     await new Promise((r) => setTimeout(r, 900));
-    const message = chat.messages.find((m) => m.text);
+    const message = chat.messages.find((m) => m.text && m.from_me);
     startSelection(message);
     await new Promise((r) => setTimeout(r, 200));
     await deleteSelection();

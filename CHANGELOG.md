@@ -4,6 +4,32 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.43] — 2026-11-03
+
+- **`chat-search.js` is deleted — one fewer JS file (23 → 22).** Its hit-index
+  bookkeeping is now Rust and its DOM painting lives in `chat-render.js`:
+  - `wa_ui::search::hit_index(total, requested)` wraps a requested hit into
+    range (arrows step past either end) and returns `-1` when there are no hits;
+    `keep_hit(total, current)` keeps the position when the query re-runs over a
+    list that may have shrunk. `scrollToChatSearchHit` and the keep-index path in
+    `runChatSearch` are the only JS that changed; the TreeWalker/CSS-Highlight
+    painting moved verbatim into `chat-render.js`.
+  - `chat-search.js` and its `<script>` tag are gone, and `runChatSearch` now
+    sets the box's value before running (the counter reads the input, and a
+    repaint re-runs the search with it — the e2e caught my first version leaving
+    it blank, which made the counter vanish after one step).
+  Commands `ui_search_hit_index`, `ui_search_keep_hit`.
+- 1 new `wa-ui` unit test (217 total, plus 3 contract) and an in-chat search CDP
+  e2e section that asserts the file is not loaded, `runChatSearch` still exists,
+  and a live search over 200 hits steps `1/200 → 2/200`, wraps back to `200/200`
+  and clears its marks.
+- e2e now picks a chat that contains **our own** message for the delete-dialog
+  check ("Delete for everyone" is only offered for those), which the new section
+  had shifted out of first place.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` **0**,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.42] — 2026-11-03
 
 - **The contact-plan views and the sent-echo fold moved to Rust.**

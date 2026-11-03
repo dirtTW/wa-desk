@@ -85,7 +85,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/chat_actions.rs          chat-menu/bulk/message/star/mute plans, delete targets, message info
   src/context.rs               AI context/stickers, media limits, poster sampling
   src/calls.rs                 call overlay, guard, codec/audio formats, jitter buffer
-  src/search.rs                in-chat search matching and counter label
+  src/search.rs                in-chat search matching, hit index, counter label
   src/incoming.rs              message-event folding, unread/receipt rules, receipt batches
   src/reactions.rs             reaction toggle, live-event fold, own-pill replace
   src/export.rs                chat-export parsing and import merge plan
@@ -139,12 +139,12 @@ apps/desktop/
     src/ai/util.rs             clock, randomness, emoji/text helpers
     src/ai/tests.rs            unit tests
     tauri.conf.json
-  ui/                          vanilla HTML/CSS/JS frontend, no npm
+  ui/                          vanilla HTML/CSS/JS frontend, no npm (22 files; chat-search.js
+                               was folded into chat-render.js in rc.43)
     core.js                    constants, state, cache, helpers, avatars
     chat-list.js               sidebar list, channels
     media-ui.js                media rendering, posters, link previews
-    chat-search.js             in-chat search
-    chat-render.js             message rendering, scroll anchoring, scroll-to-latest
+    chat-render.js             message rendering, scroll anchoring, in-chat search painting
     media-viewer.js            full-screen media viewer
     state-updates.js           incoming messages, chat state, export import
     actions.js                 send, read, open chat, history sync

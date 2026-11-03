@@ -133,6 +133,18 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// The hit index an arrow click lands on (wraps, `-1` with no hits).
+#[tauri::command]
+pub fn ui_search_hit_index(total: usize, requested: i64) -> i64 {
+    wa_ui::search::hit_index(total, requested)
+}
+
+/// The hit index kept when the query is re-run over a possibly shorter list.
+#[tauri::command]
+pub fn ui_search_keep_hit(total: usize, current: i64) -> i64 {
+    wa_ui::search::keep_hit(total, current)
+}
+
 /// The Material glyph for a media kind.
 #[tauri::command]
 pub fn ui_media_icon(kind: String) -> String {

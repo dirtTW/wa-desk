@@ -290,6 +290,8 @@ pub fn run() {
             crate::commands::ui::ui_ai_echo,
             crate::commands::ui::ui_attachment_check,
             crate::commands::ui::ui_search_matches,
+            crate::commands::ui::ui_search_hit_index,
+            crate::commands::ui::ui_search_keep_hit,
             crate::commands::ui::ui_search_label,
             crate::commands::ui::ui_status_permissions,
             crate::commands::ui::ui_status_post_check,
