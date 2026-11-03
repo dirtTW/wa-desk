@@ -81,6 +81,8 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/screens.rs               channels panel, community screen, starred messages
   src/status.rs                status rail list, story viewer shell, views list
   src/picker.rs                new-chat / forward picker rows and sections
+  src/settings.rs              every Settings page, update row, AI form, credits
+  src/menus.rs                 chat/message menu rows, mute submenu, delete dialog
   src/sidebar.rs               chat list: filters, pin order, communities, search
 crates/wa-core/                protocol session layer (no Tauri dependency)
   src/lib.rs                   Session struct + module wiring

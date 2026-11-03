@@ -21,43 +21,46 @@ function cancelPress() {
   pressBubble = null;
 }
 
-function openMessageMenu(message, x, y) {
+async function openMessageMenu(message, x, y) {
   cancelPress();
   menuMessage = message;
 
   const menu = $("msg-menu");
-  const isOwn = Boolean(message.from_me);
-  const canEdit = isOwn && message.kind === "text" && !message.deleted && !message.deletedForMe;
-
-  menu.querySelector('[data-action="edit"]').hidden = !canEdit;
-  menu.querySelector('[data-action="forward"]').hidden =
-    Boolean(message.deleted) || Boolean(message.deletedForMe);
-  menu.querySelector('[data-action="reply"]').hidden =
-    Boolean(message.deleted) || Boolean(message.deletedForMe);
-  menu.querySelector('[data-action="copy"]').hidden =
-    Boolean(message.deleted) || Boolean(message.deletedForMe) || !String(message.text || "").trim();
-  // "Message <sender>" only makes sense for someone else's group message.
   const chat = state.chats.get(message.chat);
-  const senderJid = message.sender;
-  const canMessageSender = Boolean(chat && chat.isGroup && senderJid && !message.from_me);
-  const senderRow = menu.querySelector('[data-action="message-sender"]');
-  senderRow.hidden = !canMessageSender;
-  menu.querySelector('[data-action="reply-privately"]').hidden = !canMessageSender;
-  menu.querySelector('[data-action="message-info"]').hidden = !isOwn;
+  let rows;
+  try {
+    rows = await invoke("ui_message_menu", {
+      input: {
+        from_me: Boolean(message.from_me),
+        kind: message.kind || "text",
+        deleted: Boolean(message.deleted),
+        deleted_for_me: Boolean(message.deletedForMe),
+        text: String(message.text || ""),
+        sender_label:
+          contactNameFor(message.sender) || message.sender_name || "sender",
+        chat_is_group: Boolean(chat && chat.isGroup),
+        has_sender: Boolean(message.sender),
+        starred: state.starred.has(message.id),
+      },
+    });
+  } catch (err) {
+    console.warn("message menu state failed", err);
+    return;
+  }
+  if (menuMessage !== message) return;
+
+  menu.querySelector('[data-action="edit"]').hidden = !rows.edit;
+  menu.querySelector('[data-action="forward"]').hidden = !rows.forward;
+  menu.querySelector('[data-action="reply"]').hidden = !rows.reply;
+  menu.querySelector('[data-action="copy"]').hidden = !rows.copy;
+  menu.querySelector('[data-action="message-sender"]').hidden = !rows.message_sender;
+  menu.querySelector('[data-action="reply-privately"]').hidden = !rows.reply_privately;
+  menu.querySelector('[data-action="message-info"]').hidden = !rows.message_info;
   // Starring mirrors the app-state `star` collection, so the row flips between
   // Star/Unstar like the official message menu.
-  const starRow = menu.querySelector('[data-action="star"]');
-  starRow.hidden = Boolean(message.deleted) || Boolean(message.deletedForMe);
-  if (!starRow.hidden) {
-    $("msg-star-label").textContent = state.starred.has(message.id)
-      ? "Unstar message"
-      : "Star message";
-  }
-  if (canMessageSender) {
-    $("message-sender-label").textContent = `Message ${
-      contactNameFor(senderJid) || message.sender_name || "sender"
-    }`;
-  }
+  menu.querySelector('[data-action="star"]').hidden = !rows.star;
+  if (rows.star) $("msg-star-label").textContent = rows.star_label;
+  if (rows.message_sender) $("message-sender-label").textContent = rows.sender_label;
   menu.hidden = false;
 
   const rect = menu.getBoundingClientRect();
@@ -157,18 +160,26 @@ function updateSelectBar() {
 
 /* ------------------------------------------------- delete confirmation */
 
-function askDelete(items) {
+async function askDelete(items) {
   const list = (items || []).filter(Boolean);
   if (!list.length) return;
   state.deletePending = { items: list };
-  $("delete-confirm-title").textContent =
-    list.length > 1 ? `Delete ${list.length} messages?` : "Delete message?";
-  // "Delete for everyone" is only offered in the dialog: every chosen message
-  // must be one of ours and live outside the "Message yourself" chat.
-  const canEveryone =
-    list.every((item) => Boolean(item.fromMe) && !item.deleted) &&
-    !isSelfChat(list[0].chat);
-  $("delete-everyone-ok").hidden = !canEveryone;
+  let rows;
+  try {
+    rows = await invoke("ui_delete_confirm", {
+      items: list.map((item) => ({
+        from_me: Boolean(item.fromMe),
+        deleted: Boolean(item.deleted),
+        chat: item.chat || "",
+      })),
+      self_chat: isSelfChat(list[0].chat),
+    });
+  } catch (err) {
+    console.warn("delete confirm failed", err);
+    return;
+  }
+  $("delete-confirm-title").textContent = rows.title;
+  $("delete-everyone-ok").hidden = !rows.can_everyone;
   $("delete-confirm").hidden = false;
 }
 

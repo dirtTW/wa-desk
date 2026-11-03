@@ -134,6 +134,83 @@ if (chatCheck.skipped) {
   check("media blocks render", chatCheck.media >= 0, `${chatCheck.media} media, ${chatCheck.images} ready`);
 }
 
+console.log("\n# context menus (rust)");
+const menus = await page.evaluate(async () => {
+  const out = {};
+  const row = document.querySelector("#chat-list .chat-item[data-jid]");
+  row.dispatchEvent(
+    new MouseEvent("contextmenu", { bubbles: true, clientX: 200, clientY: 300 }),
+  );
+  await new Promise((r) => setTimeout(r, 500));
+  const menu = document.getElementById("chat-list-menu");
+  out.chatRows = [...menu.querySelectorAll("button[data-chat-action]")]
+    .filter((node) => !node.hidden)
+    .map((node) => node.dataset.chatAction);
+  menu.hidden = true;
+
+  document.querySelector("#chat-list .chat-item[data-jid]").click();
+  await new Promise((r) => setTimeout(r, 1200));
+  const bubble = document.querySelector("#messages .bubble[data-id]");
+  const message = state.chats
+    .get(state.active)
+    ?.messages.find((item) => item.id === bubble?.getAttribute("data-id"));
+  if (message) {
+    await openMessageMenu(message, 300, 300);
+    await new Promise((r) => setTimeout(r, 400));
+    const msgMenu = document.getElementById("msg-menu");
+    out.messageRows = [...msgMenu.querySelectorAll("button[data-action]")]
+      .filter((node) => !node.hidden)
+      .map((node) => node.dataset.action);
+    closeMessageMenu();
+  }
+
+  await askDelete([{ fromMe: true, deleted: false, chat: state.active }]);
+  await new Promise((r) => setTimeout(r, 400));
+  out.deleteTitle = document.getElementById("delete-confirm-title").textContent;
+  out.deleteEveryone = !document.getElementById("delete-everyone-ok").hidden;
+  closeDeleteConfirm();
+  return out;
+});
+check("the chat menu hides unusable rows", menus.chatRows.includes("pin") && menus.chatRows.includes("mute"), menus.chatRows.join(","));
+check("the message menu renders", (menus.messageRows || []).length > 0, (menus.messageRows || []).join(","));
+check("the delete dialog is built", menus.deleteTitle === "Delete message?", `${menus.deleteTitle}, everyone=${menus.deleteEveryone}`);
+
+console.log("\n# settings (rust)");
+const settings = await page.evaluate(async () => {
+  openSettings("home");
+  await new Promise((r) => setTimeout(r, 700));
+  const title = document.getElementById("settings-title").textContent;
+  const links = document.querySelectorAll("#settings-body [data-page]").length;
+  const logout = Boolean(document.querySelector('#settings-body [data-action="logout"]'));
+  const pages = {};
+  for (const page of ["profile", "account", "chats", "ai", "help"]) {
+    openSettings(page);
+    await new Promise((r) => setTimeout(r, 600));
+    pages[page] = {
+      title: document.getElementById("settings-title").textContent,
+      rows: document.querySelectorAll("#settings-body .settings-row").length,
+    };
+  }
+  openSettings("chats");
+  await new Promise((r) => setTimeout(r, 500));
+  const toggles = document.querySelectorAll("#settings-body [data-toggle]").length;
+  openSettings("help");
+  await new Promise((r) => setTimeout(r, 500));
+  const credits = document.querySelectorAll('#settings-body a[target="_blank"]').length;
+  openSettings("account");
+  await new Promise((r) => setTimeout(r, 500));
+  const updateButton = Boolean(document.querySelector('#settings-body [data-update="check"]'));
+  closeSettings();
+  return { title, links, logout, pages, toggles, credits, updateButton };
+});
+check("the settings home renders", settings.links === 7 && settings.logout, `${settings.links} page rows, logout`);
+for (const [page, info] of Object.entries(settings.pages)) {
+  check(`the ${page} page renders`, info.rows > 0, `${info.title}: ${info.rows} rows`);
+}
+check("the chat toggles render", settings.toggles === 4, `${settings.toggles} switches`);
+check("the help page lists the credits", settings.credits > 10, `${settings.credits} links`);
+check("the update row renders", settings.updateButton);
+
 console.log("\n# group info (rust)");
 const groupInfo = await page.evaluate(async () => {
   const group = [...state.chats.values()].find((chat) => chat.isGroup);

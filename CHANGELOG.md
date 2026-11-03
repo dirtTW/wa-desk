@@ -4,7 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.3] - 2026-11-03
+## [0.2.0-rc.4] — 2026-11-03
+
+- **The Settings screen is rendered by Rust.** `wa_ui::settings` builds all
+  eight pages (home, profile, account, privacy, chats, AI assistant, shortcuts,
+  help) plus the header avatar, the update row (check/install states), the AI
+  form with its escaped values, the four Chat switches and the credits list;
+  `ui_settings` returns `{ page, title, html }`, so an unknown page falls back
+  to home in one place. `settings.js` fell from 564 to 374 lines and lost
+  `SOURCE_URL`/`LICENSE_URL`/`SETTINGS_TITLES` and eight markup helpers.
+- **Menu rules live in Rust.** `wa_ui::menus` decides which rows the chat menu
+  shows (pin/unpin, mute/unmute, archive/unarchive, unread/read, block only for
+  DMs), the mute submenu, the message menu (edit only for own text, no
+  forward/reply/copy/star once a message is gone, "Message <sender>" only in
+  groups, the Star/Unstar label) and the delete dialog (`Delete N messages?`,
+  "for everyone" only when every message is ours outside "Message yourself").
+  Commands: `ui_chat_menu`, `ui_mute_menu`, `ui_message_menu`,
+  `ui_delete_confirm`.
+- 11 new `wa-ui` unit tests (69 total) and two new CDP e2e sections: all eight
+  settings pages render (7 home rows, 4 switches, 16 credit links, the update
+  button) and both context menus open with the right visible rows.
+
+## [0.2.0-rc.3] — 2026-11-03
 
 - **The status/stories screen is rendered by Rust.** `wa_ui::status` owns the
   rail list (24-hour expiry, recent/viewed split, `(You)`-style own row with its

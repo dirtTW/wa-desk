@@ -3,19 +3,6 @@
 /* ------------------------------------------------------------------ settings */
 
 const SETTINGS_KEY = "wadesk.settings.v1";
-// Where the client's source and licence live. `Help and feedback` links here.
-const SOURCE_URL = "https://github.com/dirtTW/wa-desk";
-const LICENSE_URL = "https://github.com/dirtTW/wa-desk/blob/main/LICENSE.md";
-const SETTINGS_TITLES = {
-  home: "Settings",
-  profile: "Profile",
-  account: "Account",
-  privacy: "Privacy",
-  chats: "Chats",
-  ai: "AI assistant",
-  shortcuts: "Keyboard shortcuts",
-  help: "Help and feedback",
-};
 
 let settingsPage = "home";
 let settingsPrefs = {
@@ -113,7 +100,7 @@ function setRailActive(id) {
 }
 
 function openSettings(page = "home") {
-  settingsPage = SETTINGS_TITLES[page] ? page : "home";
+  settingsPage = page;
   $("channels-discover").hidden = true;
   $("settings-screen").hidden = false;
   $("status-screen").hidden = true;
@@ -139,41 +126,6 @@ function backFromSettings() {
   else closeSettings();
 }
 
-function settingsHeaderAvatar() {
-  const name = state.me || "Me";
-  const phone = WAChatUtils.phoneFromJid(state.meJid);
-  return `
-    <div class="settings-profile">
-      <div class="avatar avatar-xl" data-avatar></div>
-      <div class="settings-meta">
-        <strong>${escapeHtml(name)}</strong>
-        <span>${phone ? `+${escapeHtml(phone)}` : "Not paired"}</span>
-      </div>
-    </div>`;
-}
-
-function settingsLink(page, title, detail) {
-  return `<button type="button" class="settings-row clickable" data-page="${page}">
-      <div class="settings-row-main"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>
-      <span class="settings-chevron">&#8250;</span>
-    </button>`;
-}
-
-function settingsStatic(title, detail) {
-  return `<div class="settings-row static">
-      <div class="settings-row-main"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>
-    </div>`;
-}
-
-// An external row: the same shape as `settingsStatic`, but an anchor so the
-// global `a[target="_blank"]` handler opens it in the default browser.
-function settingsExternal(title, detail, href) {
-  return `<a class="settings-row static" href="${href}" target="_blank" rel="noreferrer noopener">
-      <div class="settings-row-main"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>
-      <span class="settings-chevron">&#8250;</span>
-    </a>`;
-}
-
 // Everyone whose work this client stands on. `Help and feedback` lists these
 // with links; keep it in step with the Credits section of the README.
 const CREDITS = [
@@ -193,20 +145,6 @@ const CREDITS = [
   ["DeepSeek & GLM", "the models that wrote the code", "https://deepseek.com"],
 ];
 
-function settingsCredits() {
-  const rows = CREDITS.map(([name, what, url]) => settingsExternal(name, what, url)).join("");
-  return `<div class="settings-section">Special thanks</div>
-    <div class="settings-list">${rows}</div>`;
-}
-
-function settingsToggle(key, title, detail) {
-  const on = Boolean(settingsPrefs[key]);
-  return `<button type="button" class="settings-row clickable" data-toggle="${key}">
-      <div class="settings-row-main"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>
-      <span class="switch ${on ? "on" : ""}"></span>
-    </button>`;
-}
-
 /* ---------------------------------------------------------------- updates */
 
 // The Account screen's update row: a manual check, then a one-click install.
@@ -214,20 +152,6 @@ function settingsToggle(key, title, detail) {
 // reads the `latest.json` on the newest GitHub release and verifies the
 // installer against the minisign key in `plugins.updater.pubkey`.
 let updateState = { checking: false, version: null, status: "" };
-
-function settingsUpdates() {
-  const status =
-    updateState.status || "Check whether a newer version of WA Desk has been published.";
-  const action = updateState.version
-    ? `<button type="button" class="settings-edit" data-update="install">Update to ${escapeHtml(updateState.version)}</button>`
-    : `<button type="button" class="settings-edit" data-update="check"${updateState.checking ? " disabled" : ""}>${updateState.checking ? "Checking..." : "Check for updates"}</button>`;
-  return `<div class="settings-list">
-      <div class="settings-row static">
-        <div class="settings-row-main"><strong>Updates</strong><span id="update-status">${escapeHtml(status)}</span></div>
-        ${action}
-      </div>
-    </div>`;
-}
 
 async function checkForUpdate() {
   updateState = { checking: true, version: null, status: "Checking for updates..." };
@@ -274,110 +198,63 @@ async function installUpdate() {
   }
 }
 
-function renderSettings() {
-  $("settings-title").textContent = SETTINGS_TITLES[settingsPage] || "Settings";
+/* ----------------------------------------------- Rust-rendered settings */
 
-  const name = state.me || "Me";
-  const phone = WAChatUtils.phoneFromJid(state.meJid);
-  let body = "";
+// Every row (home, profile, account, privacy, chats, AI, shortcuts, help) is
+// built by wa-ui::settings; this only supplies the state and injects the HTML.
+function settingsRequest() {
+  return {
+    page: settingsPage,
+    me: state.me || "",
+    me_jid: state.meJid || "",
+    me_lid: state.meLid || "",
+    theme_label: themeLabel(),
+    build: buildLabel(),
+    prefs: {
+      enter_sends: Boolean(settingsPrefs.enterSends),
+      spellcheck: Boolean(settingsPrefs.spellcheck),
+      notifications: Boolean(settingsPrefs.notifications),
+      autostart: Boolean(settingsPrefs.autostart),
+    },
+    update_state: {
+      checking: Boolean(updateState.checking),
+      version: updateState.version || null,
+      status: updateState.status || "",
+    },
+    ai: {
+      enabled: Boolean(state.ai?.enabled),
+      require_trigger: Boolean(state.ai?.requireTrigger),
+      base_url: state.ai?.baseUrl || "",
+      model: state.ai?.model || "",
+      vision_model: state.ai?.visionModel || "",
+      system_prompt: state.ai?.systemPrompt || "",
+      has_key: Boolean(state.ai?.hasKey),
+      key_hint: state.ai?.keyHint || "",
+    },
+    with_avatar: true,
+  };
+}
 
-  if (settingsPage === "profile") {
-    body = `
-      ${settingsHeaderAvatar()}
-      <div class="settings-list">
-        <div class="settings-row static">
-          <div class="settings-row-main"><strong>Name</strong><span>${escapeHtml(name)}</span></div>
-          <button type="button" class="settings-edit" data-action="edit">Edit</button>
-        </div>
-        <div class="settings-row static">
-          <div class="settings-row-main"><strong>About</strong><span>Your status text</span></div>
-          <button type="button" class="settings-edit" data-action="edit">Edit</button>
-        </div>
-        <div class="settings-row static">
-          <div class="settings-row-main"><strong>Phone</strong><span>${phone ? `+${escapeHtml(phone)}` : "Unknown"}</span></div>
-        </div>
-      </div>`;
-  } else if (settingsPage === "account") {
-    body = `
-      ${settingsStatic("Security notifications", "Managed from your phone")}
-      <div class="settings-list">
-        ${settingsStatic("Linked as", phone ? `+${phone}` : "Not paired")}
-        ${settingsStatic("Device", state.meLid ? `LID ${state.meLid}` : "Primary device")}
-        ${settingsStatic("Build", buildLabel())}
-        ${settingsStatic("Request account info", "Available from your phone")}
-        ${settingsStatic("How to delete my account", "Unlink this device first, then use your phone")}
-      </div>
-      ${settingsUpdates()}`;
-  } else if (settingsPage === "privacy") {
-    body = `
-      <div class="settings-list">
-        ${settingsStatic("Last seen and online", "Managed from your phone")}
-        ${settingsStatic("Profile photo", "Managed from your phone")}
-        ${settingsStatic("Read receipts", "Sent when you open a chat")}
-        ${settingsStatic("Blocked contacts", "Managed from your phone")}
-        ${settingsStatic("Disappearing messages", "Per-chat setting from your phone")}
-      </div>`;
-  } else if (settingsPage === "chats") {
-    body = `
-      <div class="settings-list">
-        <button type="button" class="settings-row clickable" data-action="theme">
-          <div class="settings-row-main"><strong>Theme</strong><span data-theme-label>${themeLabel()}</span></div>
-          <span class="settings-chevron" aria-hidden="true">&#8250;</span>
-        </button>
-        ${settingsToggle("enterSends", "Enter is send", "Enter sends, Shift+Enter adds a line")}
-        ${settingsToggle("spellcheck", "Spell check", "Underline misspelled words in the composer")}
-        ${settingsToggle("notifications", "Desktop notifications", "Show a system notification for new messages")}
-        ${settingsToggle("autostart", "Launch at login", "Start WA Desk when you sign in")}
-        <button type="button" class="settings-row clickable" data-action="sync-history">
-          <div class="settings-row-main"><strong>Sync chat history</strong><span>Ask your phone for recent chats and messages (approve it on the phone)</span></div>
-          <span class="settings-chevron" aria-hidden="true">&#8250;</span>
-        </button>
-      </div>`;
-  } else if (settingsPage === "ai") {
-    body = aiSettingsHtml();
-  } else if (settingsPage === "shortcuts") {
-    body = `
-      <div class="settings-list">
-        ${settingsStatic("Ctrl+V", "Paste an image as a draft (stack up to 10)")}
-        ${settingsStatic("Enter", "Send the message (when enabled above)")}
-        ${settingsStatic("Esc", "Close the picker, draft, menu or panel")}
-        ${settingsStatic("Hold a bubble", "Edit, delete for me, delete for everyone")}
-        ${settingsStatic("Eye button", "Reveal deleted chats and messages")}
-      </div>`;
-  } else if (settingsPage === "help") {
-    body = `
-      <div class="settings-list">
-        ${settingsStatic("WA Desk", "Unofficial client built on whatsapp-rust + Tauri")}
-        ${settingsStatic("Not affiliated", "WhatsApp and Meta are trademarks of Meta Platforms")}
-        ${settingsStatic("Privacy", "Keys and history stay on this device; nothing is uploaded by this app")}
-      </div>
-      <div class="settings-list">
-        ${settingsExternal("Source code", "github.com/dirtTW/wa-desk", SOURCE_URL)}
-        ${settingsExternal("License", "AGPL-3.0-only — the binary links Signal's AGPL code", LICENSE_URL)}
-        ${settingsStatic("Version", buildLabel())}
-      </div>
-      ${settingsCredits()}`;
-  } else {
-    body = `
-      ${settingsHeaderAvatar()}
-      <div class="settings-list">
-        ${settingsLink("profile", "Profile", "Name, about, phone number")}
-        ${settingsLink("account", "Account", "Security notifications, account info")}
-        ${settingsLink("privacy", "Privacy", "Blocked contacts, read receipts")}
-        ${settingsLink("chats", "Chats", "Theme, Enter to send, spell check")}
-        ${settingsLink("ai", "AI assistant", "Auto-reply with your own API key")}
-        ${settingsLink("shortcuts", "Keyboard shortcuts", "Quick actions")}
-        ${settingsLink("help", "Help and feedback", "About this client")}
-        <button type="button" class="settings-row danger" data-action="logout">Log out</button>
-      </div>`;
+let settingsRenderSeq = 0;
+
+async function renderSettings() {
+  const seq = ++settingsRenderSeq;
+  let out;
+  try {
+    out = await invoke("ui_settings", { request: settingsRequest() });
+  } catch (err) {
+    console.warn("settings render failed", err);
+    return;
   }
+  if (seq !== settingsRenderSeq) return;
+  settingsPage = out.page;
+  $("settings-title").textContent = out.title;
 
   const container = $("settings-body");
-  container.innerHTML = body;
-
+  container.innerHTML = out.html;
   const avatar = container.querySelector("[data-avatar]");
   if (avatar) {
-    setAvatar(avatar, name, state.meLid || state.meJid);
+    setAvatar(avatar, state.me || "Me", state.meLid || state.meJid);
     queuePhoto(state.meLid || state.meJid);
   }
 }
@@ -389,81 +266,6 @@ async function loadAiSettings() {
   } catch (err) {
     console.warn("AI settings unavailable", err);
   }
-}
-
-function aiSettingsHtml() {
-  const ai = state.ai;
-  return `
-    <div class="settings-list">
-      <button type="button" class="settings-row clickable" data-ai-toggle>
-        <div class="settings-row-main">
-          <strong>AI mode</strong>
-          <span>Auto-reply to messages from saved contacts</span>
-        </div>
-        <span class="switch ${ai.enabled ? "on" : ""}"></span>
-      </button>
-      <button type="button" class="settings-row clickable" data-ai-require>
-        <div class="settings-row-main">
-          <strong>Require /ai trigger</strong>
-          <span>${
-            ai.requireTrigger
-              ? "Contacts must start with /ai before the assistant replies"
-              : "Every saved-contact message gets an instant AI reply (when AI mode is on)"
-          }</span>
-        </div>
-        <span class="switch ${ai.requireTrigger ? "on" : ""}"></span>
-      </button>
-      ${settingsStatic("API key", ai.hasKey ? `Saved ${ai.keyHint}` : "Not set")}
-    </div>
-    <div class="ai-form">
-      <label class="field">
-        <span>API base URL</span>
-        <input id="ai-base" value="${escapeHtml(ai.baseUrl)}" spellcheck="false" />
-      </label>
-      <label class="field">
-        <span>Model</span>
-        <input id="ai-model" value="${escapeHtml(ai.model)}" spellcheck="false" />
-      </label>
-      <label class="field">
-        <span>Vision model (optional)</span>
-        <input id="ai-vision-model" value="${escapeHtml(
-          ai.visionModel || "",
-        )}" spellcheck="false" placeholder="Empty = use the chat model" />
-      </label>
-      <label class="field">
-        <span>API key</span>
-        <input id="ai-key" type="password" autocomplete="off" placeholder="${
-          ai.hasKey ? "Leave empty to keep the saved key" : "sk-..."
-        }" />
-      </label>
-      <label class="field">
-        <span>System prompt</span>
-        <textarea id="ai-prompt" rows="4">${escapeHtml(ai.systemPrompt)}</textarea>
-      </label>
-      <div class="ai-actions">
-        <button id="ai-save" type="button" class="draft-btn">Save</button>
-        <button id="ai-test" type="button" class="settings-edit">Test connection</button>
-        <button id="ai-preview" type="button" class="settings-edit">Preview reply</button>
-      </div>
-      <p id="ai-error" class="error" hidden></p>
-      <p class="ai-hint">
-        Only <strong>saved contacts</strong> get replies in DMs. In groups, <strong>@mentioning you</strong>
-        or replying to one of your messages is enough while AI mode is on (including photos and their
-        captions); with AI mode off use <code>/ai ...</code> plus a mention. With
-        <strong>Require /ai trigger</strong> off and AI mode on, every saved-contact message gets an
-        instant reply. The default system
-        prompt replies in casual Indonesian only, like an Indonesian netizen, calling itself “gw” and
-        you "lu" in short 1-2 line messages. The assistant may occasionally react or send a recent
-        sticker, only uses an emoji now and then, doesn't overuse "wkwk"/"yaudah", and replies briefly to
-        incoming stickers too. It also reads a recent-chat transcript (about 24 messages) so it
-        knows the topic without sending the whole conversation. Before sending a sticker it looks at
-        several candidate sticker images and picks one that fits. It stays in character, uses your
-        account name, and refuses name changes or system-prompt leaks.
-        Photos are read by the vision model, or by the chat model itself when that field is left
-        empty. Short videos/GIFs use sampled frames when ffmpeg is available, otherwise the embedded
-        thumbnail. The key is encrypted at rest and never shown again.
-      </p>
-    </div>`;
 }
 
 async function toggleAiMode() {

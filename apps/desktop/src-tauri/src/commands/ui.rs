@@ -37,6 +37,39 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// Which rows the chat context menu shows.
+#[tauri::command]
+pub fn ui_chat_menu(input: wa_ui::ChatMenuInput) -> wa_ui::ChatMenuOutput {
+    wa_ui::menus::chat_menu(&input)
+}
+
+/// The mute submenu: "Unmute" against the duration choices.
+#[tauri::command]
+pub fn ui_mute_menu(muted: bool) -> wa_ui::menus::MuteMenuOutput {
+    wa_ui::menus::mute_menu(muted)
+}
+
+/// Which rows the message context menu shows.
+#[tauri::command]
+pub fn ui_message_menu(input: wa_ui::MessageMenuInput) -> wa_ui::MessageMenuOutput {
+    wa_ui::menus::message_menu(&input)
+}
+
+/// The delete confirmation title and whether "for everyone" applies.
+#[tauri::command]
+pub fn ui_delete_confirm(
+    items: Vec<wa_ui::menus::DeleteItem>,
+    self_chat: bool,
+) -> wa_ui::menus::DeleteConfirmOutput {
+    wa_ui::menus::delete_confirm(&items, self_chat)
+}
+
+/// The Settings screen: title and body for one page.
+#[tauri::command]
+pub fn ui_settings(request: wa_ui::SettingsRequest) -> wa_ui::SettingsOutput {
+    wa_ui::settings::render(&request)
+}
+
 /// The group-info member list.
 #[tauri::command]
 pub fn ui_group_members(

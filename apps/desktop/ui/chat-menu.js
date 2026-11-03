@@ -14,43 +14,29 @@ function initChatMenu() {
     return state.chats.has(jid);
   }
 
-  // Define which rows the official menu shows for the selected chat:
-  // pin↔unpin, mute↔unmute, mark-unread↔read, archive when not archived.
-  function applyLocalChatMenuState() {
+  // Define which rows the official menu shows for the selected chat. The rules
+  // live in wa-ui::menus; this only toggles the static rows.
+  async function applyLocalChatMenuState() {
     const chat = state.chats.get(chatMenuChat) || {};
+    let rows;
+    try {
+      rows = await invoke("ui_chat_menu", {
+        input: {
+          pinned: Boolean(chat.pinned),
+          muted: chatIsMuted(chat),
+          archived: Boolean(chat.archived),
+          unread: chat.unread || 0,
+          is_group: Boolean(chat.isGroup),
+        },
+      });
+    } catch (err) {
+      console.warn("chat menu state failed", err);
+      return;
+    }
     const menu = $("chat-list-menu");
     for (const button of menu.querySelectorAll("button[data-chat-action]")) {
       const action = button.dataset.chatAction;
-      let usable = true;
-      switch (action) {
-        case "pin":
-          usable = !chat.pinned;
-          break;
-        case "unpin":
-          usable = Boolean(chat.pinned);
-          break;
-        case "mute":
-          usable = !chatIsMuted(chat);
-          break;
-        case "unmute":
-          usable = chatIsMuted(chat);
-          break;
-        case "archive":
-          usable = !chat.archived;
-          break;
-        case "unread":
-          usable = (chat.unread || 0) === 0;
-          break;
-        case "read":
-          usable = (chat.unread || 0) > 0;
-          break;
-        case "block":
-          usable = !chat.isGroup;
-          break;
-        default:
-          usable = true;
-      }
-      button.hidden = !usable;
+      button.hidden = rows[action] === false;
     }
   }
 
@@ -71,12 +57,12 @@ function initChatMenu() {
     menu.style.top = `${top}px`;
   }
 
-  function openChatMenu(chatJid, clientX, clientY) {
+  async function openChatMenu(chatJid, clientX, clientY) {
     if (!chatExists(chatJid)) return;
     chatMenuChat = chatJid;
-    applyLocalChatMenuState();
     const menu = $("chat-list-menu");
     menu.hidden = false;
+    await applyLocalChatMenuState();
     clampMenu(menu, clientX, clientY);
   }
 
@@ -102,7 +88,7 @@ function initChatMenu() {
     chatListEl.addEventListener(type, () => clearTimeout(chatPressTimer));
   }
 
-  $("chat-list-menu").addEventListener("click", (event) => {
+  $("chat-list-menu").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-chat-action]");
     const chatJid = chatMenuChat;
     if (!button || !chatJid) return;
@@ -111,7 +97,7 @@ function initChatMenu() {
       const submenu = $("chat-mute-sub");
       const rect = button.getBoundingClientRect();
       submenu.hidden = false;
-      applyMuteSubmenu(chatJid);
+      await applyMuteSubmenu(chatJid);
       clampMenu(submenu, rect.right + 4, rect.top);
       return;
     }
@@ -240,13 +226,19 @@ function initChatMenu() {
     }
   }
 
-  function applyMuteSubmenu(chatJid) {
+  async function applyMuteSubmenu(chatJid) {
     const chat = state.chats.get(chatJid) || {};
-    const muted = chatIsMuted(chat);
+    let rows;
+    try {
+      rows = await invoke("ui_mute_menu", { muted: chatIsMuted(chat) });
+    } catch (err) {
+      console.warn("mute menu state failed", err);
+      return;
+    }
     const submenu = $("chat-mute-sub");
     for (const button of submenu.querySelectorAll("button[data-mute-choice]")) {
       // The "Unmute" row replaces the durations when the chat is muted.
-      button.hidden = button.dataset.muteChoice === "0" ? !muted : muted;
+      button.hidden = button.dataset.muteChoice === "0" ? !rows.unmute : !rows.durations;
     }
   }
 

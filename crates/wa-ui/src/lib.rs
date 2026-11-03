@@ -13,8 +13,10 @@ pub mod emoji;
 pub mod html;
 pub mod icons_data;
 pub mod labels;
+pub mod menus;
 pub mod picker;
 pub mod screens;
+pub mod settings;
 pub mod sidebar;
 pub mod status;
 pub mod text;
@@ -24,8 +26,12 @@ mod emoji_data;
 pub use emoji::{EmojiGroupView, EmojiItem};
 pub use html::{avatar, escape, icon, icon_with_class, initials};
 pub use labels::{clock_label, day_of, format_followers, stamp_of};
+pub use menus::{
+    ChatMenuInput, ChatMenuOutput, DeleteConfirmOutput, MessageMenuInput, MessageMenuOutput,
+};
 pub use picker::{PickerChat, PickerOutput, PickerRequest};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
+pub use settings::{SettingsOutput, SettingsRequest};
 pub use sidebar::{SidebarChat, SidebarOutput, SidebarRequest};
 pub use status::{
     StatusEntryView, StatusFrameOutput, StatusFrameRequest, StatusListOutput, StatusRequest,
