@@ -815,6 +815,26 @@ pub fn selftest() -> Result<String, String> {
     if model.viewer.is_some() {
         return Err("closing clears the viewer".to_string());
     }
+    // Settings: the theme resolves from the choice, the AI form validates
+    // through wa-ui and a blank key keeps the stored one.
+    let mut prefs = crate::settings::NativeSettings::default();
+    if prefs.resolved_theme(true) != "dark" {
+        return Err("system theme should follow a dark OS".to_string());
+    }
+    prefs.theme = "light".into();
+    if prefs.resolved_theme(true) != "light" {
+        return Err("an explicit theme must win".to_string());
+    }
+    let plan = prefs.ai_plan();
+    if !plan.ok || !plan.settings["apiKey"].is_null() {
+        return Err(format!(
+            "default AI form should validate with no key, got {plan:?}"
+        ));
+    }
+    prefs.ai.base_url = "ftp://bad".into();
+    if prefs.ai_plan().ok {
+        return Err("a non-http base URL must be rejected".to_string());
+    }
     Ok(serde_json::json!({
         "chats": model.visible_chats().len(),
         "first": first,
@@ -825,6 +845,7 @@ pub fn selftest() -> Result<String, String> {
         "photo_body": model.bubble_body(&photo),
         "status_groups": model.status_groups().len(),
         "channels": model.channel_rows().len(),
+        "theme": prefs.resolved_theme(true),
     })
     .to_string())
 }

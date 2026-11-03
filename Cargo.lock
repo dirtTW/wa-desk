@@ -7487,7 +7487,7 @@ dependencies = [
 
 [[package]]
 name = "wa-core"
-version = "0.2.0-rc.54"
+version = "0.2.0-rc.55"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -7506,7 +7506,7 @@ dependencies = [
 
 [[package]]
 name = "wa-desktop"
-version = "0.2.0-rc.54"
+version = "0.2.0-rc.55"
 dependencies = [
  "aes-gcm 0.11.1",
  "base64 0.23.1",
@@ -7529,12 +7529,13 @@ dependencies = [
 
 [[package]]
 name = "wa-desktop-native"
-version = "0.2.0-rc.54"
+version = "0.2.0-rc.55"
 dependencies = [
  "eframe",
  "egui",
  "image",
  "resvg",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -7546,14 +7547,14 @@ dependencies = [
 
 [[package]]
 name = "wa-types"
-version = "0.2.0-rc.54"
+version = "0.2.0-rc.55"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "wa-ui"
-version = "0.2.0-rc.54"
+version = "0.2.0-rc.55"
 dependencies = [
  "chrono",
  "regex",

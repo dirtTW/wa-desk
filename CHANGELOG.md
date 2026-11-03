@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.56] — 2026-11-03
+
+- **The native window has a Settings screen.** `settings.rs` stores the theme and
+  the AI form as JSON; the **API key is never written to disk**, and every rule is
+  `wa-ui`'s: `resolve_theme`, `theme_label` and `ai_save_plan` (so a blank key
+  keeps the stored one and a non-http base URL or blank model is rejected with the
+  same copy the WebView shows).
+- `app.rs`: a **Settings** button opens Light / Dark / System choices (showing
+  both the stored choice and what is actually painted today), plus the AI form —
+  mode and `/ai` requirement, base URL, model, vision model, system prompt and a
+  masked key field with a hint — and Save, which validates through `wa-ui` and
+  reports the toast or the first error.
+- 3 new native tests (theme resolution, AI validation, round-trip that asserts the
+  key is absent from the file). `--selftest` covers the theme and AI rules too
+  and reports `"theme":"light"`.
+- 11 native tests, clippy clean across the workspace, window starts and stays up.
+
 ## [0.2.0-rc.55] — 2026-11-03
 
 - **The native window lists followed channels.** `Model` folds `ChannelInfo`

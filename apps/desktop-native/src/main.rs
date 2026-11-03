@@ -12,6 +12,7 @@
 mod app;
 mod login;
 mod model;
+mod settings;
 
 use std::sync::Arc;
 

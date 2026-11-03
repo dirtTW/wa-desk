@@ -10,6 +10,7 @@ use wa_types::{MessageView, UiEvent};
 
 use crate::login::LoginState;
 use crate::model::{ChatRow, Command, Model};
+use crate::settings::NativeSettings;
 
 /// What `main` assembles before the window exists.
 pub struct NativeApp {
@@ -44,6 +45,12 @@ pub struct WaDesk {
     typing_sent: bool,
     /// The status panel is showing instead of a conversation.
     show_status: bool,
+    /// The settings screen is showing instead of a conversation.
+    show_settings: bool,
+    settings: NativeSettings,
+    settings_path: std::path::PathBuf,
+    /// The last save result, shown under the form.
+    settings_note: String,
     /// The channels panel is showing instead of a conversation.
     show_channels: bool,
     /// Rasterised QR code, keyed by the SVG it came from so a rotating code
@@ -65,6 +72,10 @@ impl WaDesk {
             typing_sent: false,
             show_status: false,
             show_channels: false,
+            show_settings: false,
+            settings: NativeSettings::load(&settings_file()),
+            settings_path: settings_file(),
+            settings_note: String::new(),
             qr: None,
             media_rx: native.media,
             textures: std::collections::HashMap::new(),
@@ -109,6 +120,13 @@ impl WaDesk {
                         }
                         if ui.button("Channels").clicked() {
                             self.show_channels = !self.show_channels;
+                            self.show_status = false;
+                            self.show_settings = false;
+                            self.model.close_status();
+                        }
+                        if ui.button("Settings").clicked() {
+                            self.show_settings = !self.show_settings;
+                            self.show_channels = false;
                             self.show_status = false;
                             self.model.close_status();
                         }
@@ -700,6 +718,128 @@ impl WaDesk {
     }
 }
 
+impl WaDesk {
+    /// Settings: theme and the AI form, validated by wa-ui.
+    fn settings_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Settings");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Back to chats").clicked() {
+                        self.show_settings = false;
+                    }
+                });
+            });
+            ui.separator();
+
+            ui.label(egui::RichText::new("Theme").strong());
+            let system_dark = ctx.style().visuals.dark_mode;
+            ui.horizontal(|ui| {
+                for choice in ["light", "dark", "system"] {
+                    let label = wa_ui::settings::theme_label(choice);
+                    if ui
+                        .selectable_label(self.settings.theme == choice, label)
+                        .clicked()
+                    {
+                        self.settings.theme = choice.to_string();
+                    }
+                }
+            });
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} · showing {}",
+                    self.settings.theme_label(),
+                    self.settings.resolved_theme(system_dark)
+                ))
+                .small()
+                .weak(),
+            );
+
+            ui.add_space(14.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("AI assistant").strong());
+            ui.label(egui::RichText::new(self.settings.key_hint()).small().weak());
+            ui.checkbox(&mut self.settings.ai.enabled, "AI mode");
+            ui.checkbox(&mut self.settings.ai.require_trigger, "Require /ai trigger");
+
+            egui::Grid::new("ai-form").num_columns(2).show(ui, |ui| {
+                ui.label("Base URL");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.settings.ai.base_url).desired_width(380.0),
+                );
+                ui.end_row();
+
+                ui.label("Model");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.settings.ai.model).desired_width(380.0),
+                );
+                ui.end_row();
+
+                ui.label("Vision model");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.settings.ai.vision_model)
+                        .desired_width(380.0),
+                );
+                ui.end_row();
+
+                ui.label("System prompt");
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.settings.ai.system_prompt)
+                        .desired_width(380.0)
+                        .desired_rows(3),
+                );
+                ui.end_row();
+
+                ui.label("API key");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.settings.ai.api_key)
+                        .password(true)
+                        .hint_text("leave blank to keep the stored key")
+                        .desired_width(380.0),
+                );
+                ui.end_row();
+            });
+
+            ui.add_space(8.0);
+            if ui.button("Save").clicked() {
+                let plan = self.settings.ai_plan();
+                if !plan.ok {
+                    self.settings_note = plan.error.unwrap_or_default();
+                } else {
+                    match self.settings.save(&self.settings_path) {
+                        Ok(()) => {
+                            if !self.settings.ai.api_key.is_empty() {
+                                self.settings.ai.has_key = true;
+                            }
+                            self.settings.ai.api_key.clear();
+                            self.settings_note = plan.toast;
+                        }
+                        Err(err) => self.settings_note = err,
+                    }
+                }
+            }
+            if !self.settings_note.is_empty() {
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(&self.settings_note).small().weak());
+            }
+        });
+    }
+}
+
+/// Where the native app keeps its own settings.
+fn settings_file() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .or_else(|_| {
+            std::env::var("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
+        })
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let dir = base.join("io.github.dirttw.wadesk-native");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("settings.json")
+}
+
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.model.now = std::time::SystemTime::now()
@@ -712,7 +852,9 @@ impl eframe::App for WaDesk {
             self.gate(ctx);
         } else {
             self.sidebar(ctx);
-            if self.show_channels {
+            if self.show_settings {
+                self.settings_panel(ctx);
+            } else if self.show_channels {
                 self.channels_panel(ctx);
             } else if self.show_status {
                 self.status_panel(ctx);

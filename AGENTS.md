@@ -121,6 +121,7 @@ apps/desktop-native/         NATIVE front end (eframe/egui, no WebView, no JS)
   (media: Model::media + egui textures, one fetch per message)
   (status: Model::statuses + viewer via wa_ui::status)
   (channels: Model::channels + read-only post list)
+  src/settings.rs            native settings: theme + AI form (key never on disk)
   src/app.rs                 egui window: chat list + conversation + composer
 apps/desktop/
   src-tauri/                   Tauri 2 shell, commands, event bridge
