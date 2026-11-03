@@ -8,6 +8,7 @@ use std::sync::mpsc::Sender;
 use tokio::sync::mpsc::UnboundedReceiver;
 use wa_types::{MessageView, UiEvent};
 
+use crate::login::LoginState;
 use crate::model::{ChatRow, Command, Model};
 
 /// What `main` assembles before the window exists.
@@ -37,6 +38,9 @@ pub struct WaDesk {
     commands: Sender<Command>,
     runtime: tokio::runtime::Handle,
     typing_sent: bool,
+    /// Rasterised QR code, keyed by the SVG it came from so a rotating code
+    /// is decoded once per rotation.
+    qr: Option<(String, egui::TextureHandle)>,
 }
 
 impl WaDesk {
@@ -47,6 +51,7 @@ impl WaDesk {
             commands: native.commands,
             runtime: native.runtime,
             typing_sent: false,
+            qr: None,
         }
     }
 
@@ -245,6 +250,107 @@ fn bubble(ui: &mut egui::Ui, model: &Model, message: &MessageView) {
     });
 }
 
+impl WaDesk {
+    /// The login screen: the QR (or pairing code), the hint line and the
+    /// actions that get a fresh code.
+    fn gate(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(40.0);
+                ui.heading("WA Desk");
+                ui.label(egui::RichText::new(self.model.login.hint()).weak());
+
+                match self.model.login.clone() {
+                    LoginState::Qr(svg) => {
+                        if let Some(texture) = self.qr_texture(ctx, &svg) {
+                            let side = 280.0;
+                            ui.add_space(12.0);
+                            ui.image((texture.id(), egui::vec2(side, side)));
+                        } else {
+                            ui.label(
+                                egui::RichText::new("could not draw the QR code")
+                                    .color(egui::Color32::RED),
+                            );
+                        }
+                    }
+                    LoginState::PairCode(code) => {
+                        ui.add_space(16.0);
+                        ui.label(egui::RichText::new(code).size(30.0).monospace());
+                        ui.label(
+                            egui::RichText::new("Linked devices → Link with phone number")
+                                .small()
+                                .weak(),
+                        );
+                    }
+                    LoginState::Expired | LoginState::Waiting => {}
+                    LoginState::Linked => {}
+                }
+
+                ui.add_space(18.0);
+                ui.horizontal(|ui| {
+                    if crate::login::can_restart(&self.model.login)
+                        && ui.button("Request a new code").clicked()
+                    {
+                        self.model.login_restarted();
+                        self.send(Command::Restart);
+                    }
+                });
+
+                ui.add_space(24.0);
+                ui.separator();
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("Or link with a phone number").small());
+                ui.horizontal(|ui| {
+                    let width = (ui.available_width() - 90.0).max(120.0);
+                    ui.add_sized(
+                        [width, 28.0],
+                        egui::TextEdit::singleline(&mut self.model.pair_phone)
+                            .hint_text("628123456789"),
+                    );
+                    if ui
+                        .add_sized([80.0, 28.0], egui::Button::new("Get code"))
+                        .clicked()
+                    {
+                        let phone: String = self
+                            .model
+                            .pair_phone
+                            .chars()
+                            .filter(|c| c.is_ascii_digit())
+                            .collect();
+                        if !phone.is_empty() {
+                            self.send(Command::PairCode { phone });
+                        }
+                    }
+                });
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new(&self.model.status).small().weak());
+            });
+        });
+    }
+
+    /// Rasterise the QR SVG once per code.
+    fn qr_texture(&mut self, ctx: &egui::Context, svg: &str) -> Option<egui::TextureHandle> {
+        if let Some((_, texture)) = self.qr.as_ref().filter(|(cached, _)| cached == svg) {
+            return Some(texture.clone());
+        }
+        let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
+        let size = tree.size().to_int_size();
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(size.width().max(1), size.height().max(1))?;
+        resvg::render(
+            &tree,
+            resvg::tiny_skia::Transform::default(),
+            &mut pixmap.as_mut(),
+        );
+        let image = egui::ColorImage::from_rgba_premultiplied(
+            [size.width() as usize, size.height() as usize],
+            pixmap.data(),
+        );
+        let texture = ctx.load_texture("login-qr", image, egui::TextureOptions::NEAREST);
+        self.qr = Some((svg.to_string(), texture.clone()));
+        Some(texture)
+    }
+}
+
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.model.now = std::time::SystemTime::now()
@@ -252,8 +358,12 @@ impl eframe::App for WaDesk {
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         self.drain_events(ctx);
-        self.sidebar(ctx);
-        self.conversation(ctx);
+        if !self.model.login.is_linked() {
+            self.gate(ctx);
+        } else {
+            self.sidebar(ctx);
+            self.conversation(ctx);
+        }
         let _ = &self.runtime;
     }
 }

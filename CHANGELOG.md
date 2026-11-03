@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.52] — 2026-11-03
+
+- **The native window links an account: QR, pairing code and status.**
+  - `login.rs` is a pure gate state machine with 4 unit tests: a QR fills it, an
+    expired code offers a restart, a pairing code is its own screen, `Paired`
+    and `Connected` leave the gate, `LoggedOut` returns to it.
+  - `app.rs` shows the gate instead of the chat UI until the account is linked:
+    the QR that `wa-core` emits is rasterised with `resvg` (texture cached per
+    code, so a rotating QR decodes once), the pairing code is shown large, a
+    "Request a new code" action reconnects, and a phone-number field asks for a
+    pairing code. Every action runs through the session on the tokio runtime.
+  - `--selftest` now walks the gate as well and reports `"linked": true`.
+- 7 native tests (4 for the gate, 3 for the model). `cargo clippy --workspace
+  --all-targets -- -D warnings` is clean, and the window starts and stays up.
+
 ## [0.2.0-rc.51] — 2026-11-03
 
 - **A native front end exists: `apps/desktop-native` (binary `wa-desk-native`).**

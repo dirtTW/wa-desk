@@ -10,6 +10,7 @@
 //! expectation fails. That is how the UI is verified in CI without a display.
 
 mod app;
+mod login;
 mod model;
 
 use std::sync::Arc;
@@ -78,6 +79,19 @@ fn main() {
                 }
                 model::Command::Typing { chat, typing } => {
                     let _ = session.set_typing(&chat, typing).await;
+                }
+                model::Command::PairCode { phone } => {
+                    match session.request_pair_code(&phone).await {
+                        Ok(code) => tracing::info!(%code, "pairing code requested"),
+                        Err(err) => tracing::warn!(%err, "pairing code failed"),
+                    }
+                }
+                model::Command::Restart => {
+                    // The session reconnects itself; a reconnect is what asks
+                    // WhatsApp for a fresh QR.
+                    if let Err(err) = session.reconnect_safely().await {
+                        tracing::warn!(%err, "reconnect failed");
+                    }
                 }
             }
         }

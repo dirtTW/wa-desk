@@ -7,15 +7,31 @@
 use std::collections::BTreeMap;
 
 use wa_types::{MessageView, UiEvent};
+
+use crate::login::{LoginEvent, LoginState, fold};
 use wa_ui::labels::stamp_of;
 use wa_ui::text::{MessageRow, preview_of};
 
 /// Work the UI asks the session to do.
 #[derive(Debug, Clone)]
 pub enum Command {
-    SendText { chat: String, text: String },
-    MarkRead { chat: String },
-    Typing { chat: String, typing: bool },
+    SendText {
+        chat: String,
+        text: String,
+    },
+    MarkRead {
+        chat: String,
+    },
+    Typing {
+        chat: String,
+        typing: bool,
+    },
+    /// Ask the phone to show a pairing code instead of a QR.
+    PairCode {
+        phone: String,
+    },
+    /// Restart the pairing session for a fresh QR.
+    Restart,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -33,9 +49,10 @@ pub struct Model {
     pub active: Option<String>,
     /// The connection line under the title.
     pub status: String,
-    /// `Some` while the phone still has to scan something.
-    pub qr_svg: Option<String>,
-    pub pair_code: Option<String>,
+    /// Before the account is linked the window shows the gate instead of chats.
+    pub login: LoginState,
+    /// The phone number typed into the pairing-code form.
+    pub pair_phone: String,
     pub search: String,
     pub composer: String,
     pub now: i64,
@@ -51,28 +68,24 @@ impl Model {
 
     pub fn apply(&mut self, event: &UiEvent) {
         match event {
-            UiEvent::Qr { svg, .. } => {
-                self.qr_svg = Some(svg.clone());
-                self.status = "Scan the QR code with WhatsApp".to_string();
-            }
-            UiEvent::QrExpired => {
-                self.qr_svg = None;
-                self.status = "QR expired, waiting for a new one".to_string();
-            }
+            UiEvent::Qr { svg, .. } => self.login = fold(&self.login, &LoginEvent::Qr(svg.clone())),
+            UiEvent::QrExpired => self.login = fold(&self.login, &LoginEvent::Expired),
             UiEvent::PairCode { code } => {
-                self.pair_code = Some(code.clone());
-                self.status = "Enter this code on your phone".to_string();
+                self.login = fold(&self.login, &LoginEvent::PairCode(code.clone()))
             }
             UiEvent::Paired { name, .. } => {
-                self.qr_svg = None;
-                self.pair_code = None;
+                self.login = fold(&self.login, &LoginEvent::Paired);
                 self.status = format!("Linked as {name}");
             }
-            UiEvent::Connected => self.status = "Connected".to_string(),
+            UiEvent::Connected => {
+                self.login = fold(&self.login, &LoginEvent::Connected);
+                self.status = "Connected".to_string();
+            }
             UiEvent::Disconnected { reason } => {
                 self.status = format!("Reconnecting… ({reason})");
             }
             UiEvent::LoggedOut { .. } => {
+                self.login = fold(&self.login, &LoginEvent::LoggedOut);
                 self.status = "Logged out".to_string();
                 self.chats.clear();
                 self.active = None;
@@ -171,6 +184,12 @@ impl Model {
         rows
     }
 
+    /// Apply the restart action's outcome (a fresh QR replaces the state).
+    pub fn login_restarted(&mut self) {
+        self.login = LoginState::Waiting;
+        self.status = "Requesting a new code…".to_string();
+    }
+
     /// Open a chat: it becomes active and its badge clears.
     pub fn open_chat(&mut self, jid: &str) {
         self.active = Some(jid.to_string());
@@ -266,6 +285,32 @@ pub fn selftest() -> Result<String, String> {
     let now = 1_770_000_000_000;
     model.now = now;
 
+    // The gate: QR -> its state, then pairing leaves it.
+    model.apply(&UiEvent::Qr {
+        svg: "<svg/>".into(),
+        timeout_secs: 20,
+    });
+    if model.login != crate::login::LoginState::Qr("<svg/>".into()) {
+        return Err(format!("qr should fill the gate, got {:?}", model.login));
+    }
+    if crate::login::can_restart(&model.login) {
+        return Err("a live QR must not offer a restart".to_string());
+    }
+    model.apply(&UiEvent::QrExpired);
+    if !crate::login::can_restart(&model.login) {
+        return Err("an expired code must offer a restart".to_string());
+    }
+    model.login_restarted();
+    model.apply(&UiEvent::PairCode {
+        code: "ABCD-1234".into(),
+    });
+    if model.login != crate::login::LoginState::PairCode("ABCD-1234".into()) {
+        return Err("pair code should show its own screen".to_string());
+    }
+    model.apply(&UiEvent::Connected);
+    if !model.login.is_linked() {
+        return Err("connecting must leave the gate".to_string());
+    }
     model.apply(&UiEvent::Connected);
     model.apply(&UiEvent::Message(view(
         "1@s.whatsapp.net",
@@ -339,6 +384,7 @@ pub fn selftest() -> Result<String, String> {
         "preview": preview,
         "stamp": stamp,
         "status": model.status,
+        "linked": model.login.is_linked(),
     })
     .to_string())
 }
