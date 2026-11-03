@@ -205,97 +205,7 @@ function ensureVideoPoster(id) {
     .finally(() => state.posterChecking.delete(id));
 }
 
-function mediaElement(kind, url, id) {
-  if (kind === "audio") {
-    return audioPlayerElement(id, url, findMessageById(id));
-  }
-  if (kind === "video") {
-    ensureThumb(id);
-    // The clip is on disk by the time this renders, so the sampled frame
-    // replaces the blurry inline poster as soon as the canvas readback lands.
-    ensureVideoPoster(id);
-    ensureDuration(id);
-    const poster = thumbOf(id);
-    const seconds = state.durations.get(id);
-    const duration = seconds ? formatDuration(seconds) : "";
-    return `<div class="media-video-wrap" data-media-id="${escapeHtml(
-      id || "",
-    )}" data-media-kind="video" data-thumb-id="${escapeHtml(id || "")}"><video class="media-video" data-media-id="${escapeHtml(
-      id || "",
-    )}" src="${escapeHtml(url)}"${
-      poster ? ` poster="${poster}"` : ""
-    } playsinline preload="metadata"></video><span class="media-video-play">${waIcon("play_arrow")}</span><span class="media-video-duration" data-duration-id="${escapeHtml(
-      id || "",
-    )}">${duration}</span></div>`;
-  }
-  return `<a class="media-image" href="${escapeHtml(url)}" target="_blank" rel="noreferrer" data-media-id="${escapeHtml(
-    id || "",
-  )}" data-media-kind="image"><img src="${escapeHtml(url)}" alt="${MEDIA_LABELS[kind] || "Media"}" /></a>`;
-}
-
 /* --------------------------------------------------- audio/voice-note player */
-
-const AUDIO_MAX_WAVE_BARS = 64;
-
-// The sender's waveform bytes (0..255 amplitudes) become the bars WhatsApp
-// draws behind a voice note's progress; each downsampled peak is one flex bar
-// scaled by its relative loudness, capped so clusters render cleanly.
-function buildWaveBars(samples) {
-  const count = samples.length;
-  if (!count) return "";
-  const step = Math.max(1, Math.ceil(count / AUDIO_MAX_WAVE_BARS));
-  const bars = [];
-  for (let i = 0; i < count; i += step) {
-    let peak = 0;
-    for (let j = i; j < Math.min(i + step, count); j += 1) {
-      peak = Math.max(peak, samples[j]);
-    }
-    bars.push(Math.min(1, Math.max(0.1, peak / 255)));
-  }
-  return bars.map((h) => `<i style="--h:${Math.round(h * 100)}%"></i>`).join("");
-}
-
-// Official-layout audio bubble body: play/pause, a seek line (or the sender's
-// waveform for recorded voice notes) and a footer with the duration next to
-// the usual time/ticks, like "0:17   6:46 am" on WhatsApp desktop. The hidden
-// <audio> does the playback; the delegated media-event handlers at the bottom
-// of this file paint progress on every live copy of the bubble.
-function audioPlayerElement(id, url, message) {
-  const audio = (message && message.audio) || null;
-  const ptt = Boolean(audio && audio.ptt);
-  const seconds = Number((audio || {}).seconds) || 0;
-  const wave = ptt ? buildWaveBars((audio || {}).waveform || []) : "";
-  const dim = wave ? `<div class="audio-wave dim">${wave}</div>` : "";
-  const lit = wave
-    ? `<div class="audio-wave lit" data-audio-wave>${wave}</div>`
-    : "";
-  const stamp = message
-    ? `<span class="meta audio-stamp">${timeOf(message.timestamp)}${tickHtml(message)}</span>`
-    : '<span class="meta audio-stamp"></span>';
-  return `<div class="audio-player${ptt ? " ptt" : ""}" data-audio-id="${escapeHtml(
-    id || "",
-  )}">
-      <div class="audio-row">
-        <button type="button" class="audio-play" aria-label="Play audio">
-          <svg class="glyph glyph-play" viewBox="0 -960 960 960"><path d="M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z"/></svg>
-          <svg class="glyph glyph-pause" viewBox="0 -960 960 960"><path d="M520-200v-560h240v560H520Zm-320 0v-560h240v560H200Zm400-80h80v-400h-80v400Zm-320 0h80v-400h-80v400Zm0-400v400-400Zm320 0v400-400Z"/></svg>
-        </button>
-        <div class="audio-track" data-audio-track>
-          <div class="audio-line"><span class="audio-fill" data-audio-fill></span></div>
-          ${dim}${lit}
-          <span class="audio-dot" data-audio-dot></span>
-        </div>
-        <span class="audio-badge" aria-hidden="true"><svg viewBox="0 -960 960 960"><path d="M360-120H200q-33 0-56.5-23.5T120-200v-280q0-75 28.5-140.5t77-114q48.5-48.5 114-77T480-840q75 0 140.5 28.5t114 77q48.5 48.5 77 114T840-480v280q0 33-23.5 56.5T760-120H600v-320h160v-40q0-117-81.5-198.5T480-760q-117 0-198.5 81.5T200-480v40h160v320Zm-80-240h-80v160h80v-160Zm400 0v160h80v-160h-80Zm-400 0h-80 80Zm400 0h80-80Z"/></svg></span>
-      </div>
-      <div class="audio-foot">
-        <span class="audio-dur" data-audio-dur>${seconds ? formatDuration(seconds) : ""}</span>
-        ${stamp}
-      </div>
-      <audio class="audio-src" src="${escapeHtml(url)}" preload="metadata" data-audio-id="${escapeHtml(
-        id || "",
-      )}"></audio>
-    </div>`;
-}
 
 /* The waveforms are drawn twice: the dim copy as the unplayed background and
    the lit copy clipped from the left, which stays permissive when a re-render
@@ -443,51 +353,6 @@ document.addEventListener(
   },
   true,
 );
-
-function mediaBlock(message) {
-  const cached = state.media.get(message.id);
-  if (cached?.status === "ready" && cached.url) {
-    return mediaElement(message.kind, cached.url, message.id);
-  }
-
-  if (cached?.status === "error") {
-    // Already failed: render the retry tile instead of starting the download
-    // again on every re-render.
-    const preview = thumbOf(message.id);
-    return `<div class="media media-box error retry ${preview ? "has-thumb" : ""}" data-media-id="${escapeHtml(
-      message.id,
-    )}" data-media-kind="${escapeHtml(message.kind)}" data-failed="1"${
-      preview ? ` style="background-image:url('${preview}')"` : ""
-    }>${preview ? "" : mediaIcon(message.kind)}<span class="media-retry-hint">Tap to retry</span></div>`;
-  }
-
-  const isVideo = message.kind === "video";
-  const isAudio = message.kind === "audio";
-  if (isVideo) {
-    ensureThumb(message.id);
-    ensureVideoPoster(message.id);
-  } else if (message.kind === "image") {
-    // WhatsApp ships a small JPEG with every photo. Showing it immediately
-    // beats an endless "Loading photo..." when the CDN path has expired.
-    ensureThumb(message.id);
-  }
-  const poster = isVideo ? thumbOf(message.id) : "";
-  const play = isVideo ? `<span class="media-play">${waIcon("play_arrow")}</span>` : "";
-  const hint = isVideo
-    ? "Tap to load video"
-    : message.kind === "sticker"
-      ? "Loading sticker..."
-      : isAudio
-        ? "Loading audio..."
-        : "Loading photo...";
-  return `<div class="media media-box ${isVideo ? "video-box" : ""} ${
-    poster ? "has-thumb" : ""
-  }" data-media-id="${escapeHtml(message.id)}" data-media-kind="${escapeHtml(
-    message.kind,
-  )}" data-thumb-id="${escapeHtml(message.id)}"${
-    poster ? ` style="background-image:url('${poster}')"` : ""
-  }>${play}<span class="media-icon">${mediaIcon(message.kind)}</span><span class="media-hint">${hint}</span></div>`;
-}
 
 let mediaObserver = null;
 
@@ -897,13 +762,8 @@ function hydrateMedia(box) {
     const kind = node.dataset.mediaKind || "image";
     const cached = state.media.get(id);
     if (cached?.status === "ready" && cached.url) {
-      node.outerHTML = mediaElement(kind, cached.url, id);
-      if (kind === "video") {
-        ensureThumb(id);
-        ensureVideoPoster(id);
-        ensureDuration(id);
-        captureVideoPoster(id);
-      }
+      // The Rust renderer paints ready media; this DOM is stale.
+      scheduleChatRender();
       continue;
     }
     if (kind === "video") {
@@ -951,11 +811,9 @@ async function loadMedia(id, kind, node) {
     clearMediaWatchdog(id);
     const url = convertFileSrc ? convertFileSrc(path) : path;
     rememberMedia(id, url);
-    // Update every live copy: a re-render may have replaced the node that
-    // started this download.
-    for (const tile of document.querySelectorAll(`.media-box[data-media-id="${id}"]`)) {
-      tile.outerHTML = mediaElement(kind, url, id);
-    }
+    // state.media is the renderer's input: repaint so the bubble becomes the
+    // real photo/video/audio player (wa-ui::chat builds the markup).
+    scheduleChatRender();
     if (kind === "video") {
       ensureThumb(id);
       ensureVideoPoster(id);

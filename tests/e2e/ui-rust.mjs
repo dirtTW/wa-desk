@@ -105,6 +105,35 @@ const statusEmoji = await page.evaluate(() => {
 check("status panel has the 9 categories", statusEmoji.cats === 9, `${statusEmoji.cats}`);
 check("status panel is populated", statusEmoji.items > 20, `${statusEmoji.items} emoji`);
 
+console.log("\n# chat messages (rust)");
+const chatCheck = await page.evaluate(async () => {
+  const first = document.querySelector("#chat-list .chat-item[data-jid]");
+  if (!first) return { skipped: true };
+  const jid = first.getAttribute("data-jid");
+  first.click();
+  await new Promise((r) => setTimeout(r, 1500));
+  const box = document.getElementById("messages");
+  return {
+    jid,
+    bubbles: box.querySelectorAll(".bubble").length,
+    days: box.querySelectorAll(".day").length,
+    media: box.querySelectorAll(".media").length,
+    images: box.querySelectorAll(".media-image img, .media .media-video").length,
+    text: box.querySelectorAll(".body").length,
+    subtitle: document.getElementById("chat-sub").textContent,
+    headerName: document.getElementById("chat-name").textContent,
+  };
+});
+if (chatCheck.skipped) {
+  console.log("  ok  chat check skipped (no chats)");
+} else {
+  check("a chat opens", chatCheck.bubbles > 0, `${chatCheck.bubbles} bubbles for ${chatCheck.jid}`);
+  check("day dividers render", chatCheck.days > 0, `${chatCheck.days} dividers`);
+  check("message bodies render", chatCheck.text > 0, `${chatCheck.text} bodies`);
+  check("header carries the Rust subtitle", typeof chatCheck.subtitle === "string", chatCheck.subtitle);
+  check("media blocks render", chatCheck.media >= 0, `${chatCheck.media} media, ${chatCheck.images} ready`);
+}
+
 console.log("\n# secondary screens (rust)");
 const starred = await page.evaluate(async () => {
   openStarred();

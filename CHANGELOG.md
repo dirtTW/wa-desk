@@ -4,7 +4,7 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.1] — 2026-11-03
+## [0.2.0-rc.2] — 2026-11-03
 
 - **The UI model moved into Rust.** A new `crates/wa-ui` crate owns the text
   logic that used to live in `apps/desktop/ui/`: WhatsApp inline markup
@@ -32,13 +32,28 @@ and the roadmap live in [`AGENTS.md`](AGENTS.md).
 - **Channels, the community screen and starred messages are Rust too.**
   `wa_ui::screens` renders all three from the same request (`ui_channels`,
   `ui_community`, `ui_starred`); `chat-list.js` shrank from 802 to 434 lines.
+- **The message list is rendered by Rust.** `wa_ui::chat` builds every bubble
+  from the webview's state: day dividers, sender runs and `first` tails, group
+  sender names/avatars, reply and "· Status" quotes, albums (`album-2/3/4`, the
+  `+N` cell), photo/video/audio/document/sticker blocks (including the
+  voice-note waveform, duration and seek line), document cards and their
+  View/Save-as row, embedded link previews, reactions, stars, `edited`, ticks,
+  channel captions and view/forward/reaction counters, view-once placeholders
+  and unsupported stubs. The webview keeps hydration (downloads, thumbnails,
+  players) and scrolling; `chat-render.js` fell from 743 to 474 lines and
+  `media-ui.js` from 1,048 to 914, and a finished download now repaints through
+  the renderer instead of patching the DOM, so the media/audio markup exists
+  only in Rust.
 - **Live verification over CDP.** `tests/e2e/ui-rust.mjs` drives the running
   window (remote debugging on 9222) and checks the Rust layer end to end:
   `ui_bootstrap` returns 74 icons + 2,300 emoji in 9 groups, the sidebar paints
   193 rows with avatars/previews, search highlights and keeps its sections, the
   picker renders 2,300 buttons and 9 categories, emoji search returns matches,
   the status panel uses the same catalogue (9/185), the channels panel shows 5
-  channels, a community screen renders, and **no JavaScript error is logged**.
+  channels, a community screen renders, opening a chat paints 250 bubbles with
+  5 day dividers, 221 bodies and 31 media blocks, and **no JavaScript error is
+  logged**. Screenshots: `tests/e2e/artifacts/chat-rust.png`,
+  `chat-media-rust.png`, `chat-sticker-rust.png`.
 - **Contract tests for the JS ↔ Rust boundary.**
   `crates/wa-ui/tests/webview_contract.rs` feeds the literal JSON that
   `sidebarRequest()` sends (including extra message fields the renderer ignores)

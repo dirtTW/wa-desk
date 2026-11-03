@@ -77,6 +77,8 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/emoji.rs                 emoji catalogue search + picker markup
   src/emoji_data.rs            @generated catalogue (2,300 emoji, 9 groups)
   src/icons_data.rs            @generated Material Symbols paths
+  src/chat.rs                  message list: bubbles, media, quotes, reactions, ticks
+  src/screens.rs               channels panel, community screen, starred messages
   src/sidebar.rs               chat list: filters, pin order, communities, search
 crates/wa-core/                protocol session layer (no Tauri dependency)
   src/lib.rs                   Session struct + module wiring

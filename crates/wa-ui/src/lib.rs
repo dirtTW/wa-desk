@@ -8,6 +8,7 @@
 //! Renderers take a serde request built from the webview's state and return
 //! ready-to-inject HTML, which keeps the JavaScript a thin DOM/event shim.
 
+pub mod chat;
 pub mod emoji;
 pub mod html;
 pub mod icons_data;

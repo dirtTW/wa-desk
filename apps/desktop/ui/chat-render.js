@@ -150,27 +150,6 @@ function scheduleChatRender(delay = 60) {
   }, delay);
 }
 
-// The official "You received a view once message…" placeholder body: one dim
-// italic line with the round clock icon, and a Learn-more anchor that opens
-// the FAQ in the default browser (`target="_blank"` routes it through
-// open_link; without the target the WebView2 navigated the app window
-// itself). A recovered copy (content kept locally through reply-quoting)
-// passes its id: the placeholder becomes clickable and opens the media
-// viewer — the official tap-to-view affordance, no rail eye needed. The
-// affordance is a hover tooltip so the bubble keeps the official look.
-function viewOncePlaceholderBody(openId = null) {
-  const cls = openId ? "body view-once openable" : "body view-once";
-  const openAttr = openId
-    ? ` data-view-once-open="${escapeHtml(openId)}" title="Tap to view"`
-    : "";
-  return `
-      <div class="${cls}"${openAttr}>
-        <span class="view-once-icon" aria-hidden="true"><svg viewBox="0 -960 960 960"><path d="m612-292 56-56-148-148v-184h-80v216l172 172ZM480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-400Zm0 320q133 0 226.5-93.5T800-480q0-133-93.5-226.5T480-800q-133 0-226.5 93.5T160-480q0 133 93.5 226.5T480-160Z"/></svg></span>
-        You received a view once message. For added privacy, you can only open it on your phone.
-        <a class="view-once-more" href="https://faq.whatsapp.com/578442220724722/?cms_platform=android" target="_blank" rel="noreferrer">Learn more</a>
-      </div>`;
-}
-
 /// A sender's photo can arrive after the bubbles are already painted: swap the
 /// initials for the picture in place instead of rebuilding the whole chat.
 function patchMessageAvatar(jid) {
@@ -185,7 +164,130 @@ function patchMessageAvatar(jid) {
   }
 }
 
-function renderChat() {
+/* --------------------------------------------------- Rust-rendered messages */
+
+// The bubble markup (day dividers, albums, quotes, media cards, documents,
+// link previews, reactions, ticks) is built by `wa-ui::chat`; this file owns
+// the state → request mapping, hydration and scrolling only.
+let chatRenderSeq = 0;
+
+/// One message reduced to the fields the renderer reads. Big blobs (media data
+/// URIs, link thumbnails) are trimmed so the IPC payload stays small.
+function chatMessage(message) {
+  const reply = message.reply_to;
+  return {
+    id: message.id || "",
+    text: message.text || "",
+    kind: message.kind || "text",
+    from_me: Boolean(message.from_me),
+    status: message.status || "",
+    sender: message.sender || "",
+    sender_name: message.sender_name || "",
+    sender_phone: message.sender_phone || "",
+    deleted: Boolean(message.deleted),
+    deleted_for_me: Boolean(message.deletedForMe),
+    cleared: Boolean(message.cleared),
+    timestamp: message.timestamp || 0,
+    forwarded: Boolean(message.forwarded),
+    pending: Boolean(message.pending),
+    edited: Boolean(message.edited),
+    once_recovered: Boolean(message.once_recovered),
+    status_quote: Boolean(message.status_quote),
+    mentions: Array.isArray(message.mentions) ? message.mentions : [],
+    reactions: (message.reactions || []).map((reaction) => ({
+      emoji: reaction.emoji || "",
+      from_me: reaction.by === "me",
+    })),
+    reply_to: reply
+      ? {
+          id: reply.id || "",
+          sender: reply.sender || "",
+          sender_name: reply.sender_name || "",
+          text: reply.text || "",
+          kind: reply.kind || "",
+          thumb: reply.thumb || null,
+        }
+      : null,
+    link: message.link
+      ? {
+          url: message.link.url || "",
+          title: message.link.title || "",
+          description: message.link.description || "",
+          thumb: message.link.thumb || null,
+          thumb_path: message.link.thumb_path || null,
+        }
+      : null,
+    document: message.document
+      ? {
+          name: message.document.name || "",
+          mime: message.document.mime || "",
+          size: message.document.size || 0,
+          pages: message.document.pages || 0,
+          thumb: message.document.thumb || null,
+        }
+      : null,
+    audio: message.audio
+      ? {
+          ptt: Boolean(message.audio.ptt),
+          seconds: message.audio.seconds || 0,
+          waveform: message.audio.waveform || [],
+        }
+      : null,
+    stats: message.stats
+      ? {
+          reactions: (message.stats.reactions || []).map((reaction) => ({
+            code: reaction.code || "",
+            count: reaction.count || 0,
+          })),
+          reaction_total: message.stats.reaction_total || 0,
+          forwards: message.stats.forwards || 0,
+          views: message.stats.views || 0,
+        }
+      : null,
+  };
+}
+
+function chatRequest(chat) {
+  const media = {};
+  for (const [id, entry] of state.media) {
+    media[id] = { status: entry.status || "", url: entry.url || "" };
+  }
+  const knownPhone = state.phones.get(chat.jid);
+  return {
+    chat: {
+      jid: chat.jid,
+      name: chat.name || "",
+      is_group: Boolean(chat.isGroup),
+      is_channel: isChannelJid(chat.jid),
+      subscribers: chat.subscribers || 0,
+    },
+    messages: chat.messages.map(chatMessage),
+    media,
+    thumbs: Object.fromEntries(state.thumbs),
+    posters: Object.fromEntries(state.videoPosters),
+    durations: Object.fromEntries(state.durations),
+    doc_thumbs: Object.fromEntries(documentThumbs),
+    photos: Object.fromEntries(
+      [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
+    ),
+    contacts: Object.fromEntries(state.contacts),
+    phones: Object.fromEntries(state.phones),
+    sender_names: activeSenderNames(),
+    me: state.me || "",
+    me_jid: state.meJid || "",
+    me_lid: state.meLid || "",
+    self_handle: (state.chats.get(state.meJid) || state.chats.get(state.meLid) || {}).name || "",
+    known_phone:
+      knownPhone && knownPhone !== "loading" && knownPhone !== "missing" ? knownPhone : "",
+    show_deleted: Boolean(state.showDeleted),
+    selecting: Boolean(state.selecting),
+    selected: [...(state.selected || [])],
+    starred: [...state.starred],
+    now: Date.now(),
+  };
+}
+
+async function renderChat() {
   const chat = state.chats.get(state.active);
   const panel = $("chat-panel");
   const placeholder = $("chat-empty");
@@ -255,10 +357,20 @@ function renderChat() {
   box.classList.toggle("channel-view", channel);
   // Group chats reserve a left gutter for the sender's profile photo.
   box.classList.toggle("group-view", chat.isGroup && !channel);
-  if (chat.messages.length === 0) {
-    box.innerHTML = isChannelJid(chat.jid)
-      ? '<p class="empty">No posts synced from this channel yet. WhatsApp only shares channel posts received while this device is linked — use the import button in the header to load an exported <em>.txt</em> of its posts.</p>'
-      : '<p class="empty">No messages loaded for this chat yet. New messages will appear here.</p>';
+
+  const seq = ++chatRenderSeq;
+  let out;
+  try {
+    out = await invoke("ui_chat", { request: chatRequest(chat) });
+  } catch (err) {
+    console.warn("chat render failed", err);
+    return;
+  }
+  // A newer repaint (or a chat switch) owns the box now.
+  if (seq !== chatRenderSeq || state.active !== chat.jid) return;
+
+  if (out.empty_html) {
+    box.innerHTML = out.empty_html;
     box.dataset.stickBottom = "1";
     lastMessageScrollTop = 0;
     lastRenderedChat = chat.jid;
@@ -266,208 +378,14 @@ function renderChat() {
     return;
   }
 
-  let lastDay = null;
-  let previous = null;
-  const html = [];
-  const visible = chat.messages.filter((message) =>
-    WAChatUtils.isMessageVisible(message, state.showDeleted),
-  );
-
-  for (let index = 0; index < visible.length; index += 1) {
-    const message = visible[index];
-
-    const day = dayOf(message.timestamp);
-    if (day !== lastDay) {
-      html.push(`<div class="day">${escapeHtml(day)}</div>`);
-      lastDay = day;
-      previous = null;
-    }
-
-    const classes = ["bubble"];
-    if (message.from_me) classes.push("out");
-    if (message.forwarded) classes.push("is-forwarded");
-    if (state.selecting && state.selected && state.selected.has(message.id)) {
-      classes.push("selected");
-    }
-    // Reaction pills hang off the bottom edge of the bubble (WhatsApp Web), so
-    // the bubble needs a little extra room when it carries any.
-    if (message.reactions && message.reactions.length) classes.push("has-reactions");
-
-    // WhatsApp only draws the tail on the first bubble of a run, and shows the
-    // sender's name and photo there too.
-    const sameRun =
-      previous &&
-      previous.from_me === message.from_me &&
-      previous.sender === message.sender &&
-      message.timestamp - previous.timestamp < 5 * 60_000;
-    if (!sameRun) classes.push("first");
-    const firstOfRun = !sameRun;
-
-    // Photos/videos sent in one burst collapse into an album grid.
-    const album = collectAlbum(visible, index);
-    if (album) {
-      const last = album[album.length - 1];
-      const albumClasses = ["bubble", "album", `album-${Math.min(album.length, 4)}`];
-      if (last.from_me) albumClasses.push("out");
-      if (!sameRun) albumClasses.push("first");
-      if (last.reactions && last.reactions.length) albumClasses.push("has-reactions");
-      if (last.forwarded) albumClasses.push("is-forwarded");
-
-      const cells = album
-        .slice(0, 4)        .map((item, cell) => {
-          const more =
-            cell === 3 && album.length > 4
-              ? `<span class="album-more">+${album.length - 4}</span>`
-              : "";
-          return `<div class="album-cell">${mediaBlock(item)}${more}</div>`;
-        })
-        .join("");
-      const caption = [...album].reverse().find((item) => item.text && item.text.trim());
-
-      html.push(`
-        <div class="${albumClasses.join(" ")}" data-id="${escapeHtml(message.id)}">
-          ${forwardedHtml(last)}
-          ${state.selecting ? '<span class="select-tick"></span>' : ""}
-          ${firstOfRun ? messageAvatarHtml(chat, message) : ""}
-          ${firstOfRun ? senderHtml(chat, message) : ""}
-          ${replyQuoteHtml(message.reply_to)}
-          <div class="album-grid album-${Math.min(album.length, 4)}">${cells}</div>
-          ${caption ? `<div class="body">${bodyHtml(caption.text, caption.mentions)}</div>` : ""}
-          ${reactionHtml(last)}
-          <span class="meta">${timeOf(last.timestamp)}${tickHtml(last)}</span>
-        </div>`);
-
-      previous = last;
-      index += album.length - 1;
-      continue;
-    }
-
-    const avatar = firstOfRun ? messageAvatarHtml(chat, message) : "";
-    let sender = firstOfRun ? senderHtml(chat, message) : "";
-    // A status reply/reaction wears WhatsApp's "· Status" card, not a reply quote.
-    if (message.status_quote) classes.push("status-interaction");
-    const quoted = message.status_quote
-      ? statusQuoteHtml(message.reply_to)
-      : replyQuoteHtml(message.reply_to);
-
-    let body;
-    let docActions = "";
-    let docOwnsMeta = false;
-    let voiceOwnsMeta = false;
-    if (message.deleted) {
-      classes.push("deleted");
-      const revealed = WAChatUtils.deletedMessageText(message, state.showDeleted);
-      body = revealed
-        ? `<div class="body">${bodyHtml(revealed)}</div><span class="deleted-tag">deleted</span>`
-        : '<div class="body muted">This message was deleted</div>';
-    } else if (message.kind === "document") {
-      classes.push("has-media", "doc-bubble");
-      // The caption and the time/ticks share one flex row, so the float-based
-      // timestamp of text bubbles can never collide with the action row.
-      const fileName = documentInfo(message).name;
-      const captionText = String(message.text || "").trim();
-      const caption =
-        captionText && captionText !== fileName
-          ? `<div class="body doc-caption">${bodyHtml(message.text, message.mentions)}</div>`
-          : "";
-      body = `${documentCard(message)}
-        <div class="doc-footer">${caption}<span class="meta doc-time">${timeOf(
-          message.timestamp,
-        )}${tickHtml(message)}</span></div>`;
-      docActions = documentActions(message);
-      docOwnsMeta = true;
-    } else if (MEDIA_LABELS[message.kind]) {
-      // View-once copies recovered through reply-quoting respect the rail
-      // eye: eye off renders the official compact placeholder (still locally
-      // cached and tap-openable), eye on shows the kept media with its
-      // caption. The placeholder must not wear the media-bubble width cap.
-      const hidden = message.once_recovered && !state.showDeleted;
-      if (hidden) classes.push("view-once-bubble");
-      else {
-        classes.push("has-media");
-        if (message.kind === "sticker") classes.push("sticker");
-      }
-      const caption = message.text ? channelCaption(message) : "";
-      body = hidden
-        ? viewOncePlaceholderBody(message.id)
-        : `${mediaBlock(message)}${caption}`;
-      // Audio bubbles render "0:17   6:46 am" inside the player footer, so
-      // they own the timestamp like a document card does.
-      if (message.kind === "audio") {
-        classes.push("voice");
-        voiceOwnsMeta = true;
-      }
-    } else if (message.text) {
-      // WhatsApp renders emoji-only messages much larger.
-      const emojiOnly = isEmojiOnly(message.text);
-      if (emojiOnly) classes.push("emoji-only");
-      const embedded = message.link;
-      const hasEmbedded =
-        embedded && (embedded.title || embedded.thumb || embedded.description);
-      const previewUrl = hasEmbedded ? embedded.url : WAChatUtils.firstUrl(message.text);
-      // Channel/broadcast link posts ship the big preview image as a CDN path
-      // (`thumbnailDirectPath`); the card renders the inline thumb at once and
-      // swaps in the large image when it lands, like WhatsApp Web.
-      const wantsBigThumb =
-        hasEmbedded && embedded.thumb_path && isChannelJid(message.chat);
-      const thumbAttrs = wantsBigThumb
-        ? ` data-thumb-id="${escapeHtml(message.id)}"`
-        : "";
-      const preview = hasEmbedded
-        ? `<div class="link-preview ready"${thumbAttrs}>${previewCard({
-            url: embedded.url,
-            title: embedded.title,
-            description: embedded.description,
-            site: WAChatUtils.siteOf(embedded.url),
-            image: embedded.thumb,
-          })}</div>`
-        : previewUrl
-          ? `<div class="link-preview" data-preview-url="${escapeHtml(previewUrl)}"></div>`
-          : "";
-      body = `${preview}${channelCaption(message)}`;
-    } else if (message.kind === "view_once") {
-      // The linked device never decrypts view-once fanouts (the phone keeps
-      // the media); the official UI still shows a placeholder bubble, dim,
-      // with the clock icon and no ticks. No content exists to open.
-      classes.push("unsupported", "view-once-bubble");
-      body = viewOncePlaceholderBody();
-    } else {
-      classes.push("unsupported");
-      body = '<div class="body muted">Unsupported message</div>';
-    }
-
-    html.push(`
-      <div class="${classes.join(" ")}" data-id="${escapeHtml(message.id)}">
-        ${forwardedHtml(message)}
-        ${state.selecting ? '<span class="select-tick"></span>' : ""}
-        ${avatar}
-        ${sender}
-        ${quoted}
-        ${body}
-        ${reactionHtml(message)}
-        ${
-          docOwnsMeta || voiceOwnsMeta
-            ? ""
-            : `<span class="meta">${message.edited ? '<span class="edited">edited</span>' : ""}${
-                state.starred.has(message.id)
-                  ? `<span class="msg-star" title="Starred">${waIcon("star")}</span>`
-                  : ""
-              }<span>${timeOf(message.timestamp)}</span>${tickHtml(message)}</span>`
-        }
-        ${docActions}
-      </div>`);
-    if (isChannelJid(chat.jid)) html.push(channelStatsHtml(message));
-
-    previous = message;
-  }
-
-  box.innerHTML = html.join("");
+  box.innerHTML = out.html;
   hydrateMedia(box);
   hydrateDocumentCards(box);
   hydratePreviews(box);
   hydrateLinkThumbs(box);
   hydratePhones(box);
   watchMessageMedia();
+  for (const jid of out.queue || []) queuePhoto(jid);
   // A chat switch (or a reply while already at the bottom) should land on the
   // newest message. While reading older messages in the same chat, anchor the
   // top visible bubble so new messages/media do not move the viewport.
@@ -488,33 +406,6 @@ function renderChat() {
   scheduleAiContext();
 }
 
-function tickHtml(message) {
-  if (!message.from_me) return "";
-  if (message.pending)
-    return `<span class="tick">${waIcon("hourglass_empty")}</span>`;
-  // "Message yourself" mirrors the official client: the phone owns the chat,
-  // so our own messages are delivered the moment they land (grey double tick).
-  if (typeof isSelfJid === "function" && isSelfJid(message.chat)) {
-    return `<span class="tick">${waIcon("done_all")}</span>`;
-  }
-  const status = message.status || "sent";
-  if (status === "read" || status === "played") {
-    return `<span class="tick read">${waIcon("done_all")}</span>`;
-  }
-  if (status === "delivered") return `<span class="tick">${waIcon("done_all")}</span>`;
-  return `<span class="tick">${waIcon("check")}</span>`;
-}
-
-// Channel captions run long; the desktop app truncates them and offers
-// "Read more" instead of pushing the next post off screen.
-function channelCaption(message) {
-  const html = bodyHtml(message.text, message.mentions);
-  if (!isChannelJid(message.chat) || String(message.text || "").length < 420) {
-    return `<div class="body">${html}</div>`;
-  }
-  return `<div class="body clamp">${html}</div><button class="channel-more" type="button">Read more</button>`;
-}
-
 document.addEventListener("click", (event) => {
   const more = event.target.closest && event.target.closest(".channel-more");
   if (!more) return;
@@ -523,69 +414,6 @@ document.addEventListener("click", (event) => {
   if (body) body.classList.remove("clamp");
   more.remove();
 });
-
-// "↱ Forwarded", drawn above the bubble like WhatsApp Web.
-function forwardedHtml(message) {
-  if (!message.forwarded) return "";
-  return `<span class="forwarded"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="m640-280-57-56 184-184-184-184 57-56 240 240-240 240ZM80-200v-160q0-83 58.5-141.5T280-560h247L383-704l57-56 240 240-240 240-57-56 144-144H280q-50 0-85 35t-35 85v160H80Z"/></svg>Forwarded</span>`;
-}
-
-// "95k" / "1.2m", the way WhatsApp abbreviates counters.
-function compactCount(value) {
-  const n = Number(value) || 0;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return String(n);
-}
-
-// Channel posts carry the server's counters (`views_count`, `forwards_count`,
-// `<reactions>`); the desktop app draws them under the card, so the message list
-// gets one extra row after the bubble.
-function channelStatsHtml(message) {
-  const stats = message.stats;
-  if (!stats) return "";
-  const pills = (stats.reactions || [])
-    .slice(0, 3)
-    .map(
-      (reaction) =>
-        `<span class="channel-reaction">${escapeHtml(reaction.code)}<b>${compactCount(
-          reaction.count,
-        )}</b></span>`,
-    )
-    .join("");
-  const total =
-    Number(stats.reaction_total) ||
-    (stats.reactions || []).reduce((sum, r) => sum + (Number(r.count) || 0), 0);  const reactions = pills
-    ? `<span class="channel-reaction-group" title="Reactions">${pills}${
-        total > 0 ? `<span class="channel-reaction-total">${compactCount(total)}</span>` : ""
-      }</span>`
-    : "";
-  const forwards = stats.forwards
-    ? `<span class="channel-forward" title="Forwarded"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="m640-280-57-56 184-184-184-184 57-56 240 240-240 240ZM80-200v-160q0-83 58.5-141.5T280-560h247L383-704l57-56 240 240-240 240-57-56 144-144H280q-50 0-85 35t-35 85v160H80Z"/></svg>${compactCount(
-        stats.forwards,
-      )}</span>`
-    : "";
-  const views = stats.views ? `<span class="channel-views" title="Views">${compactCount(stats.views)}</span>` : "";
-  if (!reactions && !forwards && !views) return "";
-  return `<div class="channel-stats" data-for="${escapeHtml(message.id)}">${reactions}${forwards}${views}</div>`;
-}
-
-// Group reactions by emoji, WhatsApp-style: "👍 2 ❤️".
-function reactionHtml(message) {
-  const counts = new Map();
-  for (const reaction of message.reactions || []) {
-    if (!reaction || !reaction.emoji) continue;
-    counts.set(reaction.emoji, (counts.get(reaction.emoji) || 0) + 1);
-  }
-  if (counts.size === 0) return "";
-  const pills = [...counts.entries()]
-    .map(
-      ([emoji, count]) =>
-        `<span class="reaction-pill">${escapeHtml(emoji)}${count > 1 ? ` ${count}` : ""}</span>`,
-    )
-    .join("");
-  return `<div class="reactions">${pills}</div>`;
-}
 
 async function applyReaction(message, emoji) {
   if (!message || !state.active) return;
@@ -622,50 +450,6 @@ async function applyReaction(message, emoji) {
   } catch (err) {
     toast(String(err));
   }
-}
-
-// The name WhatsApp prints above a group bubble: the saved contact name, the
-// push name with WhatsApp Web's "~" marker for members the address book does
-// not know, or the phone number when that is all we have.
-function senderDisplayName(chat, message) {
-  const saved = contactNameFor(message.sender);
-  // History chunks sometimes carry no push name for a sender, so borrow the
-  // name another message of the same sender has.
-  const sibling = chat.messages.find(
-    (entry) => entry.sender === message.sender && entry.sender_name,
-  );
-  const push = saved ? "" : message.sender_name || (sibling && sibling.sender_name) || "";
-  // Never derive a phone number from a LID: only the PN form (resolved by the
-  // protocol layer) is a real international number.
-  const isLid = Boolean(message.sender && String(message.sender).endsWith("@lid"));
-  const phoneSource =
-    message.sender_phone ||
-    (message.sender && !isLid ? WAChatUtils.phoneFromJid(message.sender) : "");
-  const phone = WAChatUtils.formatPhone(phoneSource);
-  return saved || (push ? `~ ${push}` : "") || phone || "Unknown";
-}
-
-function senderHtml(chat, message) {
-  if (!chat.isGroup || message.from_me) return "";
-  const name = senderDisplayName(chat, message);
-  // Nothing but a LID to go on: the protocol layer may still resolve a phone
-  // number, and WhatsApp shows it in place of the name once it lands.
-  const unresolved =
-    name === "Unknown" && String(message.sender || "").endsWith("@lid")
-      ? ` data-phone-jid="${escapeHtml(message.sender)}"`
-      : "";
-  return `<div class="sender" style="color:${WAChatUtils.senderColor(
-    message.sender || name,
-  )}"><span class="sender-name"${unresolved}>${escapeHtml(name)}</span></div>`;
-}
-
-// WhatsApp puts the sender's profile photo in the left gutter of a group chat,
-// next to the first bubble of each sender run.
-function messageAvatarHtml(chat, message) {
-  if (!chat.isGroup || message.from_me || isChannelJid(chat.jid)) return "";
-  if (!message.sender) return "";
-  queuePhoto(message.sender);
-  return avatarHtml(senderDisplayName(chat, message), message.sender, "avatar msg-avatar");
 }
 
 // Resolve a LID to its phone-number JID once, sharing in-flight requests.
@@ -722,22 +506,5 @@ function hydratePhones(box) {
       if (node.isConnected) paint(phone);
     });
   }
-}
-
-// Consecutive photos/videos from the same person collapse into one album.
-function collectAlbum(list, start) {
-  const first = list[start];
-  if (!first || first.deleted || (first.kind !== "image" && first.kind !== "video")) {
-    return null;
-  }
-  const items = [first];
-  for (let i = start + 1; i < list.length && items.length < 9; i += 1) {
-    const next = list[i];
-    if (next.deleted || (next.kind !== "image" && next.kind !== "video")) break;
-    if (next.from_me !== first.from_me || next.sender !== first.sender) break;
-    if (next.timestamp - items[items.length - 1].timestamp > 4000) break;
-    items.push(next);
-  }
-  return items.length >= 2 ? items : null;
 }
 

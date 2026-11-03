@@ -16,7 +16,6 @@ function scheduleHistoryRender() {
   }, 250);
 }
 
-
 let chatListRenderTimer = null;
 
 /// Coalesce bursty sidebar refreshes (photo arrivals, live message bursts) so
@@ -160,7 +159,6 @@ function renderChatList() {
 
 /// Work that must happen once the (async) list is in the DOM.
 function afterChatListRender() {}
-
 
 /* ------------------------------------------------------ starred messages */
 
@@ -457,13 +455,6 @@ const MEDIA_LABELS = {
   document: "Document",
   sticker: "Sticker",
 };
-
-function isEmojiOnly(text) {
-  const trimmed = text.trim();
-  if (!trimmed || trimmed.length > 12) return false;
-  if (/[\p{L}\p{N}]/u.test(trimmed)) return false;
-  return /[\p{Extended_Pictographic}\u200d\uFE0F]/u.test(trimmed);
-}
 
 function putMedia(id, entry) {
   state.media.delete(id);

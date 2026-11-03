@@ -296,12 +296,42 @@ pub struct MessageRow {
     pub reactions: Vec<ReactionRow>,
     #[serde(default)]
     pub link: Option<LinkRow>,
+    #[serde(default)]
+    pub forwarded: bool,
+    #[serde(default)]
+    pub pending: bool,
+    #[serde(default)]
+    pub edited: bool,
+    /// A view-once copy recovered through a reply quote.
+    #[serde(default)]
+    pub once_recovered: bool,
+    /// The quote is a status reply ("· Status" card).
+    #[serde(default)]
+    pub status_quote: bool,
+    /// The protocol's `mentionedJid` list.
+    #[serde(default)]
+    pub mentions: Vec<String>,
+    #[serde(default)]
+    pub reply_to: Option<crate::chat::ReplyRow>,
+    #[serde(default)]
+    pub audio: Option<crate::chat::AudioRow>,
+    /// Channel post counters.
+    #[serde(default)]
+    pub stats: Option<crate::chat::ChannelStatsRow>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DocumentRow {
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub mime: String,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub pages: i64,
+    #[serde(default)]
+    pub thumb: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -322,6 +352,9 @@ pub struct LinkRow {
     pub url: String,
     #[serde(default)]
     pub thumb: Option<String>,
+    /// Channels ship a CDN path for the big preview image.
+    #[serde(default)]
+    pub thumb_path: Option<String>,
 }
 
 impl MessageRow {
@@ -772,6 +805,7 @@ mod tests {
         let mut doc = msg("document", "");
         doc.document = Some(DocumentRow {
             name: "a.pdf".to_string(),
+            ..Default::default()
         });
         assert_eq!(preview_of(&doc, false, false, &none), "a.pdf");
     }

@@ -175,6 +175,7 @@ pub fn run() {
             crate::commands::update::install_update,
             crate::commands::ui::ui_bootstrap,
             crate::commands::ui::ui_sidebar,
+            crate::commands::ui::ui_chat,
             crate::commands::ui::ui_emoji_search,
             crate::commands::ui::ui_emoji_groups,
             crate::commands::ui::ui_labels,

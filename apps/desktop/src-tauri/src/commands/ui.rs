@@ -18,6 +18,13 @@ pub fn ui_sidebar(request: SidebarRequest) -> SidebarOutput {
     wa_ui::sidebar::render(&request)
 }
 
+/// The message list for the open chat: bubbles, media blocks, quotes,
+/// reactions, ticks and channel counters.
+#[tauri::command]
+pub fn ui_chat(request: wa_ui::chat::ChatRequest) -> wa_ui::chat::ChatOutput {
+    wa_ui::chat::render(&request)
+}
+
 /// Emoji picker results for a query, as one grid.
 #[tauri::command]
 pub fn ui_emoji_search(query: String, limit: Option<usize>) -> String {
