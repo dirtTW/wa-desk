@@ -29,6 +29,9 @@ function showCallOverlay() {
   setAvatar($("call-avatar"), name, call.peer);
   $("call-overlay").hidden = false;
   $("call-video-stage").hidden = !call.video || call.state === "ringing";
+  // A video call answered without a local camera still shows the peer; the
+  // self-view stays hidden instead of painting a permanently black tile.
+  $("call-local-video").hidden = !call.sendVideo;
   const ringing = call.state === "ringing";
   $("call-accept").hidden = !ringing;
   $("call-reject").hidden = !ringing;
@@ -84,11 +87,10 @@ function finishCall(reason) {
   if (hadCall && reason) toast(reason);
 }
 
-async function mediaInputsReady(video) {
+async function hasVideoInputs() {
   try {
+    if (typeof VideoEncoder !== "function") return false;
     const devices = await navigator.mediaDevices.enumerateDevices();
-    if (!devices.some((device) => device.kind === "audioinput")) return false;
-    if (!video) return true;
     if (!devices.some((device) => device.kind === "videoinput")) return false;
     const support = await VideoEncoder.isConfigSupported({
       codec: "avc1.42E01F",
@@ -99,6 +101,17 @@ async function mediaInputsReady(video) {
       avc: { format: "annexb" },
     });
     return Boolean(support.supported);
+  } catch {
+    return false;
+  }
+}
+
+async function mediaInputsReady(video) {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    if (!devices.some((device) => device.kind === "audioinput")) return false;
+    if (!video) return true;
+    return await hasVideoInputs();
   } catch {
     return false;
   }
@@ -125,11 +138,12 @@ async function startOutgoingCall(video) {
       callId: info.call_id,
       peer: info.peer,
       video: info.video,
+      sendVideo: info.video,
       outgoing: true,
       state: "calling",
     };
     showCallOverlay();
-    await startCallMedia(info.call_id, info.video);
+    await startCallMedia(info.call_id, info.video, info.video);
   } catch (err) {
     await invoke("hangup_call").catch(() => {});
     finishCall();
@@ -145,22 +159,26 @@ async function acceptIncomingCall() {
     await rejectIncomingCall();
     return;
   }
-  let video = call.video;
-  if (video && !(await mediaInputsReady(true))) {
-    video = false;
-    toast("Camera unavailable; answering with voice only.");
+  // A video offer must be answered as video even when this machine has no
+  // camera: the media is negotiated once for both directions, so dropping the
+  // video endpoints would also throw away the caller's frames.
+  const offeredVideo = Boolean(call.video);
+  let sendVideo = offeredVideo && (await hasVideoInputs());
+  if (offeredVideo && !sendVideo) {
+    toast("Camera unavailable; you'll see them, but they won't see you.");
   }
   try {
-    const info = await invoke("accept_call", { callId: call.callId, video });
+    const info = await invoke("accept_call", { callId: call.callId, video: offeredVideo });
     currentCall = {
       callId: info.call_id,
       peer: info.peer,
       video: info.video,
+      sendVideo,
       outgoing: false,
       state: "connecting",
     };
     showCallOverlay();
-    await startCallMedia(info.call_id, info.video);
+    await startCallMedia(info.call_id, info.video, sendVideo);
   } catch (err) {
     await invoke("reject_call", { callId: call.callId }).catch(() => {});
     finishCall(String(err));
@@ -187,19 +205,35 @@ async function toggleCallMute() {
   if (callMedia?.micTrack) callMedia.micTrack.enabled = !currentCall.muted;
 }
 
-async function startCallMedia(callId, video) {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      sampleRate: 16000,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-    video: video
-      ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 20 } }
-      : false,
-  });
+async function startCallMedia(callId, video, sendVideo = video) {
+  const audioConstraints = {
+    channelCount: 1,
+    sampleRate: 16000,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+  const videoConstraints = {
+    width: { ideal: 640 },
+    height: { ideal: 480 },
+    frameRate: { ideal: 15, max: 20 },
+  };
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: audioConstraints,
+      video: sendVideo ? videoConstraints : false,
+    });
+  } catch (err) {
+    // A camera that refuses to open must not tear down a call that is already
+    // negotiated: fall back to audio-only and keep the peer's video coming.
+    if (!sendVideo) throw err;
+    sendVideo = false;
+    if (currentCall) currentCall.sendVideo = false;
+    toast("Camera unavailable; continuing without your video.");
+    stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+  }
 
   const context = new AudioContext({ sampleRate: 16000 });
   await context.resume();
@@ -229,19 +263,32 @@ async function startCallMedia(callId, video) {
     encoder: null,
     reader: null,
     decoderKeySeen: false,
+    sendVideo,
   };
 
   if (video) {
-    const track = stream.getVideoTracks()[0];
-    const local = $("call-local-video");
-    local.srcObject = new MediaStream([track]);
-    local.play().catch(() => {});
-    await startVideoEncode(track);
+    // Receive first: starting the decoder before the (awaited) encoder setup
+    // means the peer's first keyframe is not thrown away.
     startVideoDecode();
+    const track = stream.getVideoTracks()[0];
+    if (sendVideo && track) {
+      const local = $("call-local-video");
+      local.srcObject = new MediaStream([track]);
+      local.play().catch(() => {});
+      await startVideoEncode(track);
+    } else {
+      $("call-local-video").srcObject = null;
+    }
   }
 }
 
 async function startVideoEncode(track) {
+  if (typeof MediaStreamTrackProcessor !== "function" || typeof VideoEncoder !== "function") {
+    toast("This WebView cannot share camera video; continuing without it.");
+    if (currentCall) currentCall.sendVideo = false;
+    $("call-local-video").hidden = true;
+    return;
+  }
   const config = {
     codec: "avc1.42E01F",
     width: 640,
@@ -285,6 +332,19 @@ async function startVideoEncode(track) {
 
 function startVideoDecode() {
   const canvas = $("call-remote-canvas");
+  if (typeof VideoDecoder !== "function") {
+    // Receive-side video needs WebCodecs; keep the call alive without it.
+    const draw = canvas.getContext("2d");
+    if (draw) {
+      draw.fillStyle = "#000";
+      draw.fillRect(0, 0, canvas.width, canvas.height);
+      draw.fillStyle = "#8696a0";
+      draw.font = "16px Segoe UI, Roboto, sans-serif";
+      draw.textAlign = "center";
+      draw.fillText("Video decoding is not available", canvas.width / 2, canvas.height / 2);
+    }
+    return;
+  }
   const draw = canvas.getContext("2d");
   const decoder = new VideoDecoder({
     output: (frame) => {

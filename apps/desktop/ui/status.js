@@ -932,13 +932,13 @@ function updateStatusTextSend() {
 function buildStatusEmojiPanel() {
   const panel = $("status-emoji-panel");
   if (panel.dataset.built) return;
-  const groups = window.WA_EMOJI || [];
+  const groups = uiAssets.emojiGroups || [];
   $("status-emoji-cats").innerHTML = groups
     .map(
       (group, index) =>
         `<button type="button" class="emoji-cat${index === 0 ? " active" : ""}" data-status-emoji-group="${index}" title="${escapeHtml(
           group.label,
-        )}">${EMOJI_CATEGORY_ICONS[index] || "*"}</button>`,
+        )}">${group.icon || "*"}</button>`,
     )
     .join("");
   renderStatusEmojiGroup(0);
@@ -947,7 +947,7 @@ function buildStatusEmojiPanel() {
 
 /// Paint one WhatsApp emoji category (or the search results) into the panel.
 function renderStatusEmojiGroup(index, query = "") {
-  const groups = window.WA_EMOJI || [];
+  const groups = uiAssets.emojiGroups || [];
   const group = groups[index] || groups[0];
   const grid = $("status-emoji-grid");
   const needle = String(query || "").trim().toLowerCase();
@@ -955,7 +955,7 @@ function renderStatusEmojiGroup(index, query = "") {
   let title;
   if (needle) {
     items = groups.flatMap((entry) =>
-      entry.items.filter(([, keywords]) => keywords.toLowerCase().includes(needle)),
+      entry.items.filter((item) => item.keywords.toLowerCase().includes(needle)),
     );
     title = `Search results`;
   } else {
@@ -966,10 +966,10 @@ function renderStatusEmojiGroup(index, query = "") {
   $("status-emoji-title").textContent = needle && !items.length ? `No emoji match "${query}"` : title;
   grid.innerHTML = items
     .map(
-      ([character, keywords]) =>
-        `<button type="button" class="emoji" data-status-emoji="${character}" title="${escapeHtml(
-          keywords,
-        )}">${character}</button>`,
+      (item) =>
+        `<button type="button" class="emoji" data-status-emoji="${item.char}" title="${escapeHtml(
+          item.keywords,
+        )}">${item.char}</button>`,
     )
     .join("");
   $("status-emoji-scroll").scrollTop = 0;

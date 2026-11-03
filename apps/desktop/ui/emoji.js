@@ -5,7 +5,6 @@
 /* ------------------------------------------------------------------ */
 
 const EMOJI_RECENT_KEY = "wadesk.emoji.recents";
-const EMOJI_CATEGORY_ICONS = ["\u{1F600}", "\u{1F44D}", "\u{1F436}", "\u{1F354}", "\u{2708}\u{FE0F}", "\u{26BD}", "\u{1F4A1}", "\u{2764}\u{FE0F}", "\u{1F3C1}"];
 
 let emojiBuilt = false;
 let emojiQuery = "";
@@ -44,73 +43,41 @@ function renderRecentEmojis() {
 }
 
 // "full" emoji support: every Unicode group, searchable, plus recents.
+//
+// The catalogue and the picker markup live in Rust (`wa-ui`): the webview only
+// injects the HTML fetched at boot and asks Rust for search results.
 function buildEmojiPicker() {
   if (emojiBuilt) return;
-  const groups = window.WA_EMOJI || [];
   const scroll = $("emoji-scroll");
   const cats = $("emoji-cats");
-
-  groups.forEach((group, index) => {
-    const title = document.createElement("div");
-    title.className = "emoji-title";
-    title.dataset.group = String(index);
-    title.textContent = group.label;
-    scroll.appendChild(title);
-
-    const grid = document.createElement("div");
-    grid.className = "emoji-grid";
-    grid.dataset.group = String(index);
-    for (const [char, keywords] of group.items) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "emoji";
-      button.dataset.char = char;
-      button.dataset.keywords = keywords;
-      button.title = keywords;
-      button.textContent = char;
-      grid.appendChild(button);
-    }
-    scroll.appendChild(grid);
-
-    const cat = document.createElement("button");
-    cat.type = "button";
-    cat.className = index === 0 ? "emoji-cat active" : "emoji-cat";
-    cat.dataset.group = String(index);
-    cat.title = group.label;
-    cat.textContent = EMOJI_CATEGORY_ICONS[index] || "*";
-    cats.appendChild(cat);
-  });
-
+  scroll.innerHTML = uiAssets.emojiPicker || "";
+  cats.innerHTML = uiAssets.emojiCategories || "";
   renderRecentEmojis();
   emojiBuilt = true;
 }
 
-function filterEmoji(query) {
+async function filterEmoji(query) {
   const scroll = $("emoji-scroll");
-  const needle = query.trim().toLowerCase();
+  const needle = query.trim();
+  emojiQuery = needle.toLowerCase();
   const recents = $("emoji-recents");
-  emojiQuery = needle;
 
   if (!needle) {
     scroll.querySelectorAll(".emoji-title, .emoji-grid").forEach((node) => {
       node.hidden = false;
     });
+    const stale = scroll.querySelector(".emoji-grid.search-results");
+    if (stale) stale.remove();
     recents.hidden = false;
     return;
   }
 
   recents.hidden = true;
-  const matches = [];
-  for (const group of window.WA_EMOJI || []) {
-    for (const [char, keywords] of group.items) {
-      if (keywords.includes(needle)) matches.push([char, keywords]);
-    }
-  }
-
   scroll.querySelectorAll(".emoji-title, .emoji-grid").forEach((node) => {
     node.hidden = true;
   });
-
+  const html = await invoke("ui_emoji_search", { query: needle, limit: 240 });
+  if (emojiQuery !== needle.toLowerCase()) return;
   let grid = scroll.querySelector(".emoji-grid.search-results");
   if (!grid) {
     grid = document.createElement("div");
@@ -118,13 +85,7 @@ function filterEmoji(query) {
     scroll.appendChild(grid);
   }
   grid.hidden = false;
-  grid.innerHTML = matches
-    .slice(0, 240)
-    .map(
-      ([char, keywords]) =>
-        `<button type="button" class="emoji" data-char="${char}" data-keywords="${keywords}" title="${keywords}">${char}</button>`,
-    )
-    .join("");
+  grid.innerHTML = html.replace(/^<div[^>]*>|<\/div>$/g, "");
 }
 
 function scrollToEmojiGroup(index) {

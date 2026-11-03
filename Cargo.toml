@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/wa-types", "crates/wa-core", "apps/desktop/src-tauri"]
+members = ["crates/wa-types", "crates/wa-core", "crates/wa-ui", "apps/desktop/src-tauri"]
 # `vendor/wacore-appstate` is a patched path dependency, not a member: its default
 # `simd` feature needs nightly (`#![feature(portable_simd)]`), which the repo
 # deliberately avoids, so its tests are run standalone with `--no-default-features`.
@@ -11,7 +11,7 @@ whatsapp-rust = { path = "vendor/whatsapp-rust" }
 wacore-appstate = { path = "vendor/wacore-appstate" }
 
 [workspace.package]
-version = "0.1.0-rc.6"
+version = "0.2.0-rc.1"
 edition = "2024"
 rust-version = "1.94"
 # The distributed binary statically links `wacore-libsignal`, whose files carry

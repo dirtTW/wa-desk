@@ -55,6 +55,12 @@ impl Session {
     }
 
     /// Answer an incoming offer with the same webview media endpoints.
+    ///
+    /// A video *offer* is always answered with video, even when this machine
+    /// has no camera: the library builds its media engine from the endpoints it
+    /// is given, so an audio-only accept would drop the caller's frames too
+    /// (the "video calls arrive black" bug). Without a camera we simply never
+    /// push frames into the source channel.
     pub async fn accept_call(&self, call_id: &str, video: bool) -> Result<CallInfo, String> {
         let incoming = self
             .incoming_calls
@@ -62,6 +68,9 @@ impl Session {
             .expect("call lock")
             .remove(call_id)
             .ok_or_else(|| "that call is no longer ringing".to_string())?;
+
+        let offered_video = matches!(&incoming.action, CallAction::Offer { is_video: true, .. });
+        let video = negotiated_video(offered_video, video);
 
         let (audio_in_tx, audio_in_rx) = async_channel::bounded::<Vec<i16>>(8);
         let (audio_out_tx, audio_out_rx) = async_channel::bounded::<Vec<i16>>(8);
@@ -249,5 +258,30 @@ impl Session {
                 }
             }
         });
+    }
+}
+
+/// Whether an answered call negotiates video media.
+///
+/// The offer wins: a video call stays a video call for both directions even
+/// when the answering side has no camera. Asking for video on a voice offer
+/// would be refused by the library (`VideoNotOffered`), so that direction is
+/// not upgraded here.
+fn negotiated_video(offered: bool, requested: bool) -> bool {
+    offered || requested
+}
+
+#[cfg(test)]
+mod tests {
+    use super::negotiated_video;
+
+    #[test]
+    fn video_offer_is_always_answered_with_video() {
+        // Camera-less accept: still negotiated, so the peer's frames arrive.
+        assert!(negotiated_video(true, false));
+        assert!(negotiated_video(true, true));
+        // A voice offer is never upgraded behind the peer's back.
+        assert!(!negotiated_video(false, false));
+        assert!(negotiated_video(false, true));
     }
 }

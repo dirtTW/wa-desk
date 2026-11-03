@@ -4,6 +4,57 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.1] — 2026-11-03
+
+- **The UI model moved into Rust.** A new `crates/wa-ui` crate owns the text
+  logic that used to live in `apps/desktop/ui/`: WhatsApp inline markup
+  (`*bold*`, `_italic_`, `~strike~`, ```monospace```), URL masking/linkify,
+  `@mention` resolution (self → saved contact → known push name), previews with
+  the official `You:`/`~ push`/photo-label rules, tick states, phone formatting,
+  sender colours, placeholders, `/ai` parsing, initials, avatars and the
+  clock/stamp/day labels (`8:44 pm`). It is unit-tested (`cargo test -p wa-ui`,
+  34 tests) and exposed through `commands/ui.rs` (`ui_labels`,
+  `ui_chat_subtitle`, `ui_emoji_search`, `ui_emoji_groups`, `ui_bootstrap`).
+- **The emoji catalogue and picker moved into Rust.** `emoji-data.js` (2,300
+  emoji in 9 groups, ~2.3k lines) is gone: `crates/wa-ui/src/emoji_data.rs` is
+  generated from the old file by `scripts/gen-ui-data.mjs`, and the picker grids
+  and category strip are rendered by `wa_ui::emoji` (`ui_bootstrap`). Search
+  runs in Rust (`ui_emoji_search`), so the status emoji panel reads the same
+  catalogue instead of a second copy.
+- **The chat list is rendered by Rust.** `wa_ui::sidebar` takes the webview's
+  chat state and returns the row markup: visibility and the archived view,
+  unread/group filters, pinned-first ordering, community nesting with the
+  announcement subgroup folded away, search split into Chats / Contacts /
+  Groups in common, the archived banner, `(You)` on the self chat, mute/pin
+  glyphs, badges and the photo-request queue. `chat-list.js` keeps only the
+  state → request mapping and one `ui_sidebar` call (with a sequence guard so a
+  slow response cannot repaint an old list).
+- **Channels, the community screen and starred messages are Rust too.**
+  `wa_ui::screens` renders all three from the same request (`ui_channels`,
+  `ui_community`, `ui_starred`); `chat-list.js` shrank from 802 to 434 lines.
+- **Live verification over CDP.** `tests/e2e/ui-rust.mjs` drives the running
+  window (remote debugging on 9222) and checks the Rust layer end to end:
+  `ui_bootstrap` returns 74 icons + 2,300 emoji in 9 groups, the sidebar paints
+  193 rows with avatars/previews, search highlights and keeps its sections, the
+  picker renders 2,300 buttons and 9 categories, emoji search returns matches,
+  the status panel uses the same catalogue (9/185), the channels panel shows 5
+  channels, a community screen renders, and **no JavaScript error is logged**.
+- **Contract tests for the JS ↔ Rust boundary.**
+  `crates/wa-ui/tests/webview_contract.rs` feeds the literal JSON that
+  `sidebarRequest()` sends (including extra message fields the renderer ignores)
+  through the renderers, so a renamed field fails `cargo test` instead of
+  silently emptying the sidebar.
+- **Video calls answered without a camera keep the peer's video.** Answering a
+  video offer used to pass `video: false` when the machine had no camera; the
+  call library then built an audio-only engine, so the caller's frames were
+  dropped and the window stayed black even though the phone was sending. The
+  offer now decides (`negotiated_video(offered, requested)` in
+  `wa-core/src/calls.rs`, the UI sends the offered flag), the decoder starts
+  before the encoder, a camera that fails to open falls back to audio-only
+  without hanging up, and the self-view hides instead of painting a black tile.
+  Verified by `cargo test -p wa-core calls::tests` and by the webview's
+  `startCallMedia(callId, video, sendVideo)` split.
+
 ## [0.1.0-rc.6] — 2026-11-03
 
 - **The update channel now works for pre-releases.** GitHub's

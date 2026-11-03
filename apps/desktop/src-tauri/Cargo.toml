@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "wa-desktop"
 description = "Unofficial WhatsApp desktop client for Windows and Linux"
 version.workspace = true
@@ -11,6 +11,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 wa-core = { path = "../../../crates/wa-core" }
+wa-ui = { path = "../../../crates/wa-ui" }
 tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"

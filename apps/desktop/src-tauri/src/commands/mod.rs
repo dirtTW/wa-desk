@@ -1,4 +1,4 @@
-//! `#[tauri::command]` handlers grouped by area.
+﻿//! `#[tauri::command]` handlers grouped by area.
 //!
 //! `main.rs` registers them with their full path (for example
 //! `commands::session::get_status`). That path is also how `generate_handler!`
@@ -15,4 +15,5 @@ pub mod media;
 pub mod messages;
 pub mod session;
 pub mod status;
+pub mod ui;
 pub mod update;

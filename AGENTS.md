@@ -69,6 +69,15 @@ again. Live traffic always works.
 ```
 Cargo.toml                     workspace
 crates/wa-types/               serializable UI vocabulary (serde only)
+crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
+  src/lib.rs                   bootstrap payload, re-exports, integration tests
+  src/text.rs                  WhatsApp markup, mentions, previews, ticks, phones
+  src/labels.rs                clock/stamp/day labels, follower counts
+  src/html.rs                  escaping, Material icons, avatars
+  src/emoji.rs                 emoji catalogue search + picker markup
+  src/emoji_data.rs            @generated catalogue (2,300 emoji, 9 groups)
+  src/icons_data.rs            @generated Material Symbols paths
+  src/sidebar.rs               chat list: filters, pin order, communities, search
 crates/wa-core/                protocol session layer (no Tauri dependency)
   src/lib.rs                   Session struct + module wiring
   src/events.rs                protocol event -> UiEvent translation
@@ -152,6 +161,31 @@ WhatsApp servers
 
 Protocol payloads never cross the IPC boundary: `wa-core` reduces them to
 `MessageView` / `UiEvent`, which serialize as `{ "type": "message", ... }`.
+
+### The UI model lives in Rust (`wa-ui`)
+
+The webview is a DOM/event shim; formatting and markup are Rust:
+
+```
+webview state ──ui_sidebar(request)──▶ wa-ui::sidebar ──▶ { html, empty_text, queue }
+webview boot  ──ui_bootstrap()──────▶ icons + emoji catalogue + picker HTML
+webview keys  ──ui_emoji_search(q)──▶ one grid of matches
+```
+
+- `crates/wa-ui` has no Tauri or protocol dependency: it is pure serde in /
+  HTML out, and every module is unit-tested (`cargo test -p wa-ui`).
+- Data that used to ship as JavaScript is generated into Rust by
+  `scripts/gen-ui-data.mjs` (`icons_data.rs`, `emoji_data.rs`). Regenerate after
+  a new Material icon set or emoji dataset; the frontend no longer ships either.
+- `ui_sidebar` is async from the webview's point of view. `renderChatList()`
+  bumps a sequence number and drops any response that is not the newest, so a
+  slow reply can never repaint an older list.
+- The request carries only what the renderer needs (one summary per chat, one
+  newest visible message), never full message arrays or media blobs.
+- Still rendered by JavaScript today: message bubbles and media hydration
+  (`chat-render.js`, `media-ui.js`), status/stories, settings, the media viewer,
+  stickers and the browser-API parts of calls (Web Audio/WebCodecs). Those are
+  the remaining migration targets.
 
 ---
 

@@ -1,0 +1,15 @@
+[package]
+name = "wa-ui"
+description = "UI model and HTML renderer shared by the desktop webview and its tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+regex = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]

@@ -89,6 +89,23 @@ const state = {
 
 const convertFileSrc = tauri?.core?.convertFileSrc;
 
+/* Rust-rendered UI assets (the `wa-ui` crate): the emoji catalogue, the picker
+   markup and the Material icon set are built in Rust, so this file only holds
+   them after one `ui_bootstrap` round-trip at startup. */
+const uiAssets = { icons: [], emojiGroups: [], emojiPicker: "", emojiCategories: "" };
+
+async function loadUiAssets() {
+  try {
+    const boot = await invoke("ui_bootstrap");
+    uiAssets.icons = boot.icons || [];
+    uiAssets.emojiGroups = boot.emoji_groups || [];
+    uiAssets.emojiPicker = boot.emoji_picker || "";
+    uiAssets.emojiCategories = boot.emoji_categories || "";
+  } catch (err) {
+    console.warn("UI assets unavailable", err);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* local cache (survives restarts; WhatsApp only replays history once) */
 /* ------------------------------------------------------------------ */

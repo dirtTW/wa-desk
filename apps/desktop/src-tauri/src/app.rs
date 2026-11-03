@@ -172,7 +172,16 @@ pub fn run() {
             crate::notifications::set_notify_state,
             crate::notifications::test_notify,
             crate::commands::update::check_for_update,
-            crate::commands::update::install_update
+            crate::commands::update::install_update,
+            crate::commands::ui::ui_bootstrap,
+            crate::commands::ui::ui_sidebar,
+            crate::commands::ui::ui_emoji_search,
+            crate::commands::ui::ui_emoji_groups,
+            crate::commands::ui::ui_labels,
+            crate::commands::ui::ui_chat_subtitle,
+            crate::commands::ui::ui_channels,
+            crate::commands::ui::ui_community,
+            crate::commands::ui::ui_starred
         ])
         .setup(|app| {
             #[cfg(windows)]
