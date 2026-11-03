@@ -510,6 +510,74 @@ pub fn photo_result_ok(url: &str) -> bool {
     url.starts_with("http")
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UpsertInput {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub is_group: Option<bool>,
+    /// The chat is already in the store.
+    #[serde(default)]
+    pub exists: bool,
+    /// Its current display name (only read when `exists`).
+    #[serde(default)]
+    pub current_name: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct UpsertPlan {
+    /// Create the row (with `name` as the initial display name).
+    pub create: bool,
+    pub name: String,
+    pub is_group: bool,
+    /// The existing row's name changes to `name`.
+    pub rename: bool,
+    /// The existing row's group flag changes.
+    pub set_group: bool,
+}
+
+/// Decide what a message/contact event does to the chat row: create it with the
+/// JID user part as the fallback name, rename a placeholder once a real name
+/// arrives, and keep the group flag in sync.
+pub fn upsert_plan(input: &UpsertInput) -> UpsertPlan {
+    let fallback = input.jid.split('@').next().unwrap_or("").to_string();
+    let wanted = if input.name.is_empty() {
+        fallback.clone()
+    } else {
+        input.name.clone()
+    };
+    if !input.exists {
+        return UpsertPlan {
+            create: true,
+            name: wanted,
+            is_group: input.is_group.unwrap_or(false),
+            rename: false,
+            set_group: false,
+        };
+    }
+    let rename = !input.name.is_empty()
+        && input.current_name != input.name
+        && crate::text::is_placeholder_name(&input.jid, &input.current_name);
+    UpsertPlan {
+        create: false,
+        name: wanted,
+        is_group: input.is_group.unwrap_or(false),
+        rename,
+        set_group: input.is_group.is_some(),
+    }
+}
+
+/// Where a message belongs in a timestamp-sorted list (stable: equal timestamps
+/// keep their arrival order).
+pub fn insert_index(timestamps: &[i64], timestamp: i64) -> usize {
+    match timestamps.iter().position(|stamp| *stamp > timestamp) {
+        Some(index) => index,
+        None => timestamps.len(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -721,6 +789,75 @@ mod tests {
             plan.renames,
             vec![("6285@s.whatsapp.net".to_string(), "Ada".to_string())]
         );
+    }
+
+    #[test]
+    fn upsert_plans_create_rename_and_group_flag() {
+        // A brand-new chat: the JID user part is the fallback name.
+        let created = upsert_plan(&UpsertInput {
+            jid: "6285@s.whatsapp.net".into(),
+            name: String::new(),
+            is_group: None,
+            exists: false,
+            current_name: String::new(),
+        });
+        assert!(created.create);
+        assert_eq!(created.name, "6285");
+        assert!(!created.is_group);
+
+        // A named group.
+        let group = upsert_plan(&UpsertInput {
+            jid: "1@g.us".into(),
+            name: "Team".into(),
+            is_group: Some(true),
+            exists: false,
+            current_name: String::new(),
+        });
+        assert_eq!(group.name, "Team");
+        assert!(group.is_group);
+
+        // An existing placeholder row takes the real name.
+        let renamed = upsert_plan(&UpsertInput {
+            jid: "6285@s.whatsapp.net".into(),
+            name: "Budi".into(),
+            is_group: Some(false),
+            exists: true,
+            current_name: "6285".into(),
+        });
+        assert!(!renamed.create && renamed.rename && renamed.set_group);
+
+        // A row that already has a real name keeps it.
+        let kept = upsert_plan(&UpsertInput {
+            jid: "6285@s.whatsapp.net".into(),
+            name: "Someone".into(),
+            is_group: Some(false),
+            exists: true,
+            current_name: "Budi".into(),
+        });
+        assert!(!kept.rename);
+
+        // No name in the event: nothing to rename.
+        let unnamed = upsert_plan(&UpsertInput {
+            jid: "6285@s.whatsapp.net".into(),
+            name: String::new(),
+            is_group: None,
+            exists: true,
+            current_name: "6285".into(),
+        });
+        assert!(!unnamed.rename && !unnamed.set_group);
+    }
+
+    #[test]
+    fn insert_index_keeps_the_list_sorted_and_stable() {
+        assert_eq!(insert_index(&[], 100), 0);
+        assert_eq!(insert_index(&[100, 200, 300], 50), 0);
+        assert_eq!(
+            insert_index(&[100, 200, 300], 200),
+            2,
+            "equal lands after (arrival order)"
+        );
+        assert_eq!(insert_index(&[100, 200, 300], 250), 2);
+        assert_eq!(insert_index(&[100, 200, 300], 400), 3);
     }
 
     #[test]

@@ -369,7 +369,7 @@ function pumpGroupMeta() {
           queueParentMeta(parentJid);
         }
         if (!state.chats.has(jid) && state.groupMeta[jid].isCommunity) {
-          upsertChat({ chat: jid, name: info.subject, isGroup: true });
+          await upsertChat({ chat: jid, name: info.subject, isGroup: true });
         }
         scheduleSave();
         scheduleChatListRender();

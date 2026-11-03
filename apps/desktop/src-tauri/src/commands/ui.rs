@@ -187,6 +187,18 @@ pub fn ui_is_self_jid(jid: String, me_jid: String, me_lid: String) -> bool {
     wa_ui::text::is_self_jid(&jid, &me_jid, &me_lid)
 }
 
+/// What a message/contact event does to its chat row (create / rename / group).
+#[tauri::command]
+pub fn ui_upsert_plan(input: wa_ui::state::UpsertInput) -> wa_ui::state::UpsertPlan {
+    wa_ui::state::upsert_plan(&input)
+}
+
+/// Where a message belongs in a timestamp-sorted list.
+#[tauri::command]
+pub fn ui_insert_index(timestamps: Vec<i64>, timestamp: i64) -> usize {
+    wa_ui::state::insert_index(&timestamps, timestamp)
+}
+
 /// How many profile-photo fetches to start, given the queue and in-flight count.
 #[tauri::command]
 pub fn ui_photo_pump(

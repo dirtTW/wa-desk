@@ -121,10 +121,24 @@ async function syncContacts() {
   }
 }
 
-function upsertChat({ chat, name, isGroup }) {
-  let entry = state.chats.get(chat);
-  if (!entry) {
-    entry = {
+// Create-or-update the chat row. Which of the two happens, the fallback name
+// and whether a placeholder may be renamed are decided by
+// wa_ui::state::upsert_plan.
+async function upsertChat({ chat, name, isGroup }) {
+  const existing = state.chats.get(chat);
+  const plan = await invoke("ui_upsert_plan", {
+    input: {
+      jid: chat,
+      name: name || "",
+      is_group: isGroup === undefined ? null : Boolean(isGroup),
+      exists: Boolean(existing),
+      current_name: existing?.name || "",
+    },
+  }).catch(() => null);
+  if (!plan) {
+    // Offline fallback: keep the previous behaviour so nothing is lost.
+    if (existing) return existing;
+    const entry = {
       jid: chat,
       name: name || chat.replace(/@.*/, ""),
       isGroup: Boolean(isGroup),
@@ -137,22 +151,27 @@ function upsertChat({ chat, name, isGroup }) {
     return entry;
   }
 
-  // A bare phone number is only a placeholder until a real name shows up.
-  if (name) {
-    // The placeholder rule is wa_ui::text::is_placeholder_name.
-    invoke("ui_placeholder_name", { jid: chat, name })
-      .catch(() => false)
-      .then((placeholder) => {
-        if (!placeholder) entry.name = name;
-      });
+  if (plan.create) {
+    const entry = {
+      jid: chat,
+      name: plan.name,
+      isGroup: plan.is_group,
+      messages: [],
+      last: null,
+      lastTs: 0,
+      unread: 0,
+    };
+    state.chats.set(chat, entry);
+    return entry;
   }
-  if (isGroup !== undefined) entry.isGroup = Boolean(isGroup);
-  return entry;
+  if (plan.rename) existing.name = plan.name;
+  if (plan.set_group) existing.isGroup = plan.is_group;
+  return existing;
 }
 
 async function addIncoming(message, history = false) {
   const channel = isChannelJid(message.chat);
-  const entry = upsertChat({
+  const entry = await upsertChat({
     chat: message.chat,
     // A channel's posts are authored by the channel itself; never let a post's
     // sender fallback rename the channel ("Channel" instead of the real name).
@@ -288,8 +307,14 @@ async function addIncoming(message, history = false) {
       });
   }
 
-  entry.messages.push({ ...message, pending: false });
-  entry.messages.sort((a, b) => a.timestamp - b.timestamp);
+  // Where the bubble belongs is wa_ui::state::insert_index (stable for equal
+  // timestamps, so an echo keeps its arrival order).
+  const stored = { ...message, pending: false };
+  const index = await invoke("ui_insert_index", {
+    timestamps: entry.messages.map((item) => item.timestamp || 0),
+    timestamp: stored.timestamp || 0,
+  }).catch(() => entry.messages.length);
+  entry.messages.splice(index, 0, stored);
   if (message.kind === "sticker") {
     markStickersDirty();
     syncAiStickers();

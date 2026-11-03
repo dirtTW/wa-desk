@@ -460,6 +460,118 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# chat row upsert + sorted insert (rust)");
+const upsertCheck = await page.evaluate(async () => {
+  const create = await invoke("ui_upsert_plan", {
+    input: { jid: "6285@s.whatsapp.net", name: "", is_group: null, exists: false, current_name: "" },
+  });
+  const rename = await invoke("ui_upsert_plan", {
+    input: {
+      jid: "6285@s.whatsapp.net",
+      name: "Budi",
+      is_group: false,
+      exists: true,
+      current_name: "6285",
+    },
+  });
+  const keep = await invoke("ui_upsert_plan", {
+    input: {
+      jid: "6285@s.whatsapp.net",
+      name: "Someone",
+      is_group: false,
+      exists: true,
+      current_name: "Budi",
+    },
+  });
+  const insert = {
+    empty: await invoke("ui_insert_index", { timestamps: [], timestamp: 100 }),
+    first: await invoke("ui_insert_index", { timestamps: [100, 200, 300], timestamp: 50 }),
+    equal: await invoke("ui_insert_index", { timestamps: [100, 200, 300], timestamp: 200 }),
+    middle: await invoke("ui_insert_index", { timestamps: [100, 200, 300], timestamp: 250 }),
+    last: await invoke("ui_insert_index", { timestamps: [100, 200, 300], timestamp: 400 }),
+  };
+
+  // Live: a new row is created through the plan, a placeholder is renamed in
+  // place, and a message lands at its timestamp position.
+  const probeJid = "999000222@s.whatsapp.net";
+  state.chats.delete(probeJid);
+  const created = await upsertChat({ chat: probeJid, name: "", isGroup: false });
+  const liveCreate = {
+    name: created?.name,
+    inStore: state.chats.has(probeJid),
+    messages: created?.messages?.length,
+  };
+  created.name = "999000222";
+  const renamed = await upsertChat({ chat: probeJid, name: "Probe Name" });
+  const liveRename = { name: renamed?.name, sameEntry: renamed === created };
+  state.chats.delete(probeJid);
+
+  const chat = [...state.chats.values()].find(
+    (entry) => entry.messages.length > 5 && entry.messages.length < 200,
+  );
+  let liveInsert = null;
+  if (chat) {
+    const before = chat.messages.length;
+    const ts = chat.messages[Math.floor(before / 2)].timestamp;
+    await addIncoming({
+      id: `probe-sort-${Date.now()}`,
+      chat: chat.jid,
+      chat_name: chat.name,
+      is_group: chat.isGroup,
+      from_me: false,
+      timestamp: ts,
+      kind: "text",
+      text: "sort probe",
+    });
+    const index = chat.messages.findIndex((m) => m.text === "sort probe");
+    liveInsert = {
+      added: chat.messages.length - before,
+      index,
+      sorted: chat.messages.every((m, i) => i === 0 || m.timestamp >= chat.messages[i - 1].timestamp),
+    };
+    if (index >= 0) chat.messages.splice(index, 1);
+    renderChatList();
+  }
+  return { create, rename, keep, insert, liveCreate, liveRename, liveInsert };
+});
+check(
+  "a new chat row takes the jid user part as its name",
+  upsertCheck.create.create && upsertCheck.create.name === "6285" && !upsertCheck.create.is_group,
+  JSON.stringify(upsertCheck.create),
+);
+check(
+  "a placeholder row is renamed, a real name is kept",
+  upsertCheck.rename.rename && upsertCheck.rename.name === "Budi" && !upsertCheck.keep.rename,
+  `${upsertCheck.rename.rename}/${upsertCheck.keep.rename}`,
+);
+check(
+  "the sorted insert index is stable for equal timestamps",
+  upsertCheck.insert.empty === 0 &&
+    upsertCheck.insert.first === 0 &&
+    upsertCheck.insert.equal === 2 &&
+    upsertCheck.insert.middle === 2 &&
+    upsertCheck.insert.last === 3,
+  JSON.stringify(upsertCheck.insert),
+);
+check(
+  "the live upsert creates and renames in place",
+  upsertCheck.liveCreate.inStore &&
+    upsertCheck.liveCreate.name === "999000222" &&
+    upsertCheck.liveCreate.messages === 0 &&
+    upsertCheck.liveRename.name === "Probe Name" &&
+    upsertCheck.liveRename.sameEntry,
+  JSON.stringify(upsertCheck.liveRename),
+);
+if (upsertCheck.liveInsert) {
+  check(
+    "a live message lands in timestamp order",
+    upsertCheck.liveInsert.added === 1 &&
+      upsertCheck.liveInsert.index > 0 &&
+      upsertCheck.liveInsert.sorted,
+    JSON.stringify(upsertCheck.liveInsert),
+  );
+}
+
 console.log("\n# menus + missing-handler guards (rust)");
 const menuCheck = await page.evaluate(async () => {
   const anchor = await invoke("ui_menu_anchor", {

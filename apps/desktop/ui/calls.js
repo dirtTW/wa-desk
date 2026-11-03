@@ -688,12 +688,13 @@ async function handleEvent(event) {
       if (event.done >= event.total) hideSyncProgress(1500);
       break;
 
-    case "chat":
-      upsertChat({
+    case "chat": {
+      const created = await upsertChat({
         chat: event.jid,
         name: event.name,
         isGroup: event.is_group,
-      }).lastTs = event.timestamp || 0;
+      });
+      if (created) created.lastTs = event.timestamp || 0;
       if (event.jid === state.meJid || event.jid === state.meLid) {
         state.me = displayNameFromHandle(event.name) || state.me;
         refreshMyAvatar();
@@ -702,9 +703,12 @@ async function handleEvent(event) {
       renderChatList();
       schedulePeerLookups();
       break;
+    }
 
     case "channel_info": {
-      const chat = state.chats.get(event.jid) || upsertChat({ chat: event.jid, name: event.name });
+      const chat =
+        state.chats.get(event.jid) ||
+        (await upsertChat({ chat: event.jid, name: event.name }));
       if (event.name) chat.name = event.name;
       chat.subscribers = event.subscribers || 0;
       if (event.picture) state.photos.set(event.jid, event.picture);

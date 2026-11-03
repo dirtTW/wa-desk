@@ -4,6 +4,25 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.29] — 2026-11-03
+
+- **The chat-row store mutation moved to Rust.** `wa_ui::state::upsert_plan`
+  decides what an event does to its chat row: create it with the JID user part as
+  the fallback name, rename it only while the name is still a placeholder, and
+  keep the group flag in sync. `insert_index` places a message in the
+  timestamp-sorted list without re-sorting (equal timestamps keep arrival order,
+  which is what an echo needs). Commands `ui_upsert_plan`, `ui_insert_index`;
+  `upsertChat` is async now and the three call sites (chat event, channel info,
+  community seeding) await it, and `addIncoming` splices at the reported index.
+- **Element-id audit.** `scripts/check-ids.mjs` cross-references every
+  `$("id")` / `getElementById("id")` against `index.html` plus the ids the
+  renderers inject: **0 missing** out of 271 static ids, so that regression class
+  (silent no-ops from renamed elements) is currently clean.
+- 2 new `wa-ui` unit tests (183 total, plus 3 contract) and a chat-row
+  upsert/insert CDP e2e section: create/rename/keep plans, the stable insert
+  indexes, a live create-and-rename on a probe chat, and a live `addIncoming`
+  landing at index 100 of a 100+ message thread with the list still sorted.
+
 ## [0.2.0-rc.28] — 2026-11-03
 
 - **Three more undefined-handler crashes fixed.** A new audit script

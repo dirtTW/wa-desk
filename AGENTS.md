@@ -161,6 +161,7 @@ apps/desktop/
     main.js                    bootstrap: wire(), listeners, get_status()
   scripts/gen-icons.ps1        regenerates the app icons
   scripts/check-undefined.mjs  lists UI call sites with no definition (ReferenceErrors)
+  scripts/check-ids.mjs        lists element ids the UI reads but the document lacks
 vendor/whatsapp-rust/          patched protocol client (crates.io 0.7, [patch.crates-io])
 vendor/wacore-appstate/        patched app-state crate: snapshot MAC recovery (see change log);
                                excluded from the workspace (its `simd` feature needs nightly),
