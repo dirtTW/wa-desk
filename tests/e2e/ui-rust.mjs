@@ -95,8 +95,10 @@ await page.evaluate(async () => {
 });
 
 console.log("\n# status emoji panel (same Rust catalogue)");
-const statusEmoji = await page.evaluate(() => {
-  buildStatusEmojiPanel();
+const statusEmoji = await page.evaluate(async () => {
+  await buildStatusEmojiPanel();
+  await renderStatusEmojiGroup(0);
+  await new Promise((r) => setTimeout(r, 400));
   return {
     cats: document.querySelectorAll("#status-emoji-cats .emoji-cat").length,
     items: document.querySelectorAll("#status-emoji-grid .emoji").length,
@@ -170,6 +172,45 @@ check(
   `${header.dms[0]?.name} · ${header.dms[0]?.sub}`,
 );
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
+
+console.log("\n# status composer (rust)");
+const composer = await page.evaluate(async () => {
+  openStatus();
+  await new Promise((r) => setTimeout(r, 800));
+  const palette = await invoke("ui_status_palette");
+  const argb = await invoke("ui_status_argb", { hex: "#243640" });
+  await openStatusTextComposer();
+  await new Promise((r) => setTimeout(r, 700));
+  const screen = document.getElementById("status-text-screen");
+  const background = screen.style.getPropertyValue("--status-bg");
+  const font = screen.style.getPropertyValue("--status-font");
+  await buildStatusEmojiPanel();
+  await new Promise((r) => setTimeout(r, 500));
+  const categories = document.querySelectorAll("#status-emoji-cats .emoji-cat").length;
+  const items = document.querySelectorAll("#status-emoji-grid .emoji").length;
+  const title = document.getElementById("status-emoji-title").textContent;
+  await renderStatusEmojiGroup(0, "grinning");
+  await new Promise((r) => setTimeout(r, 300));
+  const searchItems = document.querySelectorAll("#status-emoji-grid .emoji").length;
+  closeStatusTextComposer();
+  closeStatus();
+  return {
+    backgrounds: palette.backgrounds.length,
+    fonts: palette.fonts.length,
+    argb,
+    background,
+    font,
+    categories,
+    items,
+    title,
+    searchItems,
+  };
+});
+check("the background palette renders", composer.backgrounds === 20 && composer.background === "#243640" || /^#[0-9a-f]{6}$/i.test(composer.background), `${composer.backgrounds} colours, picked ${composer.background}`);
+check("the font stack renders", composer.fonts === 4 && composer.font.length > 0, composer.font);
+check("the ARGB value is opaque", composer.argb === 0xff243640, String(composer.argb));
+check("the status emoji panel renders", composer.categories === 9 && composer.items > 100, `${composer.categories} cats, ${composer.items} emoji`);
+check("the status emoji search renders", composer.searchItems > 0, `${composer.searchItems} matches`);
 
 console.log("\n# media viewer (rust)");
 const viewer = await page.evaluate(async () => {

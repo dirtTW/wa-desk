@@ -37,6 +37,30 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// The status composer palette, fonts and font wire names.
+#[tauri::command]
+pub fn ui_status_palette() -> wa_ui::composer::StatusPalette {
+    wa_ui::composer::palette()
+}
+
+/// The opaque ARGB integer for a status background colour.
+#[tauri::command]
+pub fn ui_status_argb(hex: String) -> u32 {
+    wa_ui::composer::argb(&hex)
+}
+
+/// The status composer category strip.
+#[tauri::command]
+pub fn ui_status_emoji_categories() -> String {
+    wa_ui::composer::emoji_categories_html()
+}
+
+/// One status emoji category or the search results.
+#[tauri::command]
+pub fn ui_status_emoji_group(index: usize, query: String) -> wa_ui::composer::EmojiPanel {
+    wa_ui::composer::emoji_group_html(index, &query)
+}
+
 /// The recent-emoji row for the picker.
 #[tauri::command]
 pub fn ui_emoji_recents(chars: Vec<String>) -> String {

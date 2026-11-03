@@ -845,47 +845,24 @@ function closeStatusAddMenu() {
 
 /* -------------------------------------- full-screen text status composer */
 
-// The status text backgrounds the official composer cycles through. Read from
-// the shipped client: the "Palette" button repaints the composer from this
-// list, and the swatch colours match the 20-entry array in the official bundle
-// (`#A62C71 … #243640` for dark, the pastel `#FF9485 … #9368CF` set for light).
-const STATUS_BACKGROUNDS = [
-  "#A62C71",
-  "#90A841",
-  "#C1A03F",
-  "#792138",
-  "#AE8774",
-  "#F0B330",
-  "#B6B327",
-  "#C69FCC",
-  "#8B6990",
-  "#FF8A8C",
-  "#54C265",
-  "#FF7B6B",
-  "#26C4DC",
-  "#57C9FF",
-  "#74676A",
-  "#7E90A3",
-  "#5696FF",
-  "#6E257E",
-  "#7ACBA5",
-  "#243640",
-];
+// The background palette, fonts and ARGB conversion live in wa_ui::composer;
+// they are fetched once and cached here for the cycling buttons.
+let statusPaletteCache = null;
+const statusPaletteReady = invoke("ui_status_palette")
+  .then((palette) => {
+    statusPaletteCache = palette;
+    return palette;
+  })
+  .catch(() => ({ backgrounds: [], fonts: [], font_names: [] }));
 
-// The four fonts WhatsApp cycles through with the "Aa" button, in the wire
-// names `post_status_text` maps onto the protobuf font enum.
-const STATUS_FONTS = [
-  "inherit",
-  "Georgia, 'Times New Roman', serif",
-  "'Segoe Script', 'Comic Sans MS', cursive",
-  "Consolas, 'Courier New', monospace",
-];
-const STATUS_FONT_NAMES = ["system", "serif", "script", "bold"];
+async function statusPalette() {
+  return statusPaletteCache || (await statusPaletteReady);
+}
 
 let statusBgIndex = 0;
 let statusFontIndex = 0;
 
-function openStatusTextComposer() {
+async function openStatusTextComposer() {
   closeStatusAddMenu();
   const screen = $("status-text-screen");
   screen.hidden = false;
@@ -902,8 +879,11 @@ function openStatusTextComposer() {
   input.value = "";
   // WhatsApp gives every new text status a random background from its palette;
   // the palette button then cycles to the next colour.
-  applyStatusTextBackground(Math.floor(Math.random() * STATUS_BACKGROUNDS.length));
-  applyStatusTextFont(statusFontIndex);
+  const palette = await statusPalette();
+  await applyStatusTextBackground(
+    Math.floor(Math.random() * (palette.backgrounds.length || 1)),
+  );
+  await applyStatusTextFont(statusFontIndex);
   resizeStatusTextInput();
   updateStatusTextSend();
   input.focus();
@@ -914,24 +894,29 @@ function closeStatusTextComposer() {
   $("status-emoji-panel").hidden = true;
 }
 
-function applyStatusTextBackground(index) {
-  const total = STATUS_BACKGROUNDS.length;
+async function applyStatusTextBackground(index) {
+  const palette = await statusPalette();
+  const total = palette.backgrounds.length || 1;
   statusBgIndex = ((index % total) + total) % total;
-  $("status-text-screen").style.setProperty("--status-bg", STATUS_BACKGROUNDS[statusBgIndex]);
+  $("status-text-screen").style.setProperty(
+    "--status-bg",
+    palette.backgrounds[statusBgIndex] || "#243640",
+  );
 }
 
-function applyStatusTextFont(index) {
-  const total = STATUS_FONTS.length;
+async function applyStatusTextFont(index) {
+  const palette = await statusPalette();
+  const total = palette.fonts.length || 1;
   statusFontIndex = ((index % total) + total) % total;
-  $("status-text-screen").style.setProperty("--status-font", STATUS_FONTS[statusFontIndex]);
+  $("status-text-screen").style.setProperty(
+    "--status-font",
+    palette.fonts[statusFontIndex] || "inherit",
+  );
 }
 
-/// `#rrggbb` -> the opaque `0xAARRGGBB` integer the status protobuf carries.
-function statusArgb(hex) {
-  const clean = String(hex || "").replace("#", "");
-  if (clean.length !== 6) return 0xff00a884;
-  const value = Number.parseInt(clean, 16);
-  return Number.isNaN(value) ? 0xff00a884 : (0xff000000 | value) >>> 0;
+/// The opaque \`0xAARRGGBB\` integer for a colour (wa_ui::composer::argb).
+async function statusArgb(hex) {
+  return invoke("ui_status_argb", { hex: String(hex || "") }).catch(() => 0xff00a884);
 }
 
 function resizeStatusTextInput() {
@@ -944,49 +929,25 @@ function updateStatusTextSend() {
   $("status-text-send").disabled = !$("status-text-input").value.trim();
 }
 
-function buildStatusEmojiPanel() {
+async function buildStatusEmojiPanel() {
   const panel = $("status-emoji-panel");
   if (panel.dataset.built) return;
-  const groups = uiAssets.emojiGroups || [];
-  $("status-emoji-cats").innerHTML = groups
-    .map(
-      (group, index) =>
-        `<button type="button" class="emoji-cat${index === 0 ? " active" : ""}" data-status-emoji-group="${index}" title="${escapeHtml(
-          group.label,
-        )}">${group.icon || "*"}</button>`,
-    )
-    .join("");
-  renderStatusEmojiGroup(0);
+  $("status-emoji-cats").innerHTML = await invoke("ui_status_emoji_categories");
+  await renderStatusEmojiGroup(0);
   panel.dataset.built = "1";
 }
 
 /// Paint one WhatsApp emoji category (or the search results) into the panel.
-function renderStatusEmojiGroup(index, query = "") {
-  const groups = uiAssets.emojiGroups || [];
-  const group = groups[index] || groups[0];
-  const grid = $("status-emoji-grid");
-  const needle = String(query || "").trim().toLowerCase();
-  let items;
-  let title;
-  if (needle) {
-    items = groups.flatMap((entry) =>
-      entry.items.filter((item) => item.keywords.toLowerCase().includes(needle)),
-    );
-    title = `Search results`;
-  } else {
-    items = (group?.items || []).slice();
-    // WhatsApp labels the first category "Smileys & People".
-    title = index === 0 ? "Smileys & People" : group?.label || "Emoji";
+async function renderStatusEmojiGroup(index, query = "") {
+  let panel;
+  try {
+    panel = await invoke("ui_status_emoji_group", { index, query });
+  } catch (err) {
+    console.warn("status emoji render failed", err);
+    return;
   }
-  $("status-emoji-title").textContent = needle && !items.length ? `No emoji match "${query}"` : title;
-  grid.innerHTML = items
-    .map(
-      (item) =>
-        `<button type="button" class="emoji" data-status-emoji="${item.char}" title="${escapeHtml(
-          item.keywords,
-        )}">${item.char}</button>`,
-    )
-    .join("");
+  $("status-emoji-title").textContent = panel.title;
+  $("status-emoji-grid").innerHTML = panel.html;
   $("status-emoji-scroll").scrollTop = 0;
 }
 
@@ -1018,12 +979,13 @@ async function postTextStatus() {
   const send = $("status-text-send");
   send.disabled = true;
   // The colour and font travel with the status, so contacts see the same story.
-  const background = STATUS_BACKGROUNDS[statusBgIndex];
-  const font = STATUS_FONT_NAMES[statusFontIndex];
+  const palette = await statusPalette();
+  const background = palette.backgrounds[statusBgIndex] || "#243640";
+  const font = palette.font_names[statusFontIndex] || "system";
   try {
     const serverId = await invoke("post_status_text", {
       text,
-      background: statusArgb(background),
+      background: await statusArgb(background),
       font,
     });
     addStatusUpdate({

@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.7] — 2026-11-03
+
+- **The status composer is driven by Rust.** `wa_ui::composer` owns the official
+  20-colour background palette, the four font stacks and their wire names, the
+  `0xAARRGGBB` conversion (`argb`, falling back to `#00a884` for bad input), the
+  index wrapping and the composer's emoji panel (its own
+  `data-status-emoji-group`/`data-status-emoji` markup, the
+  "Smileys & People" title, search results and the `No emoji match` state).
+  Commands: `ui_status_palette`, `ui_status_argb`,
+  `ui_status_emoji_categories`, `ui_status_emoji_group`; `status.js` fetches the
+  palette once and cycles through it.
+- 5 new `wa-ui` unit tests (85 total, plus 3 contract) and a CDP e2e section:
+  20 colours / 4 fonts, an opaque ARGB value, the background and font CSS
+  variables applied, 9 categories / 185 emoji and a 7-result search, with no
+  JavaScript errors.
+
 ## [0.2.0-rc.6] — 2026-11-03
 
 - **The chat header comes from the renderer.** `ui_chat` now also returns the

@@ -9,6 +9,7 @@
 //! ready-to-inject HTML, which keeps the JavaScript a thin DOM/event shim.
 
 pub mod chat;
+pub mod composer;
 pub mod emoji;
 pub mod html;
 pub mod icons_data;
@@ -25,6 +26,7 @@ pub mod viewer;
 
 mod emoji_data;
 
+pub use composer::{EmojiPanel, StatusPalette};
 pub use emoji::{EmojiGroupView, EmojiItem};
 pub use html::{avatar, escape, icon, icon_with_class, initials};
 pub use labels::{clock_label, day_of, format_followers, stamp_of};

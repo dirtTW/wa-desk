@@ -78,6 +78,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/emoji_data.rs            @generated catalogue (2,300 emoji, 9 groups)
   src/icons_data.rs            @generated Material Symbols paths
   src/chat.rs                  message list: bubbles, media, quotes, reactions, ticks
+  src/composer.rs              status composer palette, fonts, ARGB, emoji panel
   src/screens.rs               channels panel, community screen, starred messages
   src/status.rs                status rail list, story viewer shell, views list
   src/picker.rs                new-chat / forward picker rows and sections
