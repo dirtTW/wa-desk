@@ -82,7 +82,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/state.rs                 merge/trim plans for the chat store, photo queue
   src/cache.rs                 cache fingerprint, payload, restore, photo queue
   src/actions.rs               status permissions/drafts, reply banner, selection bar
-  src/chat_actions.rs          chat-menu/bulk/message/star/mute plans, delete targets, message info
+  src/chat_actions.rs          chat-menu/bulk/message/star/mute/member plans, delete targets, info
   src/context.rs               AI context/stickers, media limits, poster sampling
   src/calls.rs                 call overlay, guard, codec/audio formats, jitter buffer
   src/search.rs                in-chat search matching, hit index, counter label
@@ -139,10 +139,11 @@ apps/desktop/
     src/ai/util.rs             clock, randomness, emoji/text helpers
     src/ai/tests.rs            unit tests
     tauri.conf.json
-  ui/                          vanilla HTML/CSS/JS frontend, no npm (22 files; chat-search.js
-                               was folded into chat-render.js in rc.43)
+  ui/                          vanilla HTML/CSS/JS frontend, no npm (21 files; chat-search.js
+                               folded into chat-render.js in rc.43, group-info.js into
+                               chat-list.js in rc.44)
     core.js                    constants, state, cache, helpers, avatars
-    chat-list.js               sidebar list, channels
+    chat-list.js               sidebar list, channels, group info and members
     media-ui.js                media rendering, posters, link previews
     chat-render.js             message rendering, scroll anchoring, in-chat search painting
     media-viewer.js            full-screen media viewer
@@ -154,7 +155,6 @@ apps/desktop/
     message-actions.js         edit/delete/reaction menus
     new-chat.js                new-chat picker
     contacts.js                contact listing and sync
-    group-info.js              group info and members
     settings.js                settings/theme/autostart
     emoji.js                   emoji picker
     stickers.js                sticker grids/favorites

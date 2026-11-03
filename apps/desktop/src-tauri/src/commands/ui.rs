@@ -361,6 +361,12 @@ pub fn ui_member_menu_position(
     )
 }
 
+/// The confirmation for leaving a group.
+#[tauri::command]
+pub fn ui_leave_group_confirm(name: String) -> String {
+    wa_ui::chat_actions::leave_group_confirm(&name)
+}
+
 /// Promote / demote / remove a group member.
 #[tauri::command]
 pub fn ui_member_action(action: String, has_target: bool) -> wa_ui::chat_actions::MemberActionPlan {

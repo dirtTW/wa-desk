@@ -488,6 +488,78 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# group info (rust, group-info.js removed)");
+const groupInfoFiles = await page.evaluate(async () => {
+  const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
+    node.getAttribute("src"),
+  );
+  const loadsGroupInfo = scripts.some((src) => String(src).includes("group-info.js"));
+  const defined = {
+    openGroupInfo: typeof openGroupInfo === "function",
+    leaveCurrentGroup: typeof leaveCurrentGroup === "function",
+    openMemberMenu: typeof openMemberMenu === "function",
+    applyMemberAction: typeof applyMemberAction === "function",
+  };
+  const confirms = [
+    await invoke("ui_leave_group_confirm", { name: "Team" }),
+    await invoke("ui_leave_group_confirm", { name: "   " }),
+  ];
+
+  // Live: the screen still opens and its member kebab still works.
+  const chat = [...state.chats.values()].find(
+    (entry) => entry.isGroup && entry.messages.length > 0 && !entry.jid.endsWith("@newsletter"),
+  );
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    await openGroupInfo();
+    await new Promise((r) => setTimeout(r, 1600));
+    const info = {
+      name: document.getElementById("group-info-name").textContent,
+      count: document.getElementById("group-info-count").textContent,
+      members: document.querySelectorAll("#group-members .group-member").length,
+    };
+    const more = document.querySelector("#group-members .member-more");
+    if (more) {
+      await openMemberMenu(more);
+      await new Promise((r) => setTimeout(r, 500));
+      info.menuOpen = !document.getElementById("member-menu").hidden;
+      closeMemberMenu();
+    }
+    document.getElementById("group-info-screen").hidden = true;
+    document.getElementById("rail-chats").click();
+    live = info;
+  }
+  return { scripts, loadsGroupInfo, defined, confirms, live };
+});
+check(
+  "group-info.js is no longer loaded (21 JS files)",
+  !groupInfoFiles.loadsGroupInfo && groupInfoFiles.scripts.length === 21,
+  `${groupInfoFiles.scripts.length} scripts, loadsGroupInfo=${groupInfoFiles.loadsGroupInfo}`,
+);
+check(
+  "the group-info handlers survive the move",
+  Object.values(groupInfoFiles.defined).every(Boolean),
+  JSON.stringify(groupInfoFiles.defined),
+);
+check(
+  "the leave confirmation is Rust copy",
+  groupInfoFiles.confirms[0] === 'Leave "Team"?' &&
+    groupInfoFiles.confirms[1] === "Leave this group?",
+  JSON.stringify(groupInfoFiles.confirms),
+);
+if (groupInfoFiles.live) {
+  check(
+    "the live group screen still opens",
+    groupInfoFiles.live.members > 0 &&
+      groupInfoFiles.live.count.startsWith("Group - ") &&
+      groupInfoFiles.live.name.length > 0 &&
+      groupInfoFiles.live.menuOpen === true,
+    JSON.stringify(groupInfoFiles.live),
+  );
+}
+
 console.log("\n# in-chat search (rust, chat-search.js removed)");
 const searchCheck = await page.evaluate(async () => {
   const plans = {
@@ -527,8 +599,9 @@ const searchCheck = await page.evaluate(async () => {
       await new Promise((r) => setTimeout(r, 400));
     }
     const second = document.getElementById("chat-search-count").textContent;
-    // Stepping back past the start wraps to the last hit. Read the index the
-    // call returns rather than the label: a repaint may re-paint it later.
+    // Stepping back past the start wraps to the last hit. A repaint can clear
+    // the marks mid-flight, so make sure the query is painted again first.
+    if (!chatSearchHits.length) await runChatSearch(needle, true);
     await scrollToChatSearchHit(-1);
     const wrappedIndex = chatSearchIndex;
     await new Promise((r) => setTimeout(r, 400));

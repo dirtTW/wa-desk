@@ -531,6 +531,16 @@ pub fn mute_plan(choice: &str) -> MutePlan {
     }
 }
 
+/// The confirmation for leaving a group (`Leave "Team"?`).
+pub fn leave_group_confirm(name: &str) -> String {
+    let name = name.trim();
+    if name.is_empty() {
+        "Leave this group?".to_string()
+    } else {
+        format!("Leave \"{name}\"?")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct MemberActionPlan {
     pub allowed: bool,
@@ -721,6 +731,14 @@ mod tests {
         // An unreadable choice falls back to the week, not to unmuted.
         assert_eq!(mute_plan("garbage").until_ms, 604_800_000);
         assert_eq!(mute_plan(" 0 ").until_ms, 0, "trimmed");
+    }
+
+    #[test]
+    fn the_leave_confirmation_quotes_the_group_name() {
+        assert_eq!(leave_group_confirm("Team"), "Leave \"Team\"?");
+        assert_eq!(leave_group_confirm("  Family  "), "Leave \"Family\"?");
+        assert_eq!(leave_group_confirm(""), "Leave this group?");
+        assert_eq!(leave_group_confirm("   "), "Leave this group?");
     }
 
     #[test]

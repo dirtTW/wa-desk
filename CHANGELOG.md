@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.44] — 2026-11-03
+
+- **`group-info.js` is deleted — 22 → 21 JS files.** Its remaining decision is
+  Rust and its DOM glue now sits in `chat-list.js` beside the other group and
+  community plumbing:
+  - `wa_ui::chat_actions::leave_group_confirm(name)` — `Leave "Team"?`, and
+    `Leave this group?` when the group has no name yet (the old template literal
+    would have rendered `Leave ""?`). Command `ui_leave_group_confirm`.
+  - `openGroupInfo`, `leaveCurrentGroup`, the member menu and
+    `applyMemberAction` moved unchanged (they already applied the Rust plans
+    `ui_group_members`, `ui_member_action`, `ui_member_menu_position`); the file
+    and its `<script>` tag are gone.
+- 1 new `wa-ui` unit test (218 total, plus 3 contract) and a group-info CDP e2e
+  section: the file is no longer loaded (21 scripts), all four handlers still
+  exist, the confirmation copy comes from Rust, and a live group screen opens
+  with its member kebab.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.43] — 2026-11-03
 
 - **`chat-search.js` is deleted — one fewer JS file (23 → 22).** Its hit-index
