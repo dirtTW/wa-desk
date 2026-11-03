@@ -91,7 +91,10 @@ pub use status::{
 };
 pub use stickers::{StickerCell, StickerGridOutput, StickerGridRequest};
 pub use text::{MentionResolver, MessageRow, format_phone, preview_of};
-pub use viewer::{ViewerItem, ViewerOutput, ViewerRequest};
+pub use viewer::{
+    SPEEDS, ViewerItem, ViewerOutput, ViewerRequest, ZOOM_MAX, ZOOM_MIN, ZoomState, next_speed,
+    zoom_state,
+};
 
 /// Everything the webview needs to boot in one round-trip: the icon set, the
 /// emoji catalogue and the picker markup.

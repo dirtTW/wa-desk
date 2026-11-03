@@ -139,17 +139,14 @@ apps/desktop/
     src/ai/util.rs             clock, randomness, emoji/text helpers
     src/ai/tests.rs            unit tests
     tauri.conf.json
-  ui/                          vanilla HTML/CSS/JS frontend, no npm (17 files; chat-search.js
-                               folded into chat-render.js in rc.43, group-info.js into
-                               chat-list.js in rc.44, contacts.js into new-chat.js in rc.45,
-                               attachments.js into chats.js in rc.46, emoji.js into
-                               stickers.js in rc.47, chat-menu.js + message-actions.js into
-                               menus.js in rc.48)
+  ui/                          vanilla HTML/CSS/JS frontend, no npm (15 files; chat-search,
+                               group-info, contacts, attachments, emoji, chat-menu +
+                               message-actions, media-viewer and main were folded into
+                               neighbours across rc.43-rc.49)
     core.js                    constants, state, cache, helpers, avatars
     chat-list.js               sidebar list, channels, group info and members
-    media-ui.js                media rendering, posters, link previews
+    media-ui.js                media rendering, posters, link previews, media viewer
     chat-render.js             message rendering, scroll anchoring, in-chat search painting
-    media-viewer.js            full-screen media viewer
     state-updates.js           incoming messages, chat state, export import
     actions.js                 send, read, open chat, history sync
     calls.js                   call signaling and media
@@ -159,8 +156,7 @@ apps/desktop/
     new-chat.js                new-chat picker, group create/add dialog
     settings.js                settings/theme/autostart
     stickers.js                sticker grids/favorites, emoji picker
-    wiring.js                  DOM event wiring
-    main.js                    bootstrap: wire(), listeners, get_status()
+    wiring.js                  DOM event wiring, bootstrap
   scripts/gen-icons.ps1        regenerates the app icons
   scripts/check-undefined.mjs  lists UI call sites with no definition (ReferenceErrors)
   scripts/check-ids.mjs        lists element ids the UI reads but the document lacks

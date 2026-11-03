@@ -270,6 +270,8 @@ pub fn run() {
             crate::commands::ui::ui_status_groups,
             crate::commands::ui::ui_status_own_ids,
             crate::commands::ui::ui_clamp_popover,
+            crate::commands::ui::ui_viewer_zoom,
+            crate::commands::ui::ui_viewer_speed,
             crate::commands::ui::ui_menu_session,
             crate::commands::ui::ui_peer_targets,
             crate::commands::ui::ui_draft_limits,

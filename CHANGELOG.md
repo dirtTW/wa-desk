@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.49] — 2026-11-03
+
+Bulk release (one cut for the whole batch).
+
+- **`media-viewer.js` and `main.js` are gone — 17 → 15 JS files.**
+  - `wa_ui::viewer::zoom_state(next)` owns the zoom rules: the 1..6 clamp,
+    2-decimal rounding, the near-1 snap that stops the "zoomed" class flickering,
+    and the in/out button states; `next_speed(current)` cycles 1 → 1.5 → 2 → 0.5
+    and formats the label (`1.5x`). Commands `ui_viewer_zoom`,
+    `ui_viewer_speed`; `setViewerZoom` and the speed button apply them.
+  - The rest of the viewer (video transport, filmstrip, zoom/pan) moved into
+    `media-ui.js`; the bootstrap (`wire()`, listeners, `get_status`) moved into
+    `wiring.js`.
+- 2 new `wa-ui` unit tests (229 total, plus 3 contract).
+- e2e: the scroll check no longer asserts a stick flag that a repaint can race;
+  it asserts what a reader sees (disc shown, unread dot, re-attach), and both
+  script-count checks derive from `index.html`.
+- Audits: `check-undefined` 20 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.48] — 2026-11-03
 
 Batch release (one cut for the whole batch, not one per file).

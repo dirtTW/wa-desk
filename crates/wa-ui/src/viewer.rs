@@ -268,6 +268,50 @@ pub fn strip_thumb_html(
     format!(r#"<img src="{}" alt="" />"#, escape(url))
 }
 
+/// Zoom bounds for the media viewer.
+pub const ZOOM_MIN: f64 = 1.0;
+pub const ZOOM_MAX: f64 = 6.0;
+/// Playback speeds the transport cycles through.
+pub const SPEEDS: [f64; 4] = [1.0, 1.5, 2.0, 0.5];
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+pub struct ZoomState {
+    pub zoom: f64,
+    pub zoomed: bool,
+    pub can_zoom_in: bool,
+    pub can_zoom_out: bool,
+}
+
+/// Clamp a requested zoom to the viewer's range (2 decimals) and report the
+/// button states. Anything at or below 1.01 snaps back to 1 so the "zoomed"
+/// class does not flicker.
+pub fn zoom_state(next: f64) -> ZoomState {
+    if !next.is_finite() {
+        return zoom_state(ZOOM_MIN);
+    }
+    let rounded = (next * 100.0).round() / 100.0;
+    let mut zoom = rounded.clamp(ZOOM_MIN, ZOOM_MAX);
+    if zoom <= 1.01 {
+        zoom = ZOOM_MIN;
+    }
+    ZoomState {
+        zoom,
+        zoomed: zoom > 1.01,
+        can_zoom_in: zoom < ZOOM_MAX,
+        can_zoom_out: zoom > ZOOM_MIN,
+    }
+}
+
+/// The next playback speed and its transport label (`1.5x`).
+pub fn next_speed(current: f64) -> (f64, String) {
+    let index = SPEEDS
+        .iter()
+        .position(|speed| (*speed - current).abs() < f64::EPSILON)
+        .unwrap_or(0);
+    let speed = SPEEDS[(index + 1) % SPEEDS.len()];
+    (speed, format!("{speed:.1}x"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +343,36 @@ mod tests {
             self_handle: String::new(),
             now: 1_770_000_000_000,
         }
+    }
+
+    #[test]
+    fn zoom_clamps_between_one_and_six() {
+        let one = zoom_state(1.0);
+        assert_eq!(one.zoom, 1.0);
+        assert!(!one.zoomed && one.can_zoom_in && !one.can_zoom_out);
+
+        let mid = zoom_state(2.345);
+        assert_eq!(mid.zoom, 2.35, "two decimals");
+        assert!(mid.zoomed && mid.can_zoom_in && mid.can_zoom_out);
+
+        let high = zoom_state(99.0);
+        assert_eq!(high.zoom, ZOOM_MAX);
+        assert!(!high.can_zoom_in);
+
+        // Near-1 values snap to 1 so the zoomed class does not flicker.
+        assert_eq!(zoom_state(1.01).zoom, 1.0);
+        assert!(!zoom_state(1.01).zoomed);
+        // A nonsense value falls back to 1 instead of NaN-ing the transform.
+        assert_eq!(zoom_state(f64::NAN).zoom, 1.0);
+    }
+
+    #[test]
+    fn speeds_cycle_and_label_themselves() {
+        assert_eq!(next_speed(1.0), (1.5, "1.5x".to_string()));
+        assert_eq!(next_speed(1.5), (2.0, "2.0x".to_string()));
+        assert_eq!(next_speed(2.0), (0.5, "0.5x".to_string()));
+        assert_eq!(next_speed(0.5), (1.0, "1.0x".to_string()), "wraps to 1x");
+        assert_eq!(next_speed(1.25).0, 1.5, "an unknown speed restarts");
     }
 
     #[test]

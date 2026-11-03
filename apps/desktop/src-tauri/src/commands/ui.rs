@@ -722,6 +722,25 @@ pub fn ui_profile_name_error(name: String) -> Option<String> {
     wa_ui::settings::profile_name_error(&name)
 }
 
+/// The media viewer's zoom bounds, snapped zoom and button states.
+#[tauri::command]
+pub fn ui_viewer_zoom(next: f64) -> wa_ui::viewer::ZoomState {
+    wa_ui::viewer::zoom_state(next)
+}
+
+/// The next playback speed and its transport label.
+#[tauri::command]
+pub fn ui_viewer_speed(current: f64) -> ViewerSpeed {
+    let (speed, label) = wa_ui::viewer::next_speed(current);
+    ViewerSpeed { speed, label }
+}
+
+#[derive(serde::Serialize)]
+pub struct ViewerSpeed {
+    pub speed: f64,
+    pub label: String,
+}
+
 /// One menu open/close/toggle transition (only one popover may be open).
 #[tauri::command]
 pub fn ui_menu_session(
