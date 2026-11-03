@@ -173,6 +173,61 @@ check(
 );
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
 
+console.log("\n# chat store plans (rust)");
+const storePlans = await page.evaluate(async () => {
+  const a = "999000111@lid";
+  const b = "999000222@s.whatsapp.net";
+  state.chats.set(a, {
+    jid: a,
+    name: "Merge Probe",
+    isGroup: false,
+    messages: [{ id: "pa", timestamp: 1000, text: "a" }],
+    last: { id: "pa", timestamp: 1000 },
+    lastTs: 1000,
+    unread: 2,
+  });
+  state.chats.set(b, {
+    jid: b,
+    name: "Merge Probe",
+    isGroup: false,
+    messages: [{ id: "pb", timestamp: 2000, text: "b" }],
+    last: { id: "pb", timestamp: 2000 },
+    lastTs: 2000,
+    unread: 0,
+  });
+  mergeDuplicateChats();
+  await new Promise((r) => setTimeout(r, 700));
+  const survivor = state.chats.get(b);
+  const merge = {
+    lidGone: !state.chats.has(a),
+    messages: survivor ? survivor.messages.map((m) => m.id) : [],
+    unread: survivor ? survivor.unread : null,
+  };
+  if (survivor) state.chats.delete(b);
+
+  const trim = await invoke("ui_trim_messages", {
+    chats: [
+      { jid: "t1", len: 10, last_ts: 100 },
+      { jid: "t2", len: 10, last_ts: 200 },
+      { jid: "keep", len: 4, last_ts: 50 },
+    ],
+    perChat: 8,
+    budget: 12,
+    keepJid: "keep",
+  });
+  return { merge, trim };
+});
+check(
+  "duplicate chats merge",
+  storePlans.merge.lidGone && storePlans.merge.messages.length === 2 && storePlans.merge.unread === 2,
+  `${storePlans.merge.messages.join("+")}, unread ${storePlans.merge.unread}`,
+);
+check(
+  "the trim plan protects the open chat",
+  storePlans.trim.dropped > 0 && !storePlans.trim.ops.some((op) => op.jid === "keep"),
+  `${storePlans.trim.dropped} dropped`,
+);
+
 console.log("\n# status composer (rust)");
 const composer = await page.evaluate(async () => {
   openStatus();

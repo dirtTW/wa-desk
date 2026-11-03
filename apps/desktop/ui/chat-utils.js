@@ -53,111 +53,11 @@
     return null;
   }
 
-  // Keep memory bounded: per-chat cap plus a global budget. Chats with the
-  // oldest activity are trimmed first, and the open chat is never touched.
-  function trimMessages(chats, options) {
-    const perChat = options.perChat;
-    const budget = options.budget;
-    const keepJid = options.keepJid;
-
-    let total = 0;
-    for (const chat of chats.values()) {
-      if (chat.messages.length > perChat) {
-        chat.messages.splice(0, chat.messages.length - perChat);
-      }
-      total += chat.messages.length;
-    }
-
-    if (total <= budget) return 0;
-
-    const order = [...chats.values()]
-      .filter((chat) => chat.jid !== keepJid)
-      .sort((a, b) => (a.lastTs || 0) - (b.lastTs || 0));
-
-    let dropped = 0;
-    for (const chat of order) {
-      if (total <= budget) break;
-      const overflow = Math.min(chat.messages.length, total - budget);
-      if (overflow <= 0) continue;
-      chat.messages.splice(0, overflow);
-      total -= overflow;
-      dropped += overflow;
-    }
-
-    return dropped;
-  }
-
-  // Two conversations for the same person (PN vs LID, or a re-sync) end up
-  // with the same display name. Keep the richer one and fold the other in.
-  function mergeChats(chats) {
-    const byName = new Map();
-    const remap = new Map();
-    let changed = false;
-
-    for (const chat of [...chats.values()]) {
-      if (chat.isGroup) continue;
-      // Channels are broadcast-only and must never be folded into a DM that
-      // happens to share a display name.
-      if (String(chat.jid).endsWith("@newsletter")) continue;
-      if (isPlaceholderName(chat.jid, chat.name)) continue;
-      const key = String(chat.name || "").trim().toLowerCase();
-      if (!key) continue;
-
-      const existing = byName.get(key);
-      if (!existing) {
-        byName.set(key, chat);
-        continue;
-      }
-
-      const target =
-        existing.messages.length === chat.messages.length
-          ? existing.jid.endsWith("@lid") && !chat.jid.endsWith("@lid")
-            ? chat
-            : existing
-          : existing.messages.length > chat.messages.length
-            ? existing
-            : chat;
-      const source = target === existing ? chat : existing;
-
-      for (const message of source.messages) {
-        if (!target.messages.some((candidate) => candidate.id === message.id)) {
-          target.messages.push(message);
-        }
-      }
-      target.messages.sort((a, b) => a.timestamp - b.timestamp);
-      target.unread += source.unread;
-      // A surviving copy means the conversation is not deleted.
-      target.deleted = Boolean(target.deleted && source.deleted);
-      target.cleared = Boolean(target.cleared && source.cleared);
-      if ((source.last?.timestamp || 0) > (target.last?.timestamp || 0)) {
-        target.last = source.last;
-        target.lastTs = source.lastTs;
-      }
-
-      chats.delete(source.jid);
-      remap.set(source.jid, target.jid);
-      byName.set(key, target);
-      changed = true;
-    }
-
-    return { changed, remap };
-  }
-
   // "6285…:53@s.whatsapp.net" -> "6285…"
   function phoneFromJid(jid) {
     if (!jid) return "";
     const user = String(jid).split("@")[0];
     return user.split(":")[0];
-  }
-
-  // Chat header subtitle, like WhatsApp Web: a phone number or a group. A LID
-  // only becomes a number once the protocol layer resolves its PN.
-  function chatSubtitle(jid, isGroup, meJid, meLid, phone) {
-    if (isGroup) return "Group chat";
-    if (jid && (jid === meJid || jid === meLid)) return "Message yourself";
-    let raw = phone || "";
-    if (!raw && jid && !String(jid).endsWith("@lid")) raw = phoneFromJid(jid);
-    return raw ? formatPhone(raw) : "";
   }
 
   // Phone-number user part -> WhatsApp-style "+62 896-3384-66984".
@@ -248,8 +148,7 @@
 
   const api = {
     isPlaceholderName,
-    mergeChats,
-    trimMessages,
+
     pickClipboardImage,
 
     isMessageVisible,
@@ -257,7 +156,7 @@
     chatIsMuted,
     lastVisibleMessage,
     phoneFromJid,
-    chatSubtitle,
+
     formatPhone,
     senderColor,
     firstUrl,

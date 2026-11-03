@@ -37,6 +37,23 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// How duplicate conversations should be folded (the webview applies it).
+#[tauri::command]
+pub fn ui_merge_chats(chats: Vec<wa_ui::state::MergeChatView>) -> wa_ui::state::MergePlan {
+    wa_ui::state::merge_plan(&chats)
+}
+
+/// Which messages to drop from the chat cache (the webview applies it).
+#[tauri::command]
+pub fn ui_trim_messages(
+    chats: Vec<wa_ui::state::TrimChatView>,
+    per_chat: usize,
+    budget: usize,
+    keep_jid: String,
+) -> wa_ui::state::TrimPlan {
+    wa_ui::state::trim_plan(&chats, per_chat, budget, &keep_jid)
+}
+
 /// The status composer palette, fonts and font wire names.
 #[tauri::command]
 pub fn ui_status_palette() -> wa_ui::composer::StatusPalette {

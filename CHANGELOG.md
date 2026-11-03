@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.8] — 2026-11-03
+
+- **Chat-store housekeeping moved to Rust.** `wa_ui::state` decides which
+  duplicate conversations fold (shared display name, PN over LID, richer copy
+  wins, groups/channels/placeholder names never fold), which message ids move,
+  the resulting unread/deleted/cleared/last-ts and the jid remap
+  (`ui_merge_chats`); it also computes the cache trim (per-chat cap, then the
+  global budget from the oldest chats while protecting the open one,
+  `ui_trim_messages`). The webview only applies the plans to its `Map`/arrays,
+  so no message data round-trips. `chat-utils.js` dropped `mergeChats` and
+  `trimMessages` and the now-unused `chatSubtitle` (237 → 148 lines).
+- 7 new `wa-ui` unit tests (92 total, plus 3 contract) and a CDP e2e section:
+  a synthetic LID+PN pair folds into one chat with both messages and the summed
+  unread count, and a trim plan never drops from the protected chat.
+- Note: Tauri exposes command arguments as camelCase (`perChat`, `keepJid`);
+  the trim call site was corrected after the first probe failed with
+  `missing required key perChat`.
+
 ## [0.2.0-rc.7] — 2026-11-03
 
 - **The status composer is driven by Rust.** `wa_ui::composer` owns the official

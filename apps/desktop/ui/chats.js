@@ -13,12 +13,46 @@ function scheduleMerge() {
 }
 
 function mergeDuplicateChats() {
-  const { changed, remap } = WAChatUtils.mergeChats(state.chats);
-  if (!changed) return;
-
-  if (state.active && remap.has(state.active)) state.active = remap.get(state.active);
-  renderChatList();
-  if (state.active) renderChat();
+  const chats = [...state.chats.values()].map((chat) => ({
+    jid: chat.jid,
+    name: chat.name || "",
+    is_group: Boolean(chat.isGroup),
+    message_ids: (chat.messages || []).map((message) => message.id),
+    unread: chat.unread || 0,
+    deleted: Boolean(chat.deleted),
+    cleared: Boolean(chat.cleared),
+    last_ts: chat.last?.timestamp || chat.lastTs || 0,
+  }));
+  // The merge decision (which copy survives, which ids move) is made by
+  // wa-ui::state; this only applies the plan to the in-memory Map.
+  invoke("ui_merge_chats", { chats })
+    .then((plan) => {
+      if (!plan.changed) return;
+      for (const op of plan.ops) {
+        const source = state.chats.get(op.source);
+        const target = state.chats.get(op.target);
+        if (!source || !target) continue;
+        const ids = new Set(op.append_ids);
+        for (const message of source.messages) {
+          if (ids.has(message.id)) target.messages.push(message);
+        }
+        target.messages.sort((a, b) => a.timestamp - b.timestamp);
+        target.unread += op.unread_add;
+        target.deleted = op.deleted;
+        target.cleared = op.cleared;
+        if (op.last_ts !== null && op.last_ts > (target.last?.timestamp || 0)) {
+          target.last = source.last;
+          target.lastTs = op.last_ts;
+        }
+        state.chats.delete(op.source);
+      }
+      for (const [from, to] of plan.remap) {
+        if (state.active === from) state.active = to;
+      }
+      renderChatList();
+      if (state.active) renderChat();
+    })
+    .catch((err) => console.warn("chat merge failed", err));
 }
 
 /* ------------------------------------------------------------ peer aliases */

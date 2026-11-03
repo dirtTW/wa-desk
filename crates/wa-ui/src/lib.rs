@@ -19,6 +19,7 @@ pub mod picker;
 pub mod screens;
 pub mod settings;
 pub mod sidebar;
+pub mod state;
 pub mod status;
 pub mod stickers;
 pub mod text;
@@ -37,6 +38,7 @@ pub use picker::{PickerChat, PickerOutput, PickerRequest};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
 pub use settings::{SettingsOutput, SettingsRequest};
 pub use sidebar::{SidebarChat, SidebarOutput, SidebarRequest};
+pub use state::{MergeChatView, MergePlan, TrimChatView, TrimPlan};
 pub use status::{
     StatusEntryView, StatusFrameOutput, StatusFrameRequest, StatusListOutput, StatusRequest,
     StatusUpdateView, StatusViewsOutput,

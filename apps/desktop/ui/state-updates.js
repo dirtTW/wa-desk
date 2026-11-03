@@ -239,11 +239,24 @@ function addIncoming(message, history = false) {
   // would otherwise grow without bound.
   if (history) {
     if (state.chats.size > 0 && (historyBudget++ & 0x3f) === 0) {
-      WAChatUtils.trimMessages(state.chats, {
+      // wa-ui::state decides which messages to drop; this applies the plan.
+      invoke("ui_trim_messages", {
+        chats: [...state.chats.values()].map((chat) => ({
+          jid: chat.jid,
+          len: (chat.messages || []).length,
+          last_ts: chat.last?.timestamp || chat.lastTs || 0,
+        })),
         perChat: MAX_MESSAGES_IN_MEMORY,
         budget: MAX_MESSAGES_TOTAL,
-        keepJid: state.active,
-      });
+        keepJid: state.active || "",
+      })
+        .then((plan) => {
+          for (const op of plan.ops) {
+            const chat = state.chats.get(op.jid);
+            if (chat && op.drop > 0) chat.messages.splice(0, op.drop);
+          }
+        })
+        .catch(() => {});
     }
   }
 
