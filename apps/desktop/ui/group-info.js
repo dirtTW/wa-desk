@@ -24,11 +24,15 @@ async function openGroupInfo() {
     $("group-info-count").textContent = `Group - ${info.members.length} members`;
     $("group-info-desc").textContent = info.description || "";
     const rendered = await invoke("ui_group_members", {
-      members: info.members.map((member) => ({
-        jid: member.jid,
-        phone: member.phone || WAChatUtils.phoneFromJid(member.jid),
-        admin: Boolean(member.admin),
-      })),
+      members: await Promise.all(
+        info.members.map(async (member) => ({
+          jid: member.jid,
+          phone:
+            member.phone ||
+            (await invoke("ui_phone_from_jid", { jid: member.jid }).catch(() => "")),
+          admin: Boolean(member.admin),
+        })),
+      ),
       contacts: Object.fromEntries(state.contacts),
       photos: Object.fromEntries(
         [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),

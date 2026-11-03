@@ -819,7 +819,17 @@ function wire() {
 
   document.addEventListener("paste", (event) => {
     const items = event.clipboardData ? [...event.clipboardData.items] : [];
-    const file = WAChatUtils.pickClipboardImage(items);
+    let file = null;
+    for (const item of items || []) {
+      if (!item || item.kind === "string") continue;
+      if (typeof item.type === "string" && item.type.startsWith("image/")) {
+        const candidate = typeof item.getAsFile === "function" ? item.getAsFile() : null;
+        if (candidate) {
+          file = candidate;
+          break;
+        }
+      }
+    }
     if (!file) return;
     event.preventDefault();
     addDraftFiles([file]);
@@ -953,7 +963,7 @@ function wire() {
   // browser. Every external anchor goes through `open_link` (default
   // browser), channel post images follow the official app and open the
   // post's own URL, and internal schemes are simply cancelled here.
-  document.addEventListener("click", (event) => {
+  document.addEventListener("click", async (event) => {
     const anchor = event.target.closest && event.target.closest('a[target="_blank"]');
     if (!anchor) return;
     const href = anchor.getAttribute("href") || "";
@@ -968,7 +978,9 @@ function wire() {
       const entry = state.chats.get(state.active);
       const message =
         bubble && entry && entry.messages.find((m) => m.id === bubble.dataset.id);
-      const postUrl = message && WAChatUtils.firstUrl(message.text || "");
+      const postUrl = message
+        ? await invoke("ui_first_url", { text: message.text || "" }).catch(() => null)
+        : null;
       if (postUrl && isExternalHttp(postUrl)) {
         invoke("open_link", { url: postUrl }).catch((err) => toast(String(err)));
       } else {

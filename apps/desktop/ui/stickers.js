@@ -41,7 +41,12 @@ function syncAiContext(chat) {
   const entry = state.chats.get(chat);
   if (!entry) return;
   const lines = entry.messages
-    .filter((message) => !message.deleted && WAChatUtils.isMessageVisible(message, false))
+    .filter(
+      (message) =>
+        !message.deleted &&
+        !message.deletedForMe &&
+        !message.cleared,
+    )
     .slice(-24)
     .map((message) => {
       const text = (message.text || "").trim();
@@ -50,7 +55,7 @@ function syncAiContext(chat) {
         sender: message.from_me
           ? "Gw"
           : message.sender_name ||
-            (message.sender ? WAChatUtils.phoneFromJid(message.sender) : "") ||
+            message.sender_user ||
             "Mereka",
         text: text || (message.kind !== "text" ? `[${MEDIA_LABELS[message.kind] || "Media"}]` : ""),
         timestamp: message.timestamp || 0,

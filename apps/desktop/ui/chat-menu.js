@@ -2,8 +2,7 @@
    pin, archive, mute, mark unread, block, close, clear and delete all ride
    cross-client app-state/blocklist mutations, so the phone and every other
    desktop follow along. Extracted from wiring.js to keep that file focused on
-   keyboard/global wiring. Loaded after chat-utils (needs WAChatUtils) and
-   before wiring.js. */
+   keyboard/global wiring. Loaded before wiring.js. */
 
 function initChatMenu() {
   const chatListEl = $("chat-list");

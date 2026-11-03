@@ -85,7 +85,7 @@ function activeSenderNames() {
   const chat = state.chats.get(state.active);
   for (const message of chat?.messages || []) {
     if (!message.sender || !message.sender_name) continue;
-    names[WAChatUtils.phoneFromJid(message.sender)] = message.sender_name;
+    names[jidUser(message.sender)] = message.sender_name;
   }
   return names;
 }
@@ -93,7 +93,6 @@ function activeSenderNames() {
 function sidebarRequest() {
   const chats = [];
   for (const chat of state.chats.values()) {
-    const last = WAChatUtils.lastVisibleMessage(chat, state.showDeleted);
     chats.push({
       jid: chat.jid,
       name: chat.name || "",
@@ -107,7 +106,7 @@ function sidebarRequest() {
       mute_until: chat.muteUntil || 0,
       mute_forever: Boolean(chat.muteForever),
       last_ts: chat.last?.timestamp || chat.lastTs || 0,
-      last: sidebarMessage(last),
+      tail: (chat.messages || []).slice(-6).map(sidebarMessage),
     });
   }
   const self = state.chats.get(state.meJid) || state.chats.get(state.meLid);

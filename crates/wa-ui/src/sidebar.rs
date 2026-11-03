@@ -52,9 +52,33 @@ pub struct SidebarChat {
     pub mute_forever: bool,
     #[serde(default)]
     pub last_ts: i64,
-    /// Newest message the eye toggle shows, if any.
+    /// The newest few messages, so the renderer can pick the visible one.
+    #[serde(default)]
+    pub tail: Vec<MessageRow>,
+    /// A pre-picked last message (older callers), still honoured.
     #[serde(default)]
     pub last: Option<MessageRow>,
+}
+
+impl SidebarChat {
+    /// The newest message the eye toggle shows.
+    pub fn last_visible(&self, show_deleted: bool) -> Option<&MessageRow> {
+        if let Some(last) = self.last.as_ref() {
+            return Some(last);
+        }
+        self.tail
+            .iter()
+            .rev()
+            .find(|message| message.is_visible(show_deleted))
+    }
+
+    pub fn last_ts_of(&self) -> i64 {
+        self.tail
+            .last()
+            .map(|message| message.timestamp)
+            .or_else(|| self.last.as_ref().map(|message| message.timestamp))
+            .unwrap_or(self.last_ts)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -179,7 +203,7 @@ fn row_html(
     nested: bool,
     active: bool,
 ) -> String {
-    let last = chat.last.as_ref();
+    let last = chat.last_visible(req.show_deleted);
     let stamp = last.map(|m| m.timestamp).unwrap_or(chat.last_ts);
     let preview = match last {
         Some(message) => preview_text(message, chat, req),
@@ -393,9 +417,7 @@ pub fn render(req: &SidebarRequest) -> SidebarOutput {
         if pa == 1 {
             return a.pin_ts.cmp(&b.pin_ts);
         }
-        let ta = a.last.as_ref().map(|m| m.timestamp).unwrap_or(a.last_ts);
-        let tb = b.last.as_ref().map(|m| m.timestamp).unwrap_or(b.last_ts);
-        tb.cmp(&ta)
+        b.last_ts_of().cmp(&a.last_ts_of())
     });
 
     let archived = if archived_count > 0 || req.archived_open {
@@ -567,23 +589,14 @@ fn render_search(
             continue;
         }
         if let Some(member) = chat
-            .last
-            .as_ref()
+            .last_visible(req.show_deleted)
             .filter(|message| message.sender_name.to_lowercase().contains(needle))
         {
             groups.push((chat, member.sender_name.clone()));
         }
     }
-    chats.sort_by(|a, b| {
-        let ta = a.0.last.as_ref().map(|m| m.timestamp).unwrap_or(0);
-        let tb = b.0.last.as_ref().map(|m| m.timestamp).unwrap_or(0);
-        tb.cmp(&ta)
-    });
-    groups.sort_by(|a, b| {
-        let ta = a.0.last.as_ref().map(|m| m.timestamp).unwrap_or(0);
-        let tb = b.0.last.as_ref().map(|m| m.timestamp).unwrap_or(0);
-        tb.cmp(&ta)
-    });
+    chats.sort_by_key(|a| std::cmp::Reverse(a.0.last_ts_of()));
+    groups.sort_by_key(|a| std::cmp::Reverse(a.0.last_ts_of()));
 
     let self_phone = crate::text::phone_from_jid(&req.me_jid);
     let mut contacts: Vec<(String, String)> = req

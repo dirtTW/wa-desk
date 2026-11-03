@@ -10,13 +10,13 @@ function isPlaceholderName(jid, name) {
 
 function contactNameFor(jid) {
   if (!jid) return "";
-  return state.contacts.get(WAChatUtils.phoneFromJid(jid)) || "";
+  return state.contacts.get(jidUser(jid)) || "";
 }
 
 // Saved-contact names arrive from the phone's address book (app-state sync)
 // after the chats were already drawn, so patch chats, senders and the list.
 function applyContactName(jid, name) {
-  const key = WAChatUtils.phoneFromJid(jid);
+  const key = jidUser(jid);
   if (!key) return;
   if (name) state.contacts.set(key, name);
   else state.contacts.delete(key);
@@ -24,12 +24,12 @@ function applyContactName(jid, name) {
   let changed = false;
   for (const chat of state.chats.values()) {
     if (chat.jid === state.meJid || chat.jid === state.meLid) continue;
-    if (WAChatUtils.phoneFromJid(chat.jid) === key && name) {
+    if (jidUser(chat.jid) === key && name) {
       chat.name = name;
       changed = true;
     }
     for (const message of chat.messages) {
-      if (message.sender && WAChatUtils.phoneFromJid(message.sender) === key && name) {
+      if (message.sender && jidUser(message.sender) === key && name) {
         message.sender_name = name;
         changed = true;
       }

@@ -475,9 +475,11 @@ function hydratePhones(box) {
   for (const node of box.querySelectorAll("[data-phone-jid]")) {
     const jid = node.dataset.phoneJid;
     const isName = node.classList.contains("sender-name");
-    const paint = (phone) => {
-      const text = WAChatUtils.formatPhone(phone);
-      node.innerHTML = isName ? escapeHtml(text) : `${waIcon("call", "phone-glyph")} ${text}`;
+    const paint = async (phone) => {
+      const text = await invoke("ui_format_phone", { phone });
+      node.innerHTML = isName
+        ? escapeHtml(text)
+        : `${await invoke("ui_icon", { name: "call", class: "phone-glyph" })} ${text}`;
     };
     const cached = state.phones.get(jid);
     if (cached === "missing") {

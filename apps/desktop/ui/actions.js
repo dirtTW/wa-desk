@@ -273,13 +273,13 @@ async function syncChatHistoryBatch(chats, force = false) {
 // A warm cache needs no phone round-trip. Only a window with no messages at
 // all (fresh install / cleared storage) triggers the automatic re-sync, and
 // then only a handful of chats; the rest load when opened.
-function maybeSyncChatHistory() {
+async function maybeSyncChatHistory() {
   if (!state.connected) return;
   const withMessages = [...state.chats.values()].filter(
     (chat) => chat.messages.length > 0,
   ).length;
   if (withMessages > 0) return;
-  seedChatsFromContacts();
+  await seedChatsFromContacts();
   if (!state.chats.size) return;
   renderChatList();
   setTimeout(async () => syncChatHistoryBatch(await chatsForHistorySync(), false), 5000);
@@ -356,9 +356,9 @@ async function restoreDiskChatCache() {
 // With no cache at all, the address book is enough to rebuild personal chats;
 // history requests then refill them (and business chats return as the phone
 // answers with their canonical ids).
-function seedChatsFromContacts() {
+async function seedChatsFromContacts() {
   if (state.chats.size > 0 || state.contacts.size === 0) return 0;
-  const me = WAChatUtils.phoneFromJid(state.meJid);
+  const me = await invoke("ui_phone_from_jid", { jid: state.meJid || "" }).catch(() => "");
   let added = 0;
   for (const [phone, name] of state.contacts) {
     if (!phone || phone.length < 6 || phone === me) continue;
@@ -509,7 +509,7 @@ async function sendCurrent() {
 
     // Self-sent messages are not echoed back, so ask the AI directly when the
     // user typed /ai in "Message yourself".
-    const ai = WAChatUtils.aiPrompt(text);
+    const ai = await invoke("ui_ai_prompt", { text });
     if (ai && (chat === state.meLid || chat === state.meJid)) {
       invoke("ai_reply_now", { chat, text }).catch((err) => toast(String(err)));
     }

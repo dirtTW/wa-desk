@@ -296,7 +296,14 @@ function addStatusUpdate(update) {
     entry = { jid, name: update.name || jid, updates: [] };
     state.statuses.set(jid, entry);
   }
-  if (update.name && !WAChatUtils.isPlaceholderName(jid, update.name)) entry.name = update.name;
+  if (update.name) {
+    // The placeholder check is wa-ui::text::is_placeholder_name.
+    invoke("ui_placeholder_name", { jid, name: update.name })
+      .catch(() => false)
+      .then((placeholder) => {
+        if (!placeholder) entry.name = update.name;
+      });
+  }
 
   const normalized = {
     ...update,

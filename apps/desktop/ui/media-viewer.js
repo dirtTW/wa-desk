@@ -142,7 +142,14 @@ async function viewerMediaUrl(item) {
 /* ------------------------------------------------------ custom video player */
 
 
-function setupViewerVideo(container) {
+async function setupViewerVideo(container) {
+  // The transport icons are rendered by wa-ui::html::icon.
+  const icons = {
+    play: await invoke("ui_icon", { name: "play_arrow" }),
+    pause: await invoke("ui_icon", { name: "pause" }),
+    volume: await invoke("ui_icon", { name: "volume_up" }),
+    muted: await invoke("ui_icon", { name: "volume_off" }),
+  };
   const video = container.querySelector(".viewer-video-el");
   if (!video) return;
   const controls = container.querySelector(".viewer-video-controls");
@@ -180,7 +187,7 @@ function setupViewerVideo(container) {
   setTimeout(fitControls, 60);
 
   const syncToggle = () => {
-    const icon = video.paused ? waIcon("play_arrow") : waIcon("pause");
+    const icon = video.paused ? icons.play : icons.pause;
     toggles.forEach((button) => {
       button.innerHTML = icon;
       button.setAttribute("aria-label", video.paused ? "Play" : "Pause");
@@ -205,7 +212,7 @@ function setupViewerVideo(container) {
 
   const syncMute = () => {
     const muted = video.muted || video.volume === 0;
-    mute.innerHTML = muted ? waIcon("volume_off") : waIcon("volume_up");
+    mute.innerHTML = muted ? icons.muted : icons.volume;
     mute.setAttribute("aria-label", muted ? "Unmute" : "Mute");
   };
 

@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.12] — 2026-11-03
+
+- **`icons.js` and `chat-utils.js` are gone.** The four remaining runtime icon
+  swaps (`chat-render` phone glyph, the viewer's play/pause/mute buttons, the
+  theme toggle) call `ui_icon`, which renders the Material SVG in Rust; the
+  icon table no longer ships with the webview.
+- The last `chat-utils` helpers moved to `wa-ui`: `aiPrompt` → `ui_ai_prompt`,
+  `firstUrl` → `ui_first_url`, `isPlaceholderName` → `ui_placeholder_name`,
+  `formatPhone` → `ui_format_phone` and `phoneFromJid` → `ui_phone_from_jid`
+  in the async flows (calls, forward picker, group info, contact seeding,
+  link previews). The sidebar now sends the newest six messages as `tail` and
+  `wa_ui::sidebar::SidebarChat::last_visible` picks the preview, so
+  `lastVisibleMessage` is Rust's job.
+- One accessor stays in `core.js`: `jidUser(jid)` extracts the phone from a JID
+  because the chat/contact maps are keyed by the address book's phone key.
+- 1 new command left to verify: `ui_message_visible` (eye-toggle rule).
+  `cargo test -p wa-ui` 114 + 3 contract, clippy/fmt clean, and the packaged
+  CDP e2e passes (the group checklist initially returned 0 contacts because
+  `knownLids()` became async; the spread now awaits it).
+
 ## [0.2.0-rc.11] — 2026-11-03
 
 - **Status and message actions are guarded by Rust.** `wa_ui::actions` decides

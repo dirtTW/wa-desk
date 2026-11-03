@@ -63,7 +63,7 @@ let peerLookupTimer = null;
 
 // Fold `from` into `to`, keeping both message sets. `name` is a verified
 // business name, which wins over a numeric placeholder.
-function foldChat(from, to, name) {
+async function foldChat(from, to, name) {
   if (!from || !to) return false;
   if (from === to) {
     const only = state.chats.get(to);
@@ -78,7 +78,11 @@ function foldChat(from, to, name) {
   const source = state.chats.get(from);
   const target = state.chats.get(to);
   if (!source) {
-    if (target && name && WAChatUtils.isPlaceholderName(target.jid, target.name)) {
+    if (
+      target &&
+      name &&
+      (await invoke("ui_placeholder_name", { jid: target.jid, name: target.name }).catch(() => false))
+    ) {
       target.name = name;
       return true;
     }
@@ -116,15 +120,29 @@ function foldChat(from, to, name) {
 // Ask the library for the real identity: it also persists the LID↔PN mapping
 // so future traffic is canonicalised instead of creating another row.
 async function resolvePeers(chats) {
-  const pending = chats.filter(
-    (chat) =>
-      chat &&
-      !chat.isGroup &&
-      chat.jid !== state.meJid &&
-      chat.jid !== state.meLid &&
-      !peerLookups.has(chat.jid) &&
-      (String(chat.jid).endsWith("@lid") || WAChatUtils.isPlaceholderName(chat.jid, chat.name)),
-  );
+  const pending = [];
+  for (const chat of chats) {
+    if (
+      !chat ||
+      chat.isGroup ||
+      chat.jid === state.meJid ||
+      chat.jid === state.meLid ||
+      peerLookups.has(chat.jid)
+    ) {
+      continue;
+    }
+    // A LID chat always needs a peer lookup; a PN chat only while its name is
+    // still the bare number (decided by wa_ui::text).
+    const isLid = String(chat.jid).endsWith("@lid");
+    if (!isLid) {
+      const placeholder = await invoke("ui_placeholder_name", {
+        jid: chat.jid,
+        name: chat.name,
+      }).catch(() => false);
+      if (!placeholder) continue;
+    }
+    pending.push(chat);
+  }
   if (!pending.length) return;
 
   const batch = pending.slice(0, 100);
@@ -150,12 +168,18 @@ async function resolvePeers(chats) {
     if (phoneJid) {
       for (const key of new Set([info.chat, lidJid])) {
         if (!key || key === target || !state.chats.has(key)) continue;
-        if (foldChat(key, target, info.name)) changed = true;
+        if (await foldChat(key, target, info.name)) changed = true;
       }
     }
 
     const entry = state.chats.get(target);
-    if (entry && info.name && WAChatUtils.isPlaceholderName(entry.jid, entry.name)) {
+    if (
+      entry &&
+      info.name &&
+      (await invoke("ui_placeholder_name", { jid: entry.jid, name: entry.name }).catch(
+        () => false,
+      ))
+    ) {
       entry.name = info.name;
       changed = true;
     }

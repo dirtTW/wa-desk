@@ -45,7 +45,7 @@ async function renderGroupContacts() {
     out = await invoke("ui_group_contacts", {
       request: {
         contacts: Object.fromEntries(state.contacts),
-        known_lids: [...knownLids()],
+        known_lids: [...(await knownLids())],
         photos: Object.fromEntries(
           [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
         ),

@@ -37,6 +37,53 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// One Material icon as inline SVG (used by the few runtime icon swaps).
+#[tauri::command]
+pub fn ui_icon(name: String, class: Option<String>) -> String {
+    wa_ui::html::icon_with_class(&name, class.as_deref().unwrap_or(""))
+}
+
+/// `"/ai explain this"` -> `"explain this"`.
+#[tauri::command]
+pub fn ui_ai_prompt(text: String) -> Option<String> {
+    wa_ui::text::ai_prompt(&text)
+}
+
+/// Whether a message is currently visible (eye toggle rules).
+#[tauri::command]
+pub fn ui_message_visible(deleted_for_me: bool, cleared: bool, show_deleted: bool) -> bool {
+    wa_ui::text::MessageRow {
+        deleted_for_me,
+        cleared,
+        ..Default::default()
+    }
+    .is_visible(show_deleted)
+}
+
+/// A phone number formatted the WhatsApp way.
+#[tauri::command]
+pub fn ui_format_phone(phone: String) -> String {
+    wa_ui::text::format_phone(&phone)
+}
+
+/// The user part of a JID (no device suffix).
+#[tauri::command]
+pub fn ui_phone_from_jid(jid: String) -> String {
+    wa_ui::text::phone_from_jid(&jid)
+}
+
+/// The first web link in a message body.
+#[tauri::command]
+pub fn ui_first_url(text: String) -> Option<String> {
+    wa_ui::text::first_url(&text)
+}
+
+/// Whether a display name is still the bare JID user part.
+#[tauri::command]
+pub fn ui_placeholder_name(jid: String, name: String) -> bool {
+    wa_ui::text::is_placeholder_name(&jid, &name)
+}
+
 /// Whether a story can be replied to / reacted to / deleted.
 #[tauri::command]
 pub fn ui_status_permissions(from_me: bool) -> wa_ui::actions::StatusPermissions {

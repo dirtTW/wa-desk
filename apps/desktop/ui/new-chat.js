@@ -73,11 +73,12 @@ async function sendForward() {
     const jid = [...forwardTargets][Math.floor(index / queue.length)];
     let entry = state.chats.get(jid);
     if (!entry) {
+      const user = await invoke("ui_phone_from_jid", { jid }).catch(() => "");
       entry = {
         jid,
         name:
-          state.contacts.get(WAChatUtils.phoneFromJid(jid)) ||
-          WAChatUtils.formatPhone(WAChatUtils.phoneFromJid(jid)) ||
+          state.contacts.get(user) ||
+          (await invoke("ui_format_phone", { phone: user }).catch(() => "")) ||
           jid,
         isGroup: jid.endsWith("@g.us"),
         messages: [],
@@ -149,20 +150,24 @@ function closeNewChat() {
   renderChat();
 }
 
-function knownLids() {
+async function knownLids() {
   const lids = new Set();
+  const add = async (jid) => {
+    const user = await invoke("ui_phone_from_jid", { jid }).catch(() => "");
+    if (user) lids.add(user);
+  };
   for (const chat of state.chats.values()) {
-    if (chat.jid.endsWith("@lid")) lids.add(WAChatUtils.phoneFromJid(chat.jid));
+    if (chat.jid.endsWith("@lid")) await add(chat.jid);
     for (const message of chat.messages.slice(-40)) {
       if (message.sender && String(message.sender).endsWith("@lid")) {
-        lids.add(WAChatUtils.phoneFromJid(message.sender));
+        await add(message.sender);
       }
     }
   }
   return lids;
 }
 
-function pickerRequest() {
+async function pickerRequest() {
   return {
     contacts: Object.fromEntries(state.contacts),
     chats: [...state.chats.values()].map((chat) => ({
@@ -171,7 +176,7 @@ function pickerRequest() {
       is_group: Boolean(chat.isGroup),
     })),
     phones: Object.fromEntries(state.phones),
-    known_lids: [...knownLids()],
+    known_lids: [...(await knownLids())],
     photos: Object.fromEntries(
       [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
     ),
@@ -191,7 +196,7 @@ async function renderNewChat() {
   const seq = ++pickerSeq;
   let out;
   try {
-    out = await invoke("ui_picker", { request: pickerRequest() });
+    out = await invoke("ui_picker", { request: await pickerRequest() });
   } catch (err) {
     console.warn("picker render failed", err);
     return;
@@ -206,12 +211,14 @@ async function renderNewChat() {
   for (const jid of ids) queuePhoto(jid);
 }
 
-function openChatFromPicker(jid, name) {
+async function openChatFromPicker(jid, name) {
   if (!jid) return;
   if (!state.chats.has(jid)) {
+    const user = await invoke("ui_phone_from_jid", { jid }).catch(() => "");
+    const label = state.contacts.get(user) || user;
     state.chats.set(jid, {
       jid,
-      name: name || state.contacts.get(WAChatUtils.phoneFromJid(jid)) || WAChatUtils.phoneFromJid(jid),
+      name: name || label || (await invoke("ui_format_phone", { phone: user }).catch(() => "")),
       isGroup: false,
       messages: [],
       last: null,

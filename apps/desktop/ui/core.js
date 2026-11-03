@@ -266,6 +266,17 @@ async function restoreCache() {
 /* helpers                                                             */
 /* ------------------------------------------------------------------ */
 
+// The user part of a JID. Chat state is keyed by phone (the address book's
+// key), so the webview needs this one extraction; everything else about ids
+// and names is decided by wa-ui.
+function jidUser(jid) {
+  const text = String(jid || "");
+  const at = text.indexOf("@");
+  const user = at < 0 ? text : text.slice(0, at);
+  const colon = user.indexOf(":");
+  return colon < 0 ? user : user.slice(0, colon);
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")

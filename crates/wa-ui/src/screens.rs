@@ -27,10 +27,11 @@ fn display_name(name: &str, jid: &str, req: &SidebarRequest) -> String {
 }
 
 fn last_ts(chat: &SidebarChat) -> i64 {
-    chat.last
-        .as_ref()
-        .map(|m| m.timestamp)
-        .unwrap_or(chat.last_ts)
+    chat.last_ts_of()
+}
+
+fn last_message<'a>(chat: &'a SidebarChat, req: &SidebarRequest) -> Option<&'a MessageRow> {
+    chat.last_visible(req.show_deleted)
 }
 
 fn preview(message: &MessageRow, chat: &SidebarChat, req: &SidebarRequest) -> String {
@@ -85,7 +86,7 @@ pub fn channels(req: &SidebarRequest, needle: &str) -> ChannelsOutput {
 
     let mut html = String::new();
     for chat in &chats {
-        let last = chat.last.as_ref();
+        let last = last_message(chat, req);
         let stamp = last.map(|m| m.timestamp).unwrap_or(chat.last_ts);
         let kind = last
             .filter(|m| !m.kind.is_empty() && m.kind != "text")

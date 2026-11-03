@@ -34,7 +34,7 @@ function saveSettingsPrefs() {
 
 const darkMedia = window.matchMedia("(prefers-color-scheme: dark)");
 
-// Theme icons come from the Material Symbols registry (waIcon); the toggle
+// Theme icons come from the Material Symbols registry (ui_icon); the toggle
 // shows the theme you would switch TO, like the official client.
 function themeLabel(value = settingsPrefs.theme) {
   return value === "light" ? "Light" : value === "dark" ? "Dark" : "System default";
@@ -54,7 +54,11 @@ function applyTheme() {
   const toggle = $("theme-toggle");
   if (toggle) {
     const next = resolved === "dark" ? "Light" : "Dark";
-    toggle.innerHTML = waIcon(resolved === "dark" ? "light_mode" : "dark_mode");
+    invoke("ui_icon", { name: resolved === "dark" ? "light_mode" : "dark_mode" })
+      .then((html) => {
+        toggle.innerHTML = html;
+      })
+      .catch(() => {});
     toggle.title = `Switch to ${next.toLowerCase()} theme`;
     toggle.setAttribute("aria-label", toggle.title);
   }

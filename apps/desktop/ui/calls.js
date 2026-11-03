@@ -13,7 +13,7 @@ let callTimer = 0;
 function callDisplayName(peer) {
   const chat = [...state.chats.values()].find((entry) => entry.jid === peer);
   if (chat) return chat.name;
-  const phone = WAChatUtils.phoneFromJid(peer);
+  const phone = jidUser(peer);
   return phone ? `+${phone}` : peer;
 }
 
@@ -502,7 +502,7 @@ function handleCallEvent(event) {
   }
 }
 
-function handleEvent(event) {
+async function handleEvent(event) {
   if (String(event.type || "").startsWith("call_")) {
     handleCallEvent(event);
     return;
@@ -682,11 +682,15 @@ function handleEvent(event) {
 
     case "chat_name": {
       const chat = state.chats.get(event.jid);
-      if (chat && event.name && !WAChatUtils.isPlaceholderName(event.jid, event.name)) {
-        chat.name = event.name;
-        renderChatList();
-        if (state.active === event.jid) renderChat();
-      }
+      if (!chat || !event.name) break;
+      invoke("ui_placeholder_name", { jid: event.jid, name: event.name })
+        .catch(() => false)
+        .then((placeholder) => {
+          if (placeholder) return;
+          chat.name = event.name;
+          renderChatList();
+          if (state.active === event.jid) renderChat();
+        });
       break;
     }
 
@@ -762,7 +766,9 @@ function handleEvent(event) {
       if (!chat) break;
       const message = chat.messages.find((m) => m.id === event.id);
       if (!message) break;
-      const by = event.from_me ? "me" : WAChatUtils.phoneFromJid(event.sender);
+      const by = event.from_me
+      ? "me"
+      : await invoke("ui_phone_from_jid", { jid: event.sender || "" }).catch(() => "");
       const existing = (message.reactions || []).find((r) => r.by === by);
       // Ignore a delayed echo of an older reaction (changing reactions quickly
       // otherwise flips the pill back).
