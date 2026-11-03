@@ -95,20 +95,6 @@ function saveStatuses() {
   }
 }
 
-function latestStatus(entry) {
-  return Math.max(0, ...entry.updates.map((update) => update.timestamp));
-}
-
-/// The status update with this id, when we track it.
-function statusUpdateById(id) {
-  if (!id) return null;
-  for (const entry of state.statuses.values()) {
-    const update = entry.updates.find((item) => item.id === id);
-    if (update) return update;
-  }
-  return null;
-}
-
 /// Replies and reactions to a status used to be stored as plain replies, with
 /// the quoted status recovered as a phantom chat bubble (reply-quote recovery
 /// did not know a status is not a chat message). Both heal as soon as the quote

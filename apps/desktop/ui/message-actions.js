@@ -318,25 +318,6 @@ function jumpToQuoted(id) {
   setTimeout(() => node.classList.remove("quote-target"), 1600);
 }
 
-// Keep the open menu inside the window: `#msg-menu` is capped at the viewport
-// height, so it scrolls instead of overflowing off the bottom edge.
-async function clampMessageMenu() {
-  const menu = $("msg-menu");
-  if (!menu || menu.hidden) return;
-  const rect = menu.getBoundingClientRect();
-  // The edge maths live in wa_ui::menus::clamp_popover.
-  const pos = await invoke("ui_clamp_popover", {
-    x: rect.left,
-    y: rect.top,
-    width: rect.width,
-    height: rect.height,
-    viewportW: window.innerWidth,
-    viewportH: window.innerHeight,
-  }).catch(() => ({ left: rect.left, top: rect.top }));
-  menu.style.left = `${pos.left}px`;
-  menu.style.top = `${pos.top}px`;
-}
-
 async function showMessageInfo(message) {
   // Labels, values and rows are built by wa_ui::chat_actions.
   const info = await invoke("ui_message_info", {

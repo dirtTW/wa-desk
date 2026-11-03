@@ -325,40 +325,10 @@ function applyOwnIdentity(status) {
 // Memoizing them is therefore the single biggest rendering win. Entries that
 // depend on "today" are dropped when the calendar day changes.
 const TIME_LABELS = new Map(); // timestamp -> "13:05"
-const STAMP_LABELS = new Map(); // timestamp -> sidebar stamp
-const DAY_LABELS = new Map(); // local day number -> "Today" / "4 Jul 2026"
 const MAX_TIME_LABELS = 4000;
 const MAX_STAMP_LABELS = 4000;
 const MAX_DAY_LABELS = 400;
 
-let labelDayStart = 0;
-let labelDayChecked = 0;
-
-// Cheap guard: the day-dependent caches are only rebuilt when the day may have
-// rolled over, so a per-row call costs one numeric comparison.
-function ensureDayLabels() {
-  const now = Date.now();
-  if (now - labelDayChecked < 60_000) return;
-  labelDayChecked = now;
-  const day = Math.floor(now / 86_400_000); // UTC day; early invalidation is harmless
-  if (day !== labelDayStart) {
-    labelDayStart = day;
-    STAMP_LABELS.clear();
-    DAY_LABELS.clear();
-  }
-}
-
-function dayKey(date) {
-  return date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
-}
-
-function clockLabel(ms) {
-  // The official client always renders "8:44 pm", English lowercase with a
-  // colon — independent of the OS locale (which uses "20.47" in id-ID).
-  return new Date(ms)
-    .toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
-    .toLowerCase();
-}
 
 function initials(name) {
   const clean = String(name || "?").trim();

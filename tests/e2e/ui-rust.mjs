@@ -460,6 +460,49 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# dead-code sweep + group meta (rust)");
+const sweep = await page.evaluate(async () => {
+  // The swept helpers must be gone, and the two that were never wired must
+  // now be live.
+  const gone = ["ensureDayLabels", "dayKey", "clockLabel", "latestStatus", "statusUpdateById", "clampMessageMenu"];
+  const present = gone.filter((name) => typeof window[name] === "function");
+  const wired = {
+    queueGroupMeta: typeof startChatSelection === "function",
+    refreshThemeLabels: await refreshThemeLabels()
+      .then(() => true)
+      .catch(() => false),
+  };
+  // sidebarRequest queues group metadata for groups that lack it.
+  const groups = [...state.chats.values()].filter((chat) => chat.isGroup);
+  const before = Object.keys(state.groupMeta || {}).length;
+  sidebarRequest();
+  await new Promise((r) => setTimeout(r, 1500));
+  const after = Object.keys(state.groupMeta || {}).length;
+  return {
+    stillDefined: present,
+    wired,
+    groups: groups.length,
+    metasBefore: before,
+    metasAfter: after,
+    themeLabel: await invoke("ui_theme_label", { preference: "system" }),
+  };
+});
+check(
+  "the swept helpers are gone",
+  sweep.stillDefined.length === 0,
+  sweep.stillDefined.join(",") || "all removed",
+);
+check(
+  "the theme labels refresh from Rust",
+  sweep.wired.refreshThemeLabels && sweep.themeLabel === "System default",
+  sweep.themeLabel,
+);
+check(
+  "group metadata is queued from the sidebar request",
+  sweep.metasAfter >= sweep.metasBefore && sweep.metasAfter > 0,
+  `${sweep.groups} groups, ${sweep.metasBefore} -> ${sweep.metasAfter} metas`,
+);
+
 console.log("\n# document summary + media errors (rust)");
 const docCheck = await page.evaluate(async () => {
   const pdf = await invoke("ui_document_summary", {

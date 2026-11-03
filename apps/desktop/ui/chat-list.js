@@ -91,6 +91,9 @@ function activeSenderNames() {
 }
 
 function sidebarRequest() {
+  // Groups that never got their metadata are queued here (the guard inside makes
+  // a repeated render cheap).
+  for (const chat of state.chats.values()) queueGroupMeta(chat);
   const chats = [];
   for (const chat of state.chats.values()) {
     chats.push({

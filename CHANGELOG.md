@@ -4,6 +4,30 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.34] — 2026-11-03
+
+- **Dead-code sweep with a new audit.** `scripts/check-dead-functions.mjs` lists
+  every top-level UI function with no caller; six were leftovers from renderers
+  that moved to `wa-ui` and are gone: `core.js` `ensureDayLabels` / `dayKey` /
+  `clockLabel` (plus the four day-label caches they used), `status.js`
+  `latestStatus` / `statusUpdateById`, `message-actions.js` `clampMessageMenu`.
+  The audit now reports **0**.
+- **Two handlers that were never wired are now live:**
+  - `queueGroupMeta` was defined but never called, so regular group chats never
+    fetched their metadata — no community nesting and no group subject in the
+    sidebar. `sidebarRequest()` now queues every group (its own guards keep a
+    repeated render cheap); the probe went from parent-only metas to 10 with
+    communities nesting correctly.
+  - `refreshThemeLabels` was never called, so the Rust theme labels were unused
+    after boot. `main()` now refreshes them, which makes
+    `ui_theme_label`/`ui_theme_resolve` the source of truth for the Settings row
+    and the theme dialog.
+- Webview JS: **9,604 lines** (from 9,657) with no behaviour lost — the sweep
+  only removed unreachable code and connected two dead wires.
+- 1 new CDP e2e section (dead-code/group-meta) and the four audits re-run:
+  `check-dead-functions` 0, `check-undefined` 21 (all false positives),
+  `check-ids` 0/271, `check-data-attrs` 0/84, `check-command-args` 0.
+
 ## [0.2.0-rc.33] — 2026-11-03
 
 - **The document file-card helpers moved to Rust (and the dead ones are gone).**
