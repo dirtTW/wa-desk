@@ -297,70 +297,6 @@ function addIncoming(message, history = false) {
 // WhatsApp's "Export chat" text format:
 //   [10/30/26, 12:15:40 PM] You: message
 //   [10/30/26, 2:13:18 PM] Alice: reply
-// Continuation lines belong to the message above them.
-const EXPORT_LINE =
-  /^\[(\d{1,2})\/(\d{1,2})\/(\d{2,4}),\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?\]\s*(.*)$/;
-
-function parseChatExport(text, allowNoSender = false) {
-  const out = [];
-  let current = null;
-  for (const raw of String(text || "").split(/\r?\n/)) {
-    const line = raw.replace(/[\u200e\u200f\u202a-\u202e]/g, "");
-    const match = line.match(EXPORT_LINE);
-    if (!match) {
-      if (current && line.trim()) current.text += `\n${line.trim()}`;
-      continue;
-    }
-    const [, mo, da, yr, hh, mm, ss, ampm, rest] = match;
-    const year = yr.length === 2 ? 2000 + Number(yr) : Number(yr);
-    let hour = Number(hh);
-    if (ampm) {
-      const pm = ampm.toLowerCase() === "pm";
-      if (pm && hour < 12) hour += 12;
-      if (!pm && hour === 12) hour = 0;
-    }
-    const timestamp = new Date(
-      year,
-      Number(mo) - 1,
-      Number(da),
-      hour,
-      Number(mm),
-      Number(ss || 0),
-    ).getTime();
-    if (!Number.isFinite(timestamp)) {
-      current = null;
-      continue;
-    }
-    // System entries ("- Alice left") and the empty separator lines are not
-    // messages; they only reset continuation.
-    const body = rest.trim();
-    if (!body || body.startsWith("- ")) {
-      current = null;
-      continue;
-    }
-    // A channel export has no sender column — the whole body is the post text,
-    // even when it contains a colon of its own.
-    if (allowNoSender) {
-      current = { sender: "Channel", text: body, timestamp };
-      out.push(current);
-      continue;
-    }
-    const sep = body.indexOf(": ");
-    if (sep < 0) {
-      current = null;
-      continue;
-    }
-    const sender = body.slice(0, sep).trim();
-    const messageText = body.slice(sep + 2).trim();
-    if (!sender || !messageText || /^Waiting for this message/i.test(messageText)) {
-      current = null;
-      continue;
-    }
-    current = { sender, text: messageText, timestamp };
-    out.push(current);
-  }
-  return out;
-}
 
 async function importChatExport(file) {
   const chat = state.chats.get(state.active);
@@ -372,36 +308,29 @@ async function importChatExport(file) {
     toast(String(err));
     return;
   }
-  const parsed = parseChatExport(text, isChannelJid(chat.jid));
+  // Parsing and the duplicate/supersede rules live in wa-ui::export.
+  const parsed = await invoke("ui_parse_export", {
+    text,
+    allowNoSender: isChannelJid(chat.jid),
+  });
   if (!parsed.length) {
     toast("No messages found in that export.");
     return;
   }
-  const normal = (value) => String(value || "").replace(/\s+/g, " ").trim();
-  // The phone may already have part of the export (the overlap around the
-  // link time), so match on time + text rather than generating duplicate ids.
-  // A wider window absorbs the phone's second-level rounding.
-  const same = (left, right) =>
-    Math.abs(left.ts - right.ts) < 120_000 && left.text === right.text;
-  chat.messages = chat.messages.filter(
-    (message) =>
-      !String(message.id).startsWith("export-") ||
-      !chat.messages.some(
-        (other) => other !== message && !String(other.id).startsWith("export-") &&
-          same({ ts: message.timestamp, text: normal(message.text) },
-            { ts: other.timestamp, text: normal(other.text) }),
-      ),
-  );
-  const known = chat.messages.map((message) => ({
-    ts: message.timestamp,
-    text: normal(message.text),
-  }));
+  const plan = await invoke("ui_import_plan", {
+    parsed,
+    existing: chat.messages.map((message) => ({
+      id: String(message.id || ""),
+      timestamp: message.timestamp || 0,
+      text: String(message.text || ""),
+    })),
+  });
+  if (plan.remove_export_ids.length) {
+    const remove = new Set(plan.remove_export_ids);
+    chat.messages = chat.messages.filter((message) => !remove.has(message.id));
+  }
   let added = 0;
-  for (const item of parsed) {
-    const value = normal(item.text);
-    if (known.some((entry) => same(entry, { ts: item.timestamp, text: value }))) {
-      continue;
-    }
+  for (const item of plan.add) {
     const fromMe = /^(you|saya)$/i.test(item.sender);
     addIncoming(
       {
@@ -423,7 +352,6 @@ async function importChatExport(file) {
       },
       true,
     );
-    known.push({ ts: item.timestamp, text: value });
     added += 1;
   }
   if (added) {
@@ -454,10 +382,19 @@ function scheduleNotifySync(delay = 400) {
 
 async function syncNotifyState() {
   try {
-    const muted = [];
-    for (const [, chat] of state.chats) {
-      if (WAChatUtils.chatIsMuted(chat)) muted.push(chat.jid);
-    }
+    // The mute rule lives in wa_ui::menus; this sends the raw mute fields.
+    const muted = await invoke("ui_muted_chats", {
+      chats: [...state.chats.values()].map((chat) => ({
+        jid: chat.jid,
+        pinned: Boolean(chat.pinned),
+        mute_until: chat.muteUntil || 0,
+        mute_forever: Boolean(chat.muteForever),
+        now: Date.now(),
+        archived: Boolean(chat.archived),
+        unread: chat.unread || 0,
+        is_group: Boolean(chat.isGroup),
+      })),
+    }).catch(() => []);
     await invokeWithTimeout(
       "set_notify_state",
       {

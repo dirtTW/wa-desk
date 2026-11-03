@@ -9,13 +9,26 @@ pub struct ChatMenuInput {
     #[serde(default)]
     pub pinned: bool,
     #[serde(default)]
-    pub muted: bool,
+    pub mute_until: i64,
+    #[serde(default)]
+    pub mute_forever: bool,
+    #[serde(default)]
+    pub now: i64,
     #[serde(default)]
     pub archived: bool,
     #[serde(default)]
     pub unread: i64,
     #[serde(default)]
     pub is_group: bool,
+    #[serde(default)]
+    pub jid: String,
+}
+
+impl ChatMenuInput {
+    /// A chat is muted while `muteForever` is set or the expiry is in the future.
+    pub fn muted(&self) -> bool {
+        self.mute_forever || self.mute_until > self.now
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -34,11 +47,12 @@ pub struct ChatMenuOutput {
 /// The official chat menu: pin↔unpin, mute↔unmute, mark unread↔read, archive
 /// when not archived and block only for one-to-one chats.
 pub fn chat_menu(input: &ChatMenuInput) -> ChatMenuOutput {
+    let muted = input.muted();
     ChatMenuOutput {
         pin: !input.pinned,
         unpin: input.pinned,
-        mute: !input.muted,
-        unmute: input.muted,
+        mute: !muted,
+        unmute: muted,
         archive: !input.archived,
         unarchive: input.archived,
         unread: input.unread == 0,
@@ -54,11 +68,22 @@ pub struct MuteMenuOutput {
     pub durations: bool,
 }
 
-pub fn mute_menu(muted: bool) -> MuteMenuOutput {
+pub fn mute_menu(input: &ChatMenuInput) -> MuteMenuOutput {
+    let muted = input.muted();
     MuteMenuOutput {
         unmute: muted,
         durations: !muted,
     }
+}
+
+/// The JIDs that should not notify, for the Rust notification pump.
+pub fn muted_chats(chats: &[ChatMenuInput]) -> Vec<String> {
+    chats
+        .iter()
+        .filter(|chat| chat.muted())
+        .map(|chat| chat.jid.clone())
+        .filter(|jid| !jid.is_empty())
+        .collect()
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -173,10 +198,12 @@ mod tests {
 
         let menu = chat_menu(&ChatMenuInput {
             pinned: true,
-            muted: true,
+            mute_forever: true,
+            now: 1,
             archived: true,
             unread: 3,
             is_group: true,
+            ..Default::default()
         });
         assert!(!menu.pin && menu.unpin);
         assert!(!menu.mute && menu.unmute);
@@ -187,10 +214,22 @@ mod tests {
 
     #[test]
     fn mute_submenu_swaps_unmute_for_durations() {
-        assert!(mute_menu(true).unmute);
-        assert!(!mute_menu(true).durations);
-        assert!(!mute_menu(false).unmute);
-        assert!(mute_menu(false).durations);
+        assert!(
+            mute_menu(&ChatMenuInput {
+                mute_forever: true,
+                ..Default::default()
+            })
+            .unmute
+        );
+        assert!(
+            !mute_menu(&ChatMenuInput {
+                mute_forever: true,
+                ..Default::default()
+            })
+            .durations
+        );
+        assert!(!mute_menu(&ChatMenuInput::default()).unmute);
+        assert!(mute_menu(&ChatMenuInput::default()).durations);
     }
 
     #[test]

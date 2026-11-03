@@ -12,6 +12,8 @@ pub mod cache;
 pub mod chat;
 pub mod composer;
 pub mod emoji;
+pub mod export;
+pub mod history;
 pub mod html;
 pub mod icons_data;
 pub mod labels;
@@ -31,6 +33,8 @@ mod emoji_data;
 pub use cache::{CachePayloadInput, FingerChat, RestoreOutput};
 pub use composer::{EmojiPanel, StatusPalette};
 pub use emoji::{EmojiGroupView, EmojiItem};
+pub use export::{ExistingMessage, ExportMessage, ImportPlan};
+pub use history::{AnchorRequest, HistoryChat};
 pub use html::{avatar, escape, icon, icon_with_class, initials};
 pub use labels::{clock_label, day_of, format_followers, stamp_of};
 pub use menus::{

@@ -37,6 +37,41 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// The disk mirror of the chat list (metadata only, newest first).
+#[tauri::command]
+pub fn ui_disk_cache_payload(chats: Vec<wa_ui::cache::DiskChatInput>, limit: usize) -> String {
+    wa_ui::cache::disk_payload(&chats, limit)
+}
+
+/// Parse a WhatsApp chat export.
+#[tauri::command]
+pub fn ui_parse_export(text: String, allow_no_sender: bool) -> Vec<wa_ui::export::ExportMessage> {
+    wa_ui::export::parse(&text, allow_no_sender)
+}
+
+/// Which parsed messages an import adds and which export rows it supersedes.
+#[tauri::command]
+pub fn ui_import_plan(
+    parsed: Vec<wa_ui::export::ExportMessage>,
+    existing: Vec<wa_ui::export::ExistingMessage>,
+) -> wa_ui::export::ImportPlan {
+    wa_ui::export::import_plan(&parsed, &existing)
+}
+
+/// The on-demand history anchor for one chat.
+#[tauri::command]
+pub fn ui_history_anchor(
+    chat: wa_ui::history::HistoryChat,
+) -> Option<wa_ui::history::AnchorRequest> {
+    wa_ui::history::anchor_request(&chat)
+}
+
+/// The order chats are re-synced from the phone.
+#[tauri::command]
+pub fn ui_history_targets(chats: Vec<wa_ui::history::HistoryChat>, limit: usize) -> Vec<String> {
+    wa_ui::history::sync_targets(&chats, limit)
+}
+
 /// The cache change fingerprint (see `wa_ui::cache`).
 #[tauri::command]
 pub fn ui_cache_fingerprint(
@@ -167,8 +202,14 @@ pub fn ui_chat_menu(input: wa_ui::ChatMenuInput) -> wa_ui::ChatMenuOutput {
 
 /// The mute submenu: "Unmute" against the duration choices.
 #[tauri::command]
-pub fn ui_mute_menu(muted: bool) -> wa_ui::menus::MuteMenuOutput {
-    wa_ui::menus::mute_menu(muted)
+pub fn ui_mute_menu(input: wa_ui::ChatMenuInput) -> wa_ui::menus::MuteMenuOutput {
+    wa_ui::menus::mute_menu(&input)
+}
+
+/// The JIDs that should not notify.
+#[tauri::command]
+pub fn ui_muted_chats(chats: Vec<wa_ui::ChatMenuInput>) -> Vec<String> {
+    wa_ui::menus::muted_chats(&chats)
 }
 
 /// Which rows the message context menu shows.

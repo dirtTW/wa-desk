@@ -8,10 +8,23 @@
 function initChatMenu() {
   const chatListEl = $("chat-list");
   let chatMenuChat = null;
-  const chatIsMuted = WAChatUtils.chatIsMuted;
 
   function chatExists(jid) {
     return state.chats.has(jid);
+  }
+
+  // The mute state and the menu rows are decided by wa-ui::menus.
+  function chatMenuInput(chat, jid) {
+    return {
+      jid: jid || chat?.jid || "",
+      pinned: Boolean(chat?.pinned),
+      mute_until: chat?.muteUntil || 0,
+      mute_forever: Boolean(chat?.muteForever),
+      now: Date.now(),
+      archived: Boolean(chat?.archived),
+      unread: chat?.unread || 0,
+      is_group: Boolean(chat?.isGroup),
+    };
   }
 
   // Define which rows the official menu shows for the selected chat. The rules
@@ -20,15 +33,7 @@ function initChatMenu() {
     const chat = state.chats.get(chatMenuChat) || {};
     let rows;
     try {
-      rows = await invoke("ui_chat_menu", {
-        input: {
-          pinned: Boolean(chat.pinned),
-          muted: chatIsMuted(chat),
-          archived: Boolean(chat.archived),
-          unread: chat.unread || 0,
-          is_group: Boolean(chat.isGroup),
-        },
-      });
+      rows = await invoke("ui_chat_menu", { input: chatMenuInput(chat, chatMenuChat) });
     } catch (err) {
       console.warn("chat menu state failed", err);
       return;
@@ -230,7 +235,7 @@ function initChatMenu() {
     const chat = state.chats.get(chatJid) || {};
     let rows;
     try {
-      rows = await invoke("ui_mute_menu", { muted: chatIsMuted(chat) });
+      rows = await invoke("ui_mute_menu", { input: chatMenuInput(chat, chatJid) });
     } catch (err) {
       console.warn("mute menu state failed", err);
       return;

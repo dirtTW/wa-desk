@@ -398,7 +398,7 @@ function wire() {
     if (event.target.closest("[data-action='sync-history']")) {
       seedChatsFromContacts();
       renderChatList();
-      syncChatHistoryBatch(chatsForHistorySync(), true);
+      (async () => syncChatHistoryBatch(await chatsForHistorySync(), true))();
       return;
     }
     if (event.target.closest("[data-ai-toggle]")) {

@@ -358,9 +358,76 @@ pub fn photo_queue(
     out
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct DiskChatInput {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub is_group: bool,
+    #[serde(default)]
+    pub last_ts: i64,
+    #[serde(default)]
+    pub unread: i64,
+    #[serde(default)]
+    pub last_text: String,
+}
+
+/// The disk mirror of the chat list: metadata only, newest first, capped.
+pub fn disk_payload(chats: &[DiskChatInput], limit: usize) -> String {
+    let mut chats: Vec<&DiskChatInput> = chats.iter().collect();
+    chats.sort_by_key(|chat| std::cmp::Reverse(chat.last_ts));
+    chats.truncate(limit);
+    let rows: Vec<Value> = chats
+        .iter()
+        .map(|chat| {
+            let last_text: String = chat.last_text.chars().take(120).collect();
+            json!({
+                "jid": chat.jid,
+                "name": chat.name,
+                "isGroup": chat.is_group,
+                "lastTs": chat.last_ts,
+                "unread": chat.unread,
+                "lastText": last_text,
+            })
+        })
+        .collect();
+    json!({ "v": 1, "chats": rows }).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disk_payload_orders_truncates_and_trims_the_preview() {
+        let long = "x".repeat(200);
+        let chats = vec![
+            DiskChatInput {
+                jid: "old@s.whatsapp.net".into(),
+                name: "Old".into(),
+                last_ts: 100,
+                last_text: "old".into(),
+                ..Default::default()
+            },
+            DiskChatInput {
+                jid: "new@s.whatsapp.net".into(),
+                name: "New".into(),
+                is_group: true,
+                last_ts: 300,
+                unread: 2,
+                last_text: long,
+            },
+        ];
+        let parsed: Value = serde_json::from_str(&disk_payload(&chats, 1)).unwrap();
+        let rows = parsed["chats"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["jid"], "new@s.whatsapp.net");
+        assert_eq!(rows[0]["isGroup"], true);
+        assert_eq!(rows[0]["lastText"].as_str().unwrap().chars().count(), 120);
+        assert_eq!(parsed["v"], 1);
+    }
 
     fn finger(ts: i64, len: i64, status: &str) -> FingerMessage {
         FingerMessage {

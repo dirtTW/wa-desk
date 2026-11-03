@@ -173,6 +173,49 @@ check(
 );
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
 
+console.log("\n# flows (rust)");
+const flows = await page.evaluate(async () => {
+  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 2);
+  const out = {};
+  if (chat) {
+    const anchor = await historyAnchorRequest(chat);
+    out.anchor = {
+      hasId: Boolean(anchor.oldestId),
+      count: anchor.count,
+      matchesOldest: anchor.oldestId === chat.messages.find((m) => !m.deleted)?.id,
+    };
+    out.targets = (await chatsForHistorySync(5)).length;
+  }
+  out.diskBytes = (await chatCachePayload()).length;
+  const parsed = await invoke("ui_parse_export", {
+    text: "[4/7/26, 8:44 PM] Alice: hello\ncontinues\n[4/7/26, 8:50 PM] Alice: world",
+    allowNoSender: false,
+  });
+  const plan = await invoke("ui_import_plan", { parsed, existing: [] });
+  out.parsed = parsed.length;
+  out.continuation = parsed[0]?.text || "";
+  out.planAdds = plan.add.length;
+  return out;
+});
+check("the history anchor renders", flows.anchor?.hasId === true && flows.anchor.count === 50, JSON.stringify(flows.anchor));
+check("the sync targets render", flows.targets > 0, `${flows.targets} targets`);
+check("the disk cache payload renders", flows.diskBytes > 100, `${flows.diskBytes} bytes`);
+check("the export parser handles continuations", flows.parsed === 2 && flows.continuation === "hello\ncontinues", flows.continuation);
+check("the import plan lists the new messages", flows.planAdds === 2, `${flows.planAdds} adds`);
+
+const mute = await page.evaluate(async () => {
+  const now = Date.now();
+  const muted = await invoke("ui_muted_chats", {
+    chats: [
+      { jid: "a", pinned: false, mute_until: now + 60000, mute_forever: false, now, archived: false, unread: 0, is_group: false },
+      { jid: "b", pinned: false, mute_until: 0, mute_forever: false, now, archived: false, unread: 0, is_group: false },
+      { jid: "c", pinned: false, mute_until: 0, mute_forever: true, now, archived: false, unread: 0, is_group: false },
+    ],
+  });
+  return { muted };
+});
+check("muted chats are computed in Rust", mute.muted.join(",") === "a,c", mute.muted.join(","));
+
 console.log("\n# cache layer (rust)");
 const cache = await page.evaluate(async () => {
   const fingerprint = await stateFingerprint();

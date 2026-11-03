@@ -4,6 +4,33 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.10] — 2026-11-03
+
+- **The remaining store flows moved to Rust.** `wa_ui::export` parses a
+  WhatsApp "Export chat" `.txt` (line header with AM/PM and 2-digit years,
+  continuation lines, bidi marks, system entries, `Waiting for this message`
+  stubs, channel exports without a sender column) and returns an import plan:
+  superseded `export-*` rows to drop (the phone sent the same message within the
+  120 s window) and the parsed messages that are new. Commands
+  `ui_parse_export`, `ui_import_plan`.
+- `wa_ui::history` owns the on-demand anchor rule (oldest non-deleted,
+  non-local message; empty chat = no anchor) and the re-sync order (empty chats
+  first, then most recent, skipping deleted/channels) — `ui_history_anchor`,
+  `ui_history_targets`. `requestChatHistory` now uses the same anchor instead of
+  a second copy of the rule.
+- `wa_ui::cache::disk_payload` builds the disk mirror metadata (newest first,
+  capped, 120-char preview) — `ui_disk_cache_payload`; `persistChatCache`
+  awaits it.
+- `state-updates.js` 530 → 472 lines, `actions.js` 488 → 500 (the async
+  wrappers) with the parsing/ordering rules gone; 9 new `wa-ui` tests
+  (110 total, plus 3 contract) and a flows CDP e2e section (anchor, targets,
+  25 KB disk payload, export continuation, 2 planned adds).
+- **Mute state moved to Rust too.** `ChatMenuInput` now carries the raw
+  `mute_until`/`mute_forever`/`now` and computes `muted()`; `ui_chat_menu` and
+  `ui_mute_menu` use it, and `ui_muted_chats` batch-lists the JIDs the
+  notification pump must silence. `chat-menu.js` no longer calls
+  `WAChatUtils.chatIsMuted`, and `syncNotifyState` sends the fields.
+
 ## [0.2.0-rc.9] — 2026-11-03
 
 - **The webview cache layer moved to Rust.** `wa_ui::cache` owns the change

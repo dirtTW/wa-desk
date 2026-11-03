@@ -55,24 +55,19 @@ async function requestChatHistory(chat, force = false) {
   if (isChannelJid(chat.jid)) return;
   const last = historyRequests.get(chat.jid) || 0;
   if (!force && Date.now() - last < 2 * 60 * 1000) return;
-  const live = chat.messages.filter(
-    (message) =>
-      !message.deleted && message.id && !/^(local|ai)-/.test(String(message.id)),
-  );
   // WhatsApp Web anchors the on-demand request on the OLDEST message it has
-  // stored, so every request pages further back. A chat that history sync only
-  // announced has no anchor, and the phone answers with that chat's latest
-  // window. Newer messages come from live/offline delivery, exactly like the
-  // web client.
-  const anchor = live[0] || null;
+  // stored, so every request pages further back (wa_ui::history::anchor_request).
+  // A chat that history sync only announced has no anchor, and the phone answers
+  // with that chat's latest window.
+  const anchor = await historyAnchorRequest(chat);
   historyRequests.set(chat.jid, Date.now());
   try {
     await queueHistoryRequest(() =>
       invoke("fetch_chat_history", {
         chat: chat.jid,
-        oldestId: anchor ? anchor.id : "",
-        oldestFromMe: Boolean(anchor?.from_me),
-        oldestTimestamp: anchor ? anchor.timestamp : 0,
+        oldestId: anchor.oldestId,
+        oldestFromMe: anchor.oldestFromMe,
+        oldestTimestamp: anchor.oldestTimestamp,
         count: 50,
       }),
     );
@@ -198,33 +193,50 @@ function hideSyncProgress(delay = 1200) {
   }, delay);
 }
 
-// Same anchor rule as requestChatHistory: page behind the OLDEST locally
-// stored message, or no anchor at all for a chat with no local messages.
-function historyAnchorRequest(chat) {
-  const live = (chat?.messages || []).filter(
-    (message) =>
-      !message.deleted && message.id && !/^(local|ai)-/.test(String(message.id)),
-  );
-  const anchor = live[0] || null;
+// Same anchor rule as requestChatHistory (wa_ui::history): page behind the
+// OLDEST locally stored real message, or no anchor for a chat with none.
+async function historyAnchorRequest(chat) {
+  const anchor = await invoke("ui_history_anchor", {
+    chat: {
+      jid: chat.jid,
+      deleted: Boolean(chat.deleted),
+      is_channel: isChannelJid(chat.jid),
+      message_count: (chat.messages || []).length,
+      last_ts: chat.last?.timestamp || chat.lastTs || 0,
+      messages: (chat.messages || []).map((message) => ({
+        id: String(message.id || ""),
+        timestamp: message.timestamp || 0,
+        from_me: Boolean(message.from_me),
+        deleted: Boolean(message.deleted),
+      })),
+    },
+  }).catch(() => null);
+  if (!anchor) {
+    return { chat: chat.jid, oldestId: "", oldestFromMe: false, oldestTimestamp: 0, count: 50 };
+  }
   return {
-    chat: chat.jid,
-    oldestId: anchor ? anchor.id : "",
-    oldestFromMe: Boolean(anchor?.from_me),
-    oldestTimestamp: anchor ? anchor.timestamp : 0,
-    count: 50,
+    chat: anchor.chat,
+    oldestId: anchor.oldest_id,
+    oldestFromMe: anchor.oldest_from_me,
+    oldestTimestamp: anchor.oldest_timestamp,
+    count: anchor.count,
   };
 }
 
-// Chats that never produced a bubble go first; then the most recently active.
-function chatsForHistorySync(limit = HISTORY_SYNC_BATCH) {
-  return [...state.chats.values()]
-    .filter((chat) => chat && !chat.deleted && !isChannelJid(chat.jid))
-    .sort((a, b) => {
-      const aEmpty = a.messages.length === 0 ? 0 : 1;
-      const bEmpty = b.messages.length === 0 ? 0 : 1;
-      return aEmpty - bEmpty || (b.last?.timestamp || b.lastTs || 0) - (a.last?.timestamp || a.lastTs || 0);
-    })
-    .slice(0, limit);
+// Chats that never produced a bubble go first; then the most recently active
+// (ordered by wa_ui::history::sync_targets).
+async function chatsForHistorySync(limit = HISTORY_SYNC_BATCH) {
+  const jids = await invoke("ui_history_targets", {
+    chats: [...state.chats.values()].map((chat) => ({
+      jid: chat.jid,
+      deleted: Boolean(chat.deleted),
+      is_channel: isChannelJid(chat.jid),
+      message_count: (chat.messages || []).length,
+      last_ts: chat.last?.timestamp || chat.lastTs || 0,
+    })),
+    limit,
+  }).catch(() => []);
+  return jids.map((jid) => state.chats.get(jid)).filter(Boolean);
 }
 
 async function syncChatHistoryBatch(chats, force = false) {
@@ -232,7 +244,7 @@ async function syncChatHistoryBatch(chats, force = false) {
   const meta = historySyncMeta();
   if (!force && meta && Date.now() - meta.at < HISTORY_SYNC_WINDOW_MS) return 0;
 
-  const targets = (chats && chats.length ? chats : chatsForHistorySync())
+  const targets = (chats && chats.length ? chats : await chatsForHistorySync())
     .filter((chat) => chat && !chat.deleted)
     .slice(0, HISTORY_SYNC_BATCH);
   if (!targets.length) return 0;
@@ -240,10 +252,9 @@ async function syncChatHistoryBatch(chats, force = false) {
   historySyncing = true;
   showSyncProgress(0, targets.length);
   try {
+    const requests = await Promise.all(targets.map(historyAnchorRequest));
     const sent = await queueHistoryRequest(() =>
-      invoke("sync_chat_history", {
-        requests: targets.map(historyAnchorRequest),
-      }),
+      invoke("sync_chat_history", { requests }),
     );
     if (sent > 0) {
       markHistorySynced();
@@ -271,7 +282,7 @@ function maybeSyncChatHistory() {
   seedChatsFromContacts();
   if (!state.chats.size) return;
   renderChatList();
-  setTimeout(() => syncChatHistoryBatch(chatsForHistorySync(), false), 5000);
+  setTimeout(async () => syncChatHistoryBatch(await chatsForHistorySync(), false), 5000);
 }
 
 /* --------------------------------------------------------- disk chat cache */
@@ -281,26 +292,27 @@ function maybeSyncChatHistory() {
 // contact store as well so a restart still has a sidebar to sync from.
 let chatCacheWriting = false;
 
-function chatCachePayload() {
-  const chats = [...state.chats.values()]
-    .sort((a, b) => (b.last?.timestamp || b.lastTs || 0) - (a.last?.timestamp || a.lastTs || 0))
-    .slice(0, 400)
-    .map((chat) => ({
+async function chatCachePayload() {
+  return invoke("ui_disk_cache_payload", {
+    chats: [...state.chats.values()].map((chat) => ({
       jid: chat.jid,
-      name: chat.name,
-      isGroup: Boolean(chat.isGroup),
-      lastTs: chat.last?.timestamp || chat.lastTs || 0,
+      name: chat.name || "",
+      is_group: Boolean(chat.isGroup),
+      last_ts: chat.last?.timestamp || chat.lastTs || 0,
       unread: chat.unread || 0,
-      lastText: (chat.last?.text || "").slice(0, 120),
-    }));
-  return JSON.stringify({ v: 1, chats });
+      last_text: chat.last?.text || "",
+    })),
+    limit: 400,
+  }).catch(() => "");
 }
 
 async function persistChatCache() {
   if (chatCacheWriting) return;
   chatCacheWriting = true;
   try {
-    await invoke("save_chat_cache", { json: chatCachePayload() });
+    const json = await chatCachePayload();
+    if (!json) return;
+    await invoke("save_chat_cache", { json });
   } catch (err) {
     console.warn("chat cache unavailable", err);
   } finally {
