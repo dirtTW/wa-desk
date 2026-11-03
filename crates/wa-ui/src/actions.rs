@@ -268,6 +268,101 @@ pub fn toggle_selection(selected: &[String], id: &str) -> SelectionToggle {
     }
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SendItem {
+    /// Index into the draft stack.
+    pub index: usize,
+    /// The caption to send with this file (only the first one carries it).
+    pub caption: String,
+}
+
+/// Sending a media draft: the composer text becomes the caption of the **first**
+/// file only, like WhatsApp's media preview.
+pub fn draft_send_plan(count: usize, caption: &str) -> Vec<SendItem> {
+    let caption = caption.trim();
+    (0..count)
+        .map(|index| SendItem {
+            index,
+            caption: if index == 0 {
+                caption.to_string()
+            } else {
+                String::new()
+            },
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AttachmentInput {
+    #[serde(default)]
+    pub temp_id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub caption: String,
+    #[serde(default)]
+    pub file_name: String,
+    #[serde(default)]
+    pub mime: String,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub is_group: bool,
+    #[serde(default)]
+    pub timestamp: i64,
+}
+
+/// The optimistic bubble for an upload in flight. Documents also carry the file
+/// card metadata an incoming document gets (name, MIME, size), so the bubble
+/// looks finished while the bytes upload.
+pub fn attachment_message(input: &AttachmentInput) -> serde_json::Value {
+    let mut message = serde_json::json!({
+        "id": input.temp_id,
+        "sender": null,
+        "sender_name": null,
+        "from_me": true,
+        "is_group": input.is_group,
+        "timestamp": input.timestamp,
+        "kind": input.kind,
+        "text": input.caption,
+        "pending": true,
+    });
+    if input.kind == "document" {
+        message["document"] = serde_json::json!({
+            "name": input.file_name,
+            "mime": input.mime,
+            "size": input.size,
+            "pages": 0,
+            "thumb": null,
+        });
+    }
+    message
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AttachmentResult {
+    /// The optimistic bubble keeps its place; it only learns the server id.
+    pub id: String,
+    pub pending: bool,
+    pub failed: bool,
+    /// The temp id whose media entry moves to `id`.
+    pub temp_id: String,
+}
+
+/// A completed upload: the bubble swaps its temp id for the server id.
+pub fn attachment_result(temp_id: &str, server_id: &str, ok: bool) -> AttachmentResult {
+    AttachmentResult {
+        id: if ok {
+            server_id.to_string()
+        } else {
+            temp_id.to_string()
+        },
+        pending: false,
+        failed: !ok,
+        temp_id: temp_id.to_string(),
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DraftFile {
     #[serde(default)]
@@ -450,6 +545,58 @@ mod tests {
         let noop = toggle_selection(&["a".to_string()], "");
         assert_eq!(noop.selected, vec!["a".to_string()]);
         assert!(!noop.exit && !noop.checked);
+    }
+
+    #[test]
+    fn draft_sends_only_the_first_caption() {
+        let plan = draft_send_plan(3, "  hello  ");
+        assert_eq!(plan.len(), 3);
+        assert_eq!(plan[0].caption, "hello");
+        assert!(plan[1].caption.is_empty() && plan[2].caption.is_empty());
+        assert!(draft_send_plan(0, "x").is_empty());
+    }
+
+    #[test]
+    fn attachment_bubbles_carry_document_metadata() {
+        let photo = attachment_message(&AttachmentInput {
+            temp_id: "local-1".into(),
+            kind: "image".into(),
+            caption: "cap".into(),
+            file_name: "a.png".into(),
+            mime: "image/png".into(),
+            size: 10,
+            is_group: false,
+            timestamp: 42,
+        });
+        assert_eq!(photo["id"], "local-1");
+        assert_eq!(photo["kind"], "image");
+        assert_eq!(photo["text"], "cap");
+        assert_eq!(photo["pending"], true);
+        assert!(photo.get("document").is_none());
+
+        let doc = attachment_message(&AttachmentInput {
+            kind: "document".into(),
+            file_name: "a.pdf".into(),
+            mime: "application/pdf".into(),
+            size: 2048,
+            ..Default::default()
+        });
+        assert_eq!(doc["document"]["name"], "a.pdf");
+        assert_eq!(doc["document"]["size"], 2048);
+        assert_eq!(doc["document"]["pages"], 0);
+        assert!(doc["document"]["thumb"].is_null());
+    }
+
+    #[test]
+    fn upload_results_swap_the_temp_id() {
+        let ok = attachment_result("local-1", "3EB0", true);
+        assert_eq!(ok.id, "3EB0");
+        assert!(!ok.pending && !ok.failed);
+        assert_eq!(ok.temp_id, "local-1");
+
+        let failed = attachment_result("local-1", "3EB0", false);
+        assert_eq!(failed.id, "local-1", "a failed upload keeps its temp id");
+        assert!(failed.failed && !failed.pending);
     }
 
     #[test]

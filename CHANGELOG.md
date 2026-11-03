@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.24] — 2026-11-03
+
+- **The composer's media-send pipeline is planned in Rust.**
+  `wa_ui::actions::draft_send_plan` decides that only the **first** file of a
+  media draft carries the composer text as its caption (trimmed), returning one
+  `{ index, caption }` per file, so `sendDraft` no longer builds that rule
+  itself. `attachment_message` shapes the optimistic bubble an upload shows —
+  `pending`, `from_me`, group flag, timestamp and, for documents, the same file
+  card an incoming document gets (name, MIME, size, `pages: 0`, no thumb) — and
+  `attachment_result` says what the bubble becomes afterwards: the server id
+  only on success, its temp id and `failed` on error. Commands
+  `ui_draft_send_plan`, `ui_attachment_message`, `ui_attachment_result`.
+- 3 new `wa-ui` unit tests (169 total, plus 3 contract) and a composer-send CDP
+  e2e section: the caption plan, both optimistic bubbles, the success/failure
+  results and a live staged draft (one image in the strip, an empty `sendDraft`
+  leaves the chat untouched).
+
 ## [0.2.0-rc.23] — 2026-11-03
 
 - **Media-hydration decisions moved to Rust.** `wa_ui::media` answers, for each

@@ -151,6 +151,28 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// Which caption each file of a media draft sends with.
+#[tauri::command]
+pub fn ui_draft_send_plan(count: usize, caption: String) -> Vec<wa_ui::actions::SendItem> {
+    wa_ui::actions::draft_send_plan(count, &caption)
+}
+
+/// The optimistic bubble for an upload in flight.
+#[tauri::command]
+pub fn ui_attachment_message(input: wa_ui::actions::AttachmentInput) -> serde_json::Value {
+    wa_ui::actions::attachment_message(&input)
+}
+
+/// The bubble's state after an upload succeeds or fails.
+#[tauri::command]
+pub fn ui_attachment_result(
+    temp_id: String,
+    server_id: String,
+    ok: bool,
+) -> wa_ui::actions::AttachmentResult {
+    wa_ui::actions::attachment_result(&temp_id, &server_id, ok)
+}
+
 /// What `hydrateMedia` should do with each rendered media tile.
 #[tauri::command]
 pub fn ui_hydrate_plan(nodes: Vec<wa_ui::media::HydrateInput>) -> Vec<wa_ui::media::HydrateAction> {

@@ -279,8 +279,15 @@ async function sendDraft() {
   updateSendState();
   clearDraft();
 
-  for (let index = 0; index < files.length; index += 1) {
-    await sendFile(files[index], index === 0 ? caption : "");
+  // Only the first file carries the composer text (wa_ui::actions).
+  const plan = await invoke("ui_draft_send_plan", {
+    count: files.length,
+    caption,
+  }).catch(() => files.map((_, index) => ({ index, caption: index === 0 ? caption : "" })));
+  for (const item of plan) {
+    const file = files[item.index];
+    if (!file) continue;
+    await sendFile(file, item.caption);
   }
 }
 

@@ -36,28 +36,22 @@ async function sendFile(file, caption = "") {
   const tempId = `local-${++state.localSeq}`;
   rememberMedia(tempId, localUrl);
 
-  const optimistic = {
-    id: tempId,
-    chat,
-    sender: null,
-    sender_name: null,
-    from_me: true,
-    is_group: entry.isGroup,
-    timestamp: Date.now(),
-    kind,
-    text: caption,
-    pending: true,
-  };
-  if (kind === "document") {
-    // Match the file card an incoming document gets: name, MIME, size.
-    optimistic.document = {
-      name: file.name,
+  // The optimistic bubble (including a document's file card) is shaped by
+  // wa_ui::actions::attachment_message.
+  const shaped = await invoke("ui_attachment_message", {
+    input: {
+      temp_id: tempId,
+      kind,
+      caption: caption || "",
+      file_name: file.name || "",
       mime: file.type || "",
       size: file.size || 0,
-      pages: 0,
-      thumb: null,
-    };
-  }
+      is_group: Boolean(entry.isGroup),
+      timestamp: Date.now(),
+    },
+  }).catch(() => null);
+  if (!shaped) return;
+  const optimistic = { ...shaped, chat };
   entry.messages.push(optimistic);
   entry.last = optimistic;
   entry.lastTs = optimistic.timestamp;
@@ -74,17 +68,29 @@ async function sendFile(file, caption = "") {
       data,
     });
 
+    // The bubble keeps its place and only learns the server id
+    // (wa_ui::actions::attachment_result).
+    const done = await invoke("ui_attachment_result", {
+      tempId,
+      serverId: result.id,
+      ok: true,
+    }).catch(() => ({ id: result.id, pending: false, failed: false, temp_id: tempId }));
     const media = state.media.get(tempId) || { status: "ready", url: localUrl };
     state.media.delete(tempId);
-    putMedia(result.id, media);
-    optimistic.id = result.id;
-    optimistic.pending = false;
+    putMedia(done.id, media);
+    optimistic.id = done.id;
+    optimistic.pending = done.pending;
     renderChatList();
     renderChat();
     stopTyping();
   } catch (err) {
-    optimistic.pending = false;
-    optimistic.failed = true;
+    const done = await invoke("ui_attachment_result", {
+      tempId,
+      serverId: "",
+      ok: false,
+    }).catch(() => ({ id: tempId, pending: false, failed: true, temp_id: tempId }));
+    optimistic.pending = done.pending;
+    optimistic.failed = done.failed;
     state.media.delete(tempId);
     toast(String(err));
     renderChat();

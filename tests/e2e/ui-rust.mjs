@@ -460,6 +460,87 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# composer send plan (rust)");
+const sendPlan = await page.evaluate(async () => {
+  const plan = await invoke("ui_draft_send_plan", { count: 3, caption: "  hello  " });
+  const emptyPlan = await invoke("ui_draft_send_plan", { count: 0, caption: "x" });
+  const photo = await invoke("ui_attachment_message", {
+    input: {
+      temp_id: "local-1",
+      kind: "image",
+      caption: "cap",
+      file_name: "a.png",
+      mime: "image/png",
+      size: 10,
+      is_group: false,
+      timestamp: 42,
+    },
+  });
+  const doc = await invoke("ui_attachment_message", {
+    input: {
+      temp_id: "local-2",
+      kind: "document",
+      caption: "",
+      file_name: "a.pdf",
+      mime: "application/pdf",
+      size: 2048,
+      is_group: true,
+      timestamp: 43,
+    },
+  });
+  const ok = await invoke("ui_attachment_result", { tempId: "local-1", serverId: "3EB0", ok: true });
+  const failed = await invoke("ui_attachment_result", { tempId: "local-1", serverId: "", ok: false });
+
+  // Live: stage a draft, confirm the stack rules, then clear it (no upload).
+  const chat = [...state.chats.values()].find((entry) => !entry.isGroup && entry.messages.length);
+  let staged = null;
+  let emptySend = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    clearDraft();
+    const img = new File([new Uint8Array([1, 2, 3])], "probe.png", { type: "image/png" });
+    await addDraftFiles([img]);
+    await new Promise((r) => setTimeout(r, 300));
+    staged = { files: draftFiles.length, thumbs: document.querySelectorAll("#draft-thumbs .draft-item").length };
+    clearDraft();
+    const before = chat.messages.length;
+    await sendDraft();
+    emptySend = chat.messages.length === before;
+  }
+  return { plan, emptyPlan, photo, doc, ok, failed, staged, emptySend };
+});
+check(
+  "only the first draft file carries the caption",
+  sendPlan.plan.length === 3 &&
+    sendPlan.plan[0].caption === "hello" &&
+    sendPlan.plan[1].caption === "" &&
+    sendPlan.emptyPlan.length === 0,
+  JSON.stringify(sendPlan.plan),
+);
+check(
+  "the optimistic photo bubble renders",
+  sendPlan.photo.id === "local-1" && sendPlan.photo.pending && sendPlan.photo.text === "cap" && !sendPlan.photo.document,
+  JSON.stringify(sendPlan.photo),
+);
+check(
+  "the optimistic document bubble carries its card",
+  sendPlan.doc.document.name === "a.pdf" && sendPlan.doc.document.size === 2048 && sendPlan.doc.is_group,
+  JSON.stringify(sendPlan.doc.document),
+);
+check(
+  "upload results swap the temp id only on success",
+  sendPlan.ok.id === "3EB0" && !sendPlan.ok.failed && sendPlan.failed.id === "local-1" && sendPlan.failed.failed,
+  `${sendPlan.ok.id}/${sendPlan.failed.id}`,
+);
+if (sendPlan.staged) {
+  check(
+    "a staged image fills the draft strip",
+    sendPlan.staged.files === 1 && sendPlan.staged.thumbs === 1 && sendPlan.emptySend,
+    JSON.stringify(sendPlan.staged),
+  );
+}
+
 console.log("\n# media hydration + selection (rust)");
 const hydration = await page.evaluate(async () => {
   const node = (status, kind, failed = false, channel = false) => ({ status, kind, failed, channel });
