@@ -223,6 +223,8 @@ pub fn run() {
             crate::commands::ui::ui_audio_format,
             crate::commands::ui::ui_audio_schedule,
             crate::commands::ui::ui_pcm_sample,
+            crate::commands::ui::ui_status_own_update,
+            crate::commands::ui::ui_status_draft_preview,
             crate::commands::ui::ui_rail_badges,
             crate::commands::ui::ui_sync_progress,
             crate::commands::ui::ui_sync_allowed,

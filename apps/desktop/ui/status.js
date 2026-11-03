@@ -1090,18 +1090,21 @@ async function postTextStatus() {
       background: await statusArgb(background),
       font,
     });
-    addStatusUpdate({
-      // Keep the server id: WhatsApp can only revoke the update it knows about.
-      id: serverId || `local-${Date.now()}`,
-      sender: state.meLid || state.meJid || "me",
-      name: state.me || "Me",
-      kind: "text",
-      text,
-      background,
-      timestamp: Date.now(),
-      from_me: true,
-      viewed: true,
-    });
+    // The optimistic own story (server id kept, ours, already seen) is
+    // wa_ui::status::own_update.
+    addStatusUpdate(
+      await invoke("ui_status_own_update", {
+        input: {
+          server_id: serverId || "",
+          sender: state.meLid || state.meJid || "me",
+          name: state.me || "Me",
+          kind: "text",
+          text,
+          background,
+          timestamp: Date.now(),
+        },
+      }),
+    );
     closeStatusTextComposer();
     toast("Status posted");
   } catch (err) {
@@ -1232,28 +1235,33 @@ async function postStatus() {
       const localUrl = URL.createObjectURL(file);
       const id = `local-status-${Date.now()}`;
       statusLocalMedia.set(id, localUrl);
-      addStatusUpdate({
-        id,
-        sender: state.meLid || state.meJid || "me",
-        name: state.me || "Me",
-        kind: isVideo ? "video" : "image",
-        text: caption,
-        timestamp: Date.now(),
-        from_me: true,
-        viewed: true,
-      });
+      addStatusUpdate(
+        await invoke("ui_status_own_update", {
+          input: {
+            server_id: "",
+            // The local media map is keyed by this id.
+            local_id: id,
+            sender: state.meLid || state.meJid || "me",
+            name: state.me || "Me",
+            kind: isVideo ? "video" : "image",
+            text: caption,
+            timestamp: Date.now(),
+          },
+        }),
+      );
     } else {
       await invoke("post_status_text", { text });
-      addStatusUpdate({
-        id: `local-${Date.now()}`,
-        sender: state.meLid || state.meJid || "me",
-        name: state.me || "Me",
-        kind: "text",
-        text,
-        timestamp: Date.now(),
-        from_me: true,
-        viewed: true,
-      });
+      addStatusUpdate(
+        await invoke("ui_status_own_update", {
+          input: {
+            sender: state.meLid || state.meJid || "me",
+            name: state.me || "Me",
+            kind: "text",
+            text,
+            timestamp: Date.now(),
+          },
+        }),
+      );
     }
     resetStatusDraft();
     $("status-composer").hidden = true;

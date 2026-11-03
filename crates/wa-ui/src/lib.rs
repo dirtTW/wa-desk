@@ -79,9 +79,9 @@ pub use state::{
     AliasChat, AliasPlan, MergeChatView, MergePlan, SeedContact, SeededChat, TrimChatView, TrimPlan,
 };
 pub use status::{
-    CaptureLimits, StatusEntryView, StatusFrameOutput, StatusFrameRequest, StatusListOutput,
-    StatusRequest, StatusUpdateView, StatusViewsOutput, StepTarget, ViewerChrome,
-    ViewerChromeInput,
+    CaptureLimits, DraftPreview, OwnUpdateInput, StatusEntryView, StatusFrameOutput,
+    StatusFrameRequest, StatusListOutput, StatusRequest, StatusUpdateView, StatusViewsOutput,
+    StepTarget, ViewerChrome, ViewerChromeInput,
 };
 pub use stickers::{StickerCell, StickerGridOutput, StickerGridRequest};
 pub use text::{MentionResolver, MessageRow, format_phone, preview_of};

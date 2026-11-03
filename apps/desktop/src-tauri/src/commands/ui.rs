@@ -543,6 +543,20 @@ pub fn ui_draft_plan(
     wa_ui::actions::draft_plan(existing, &files)
 }
 
+/// The optimistic own story after a successful post.
+#[tauri::command]
+pub fn ui_status_own_update(
+    input: wa_ui::status::OwnUpdateInput,
+) -> wa_ui::status::StatusUpdateView {
+    wa_ui::status::own_update(&input)
+}
+
+/// The composer's draft preview markup for a picked file.
+#[tauri::command]
+pub fn ui_status_draft_preview(mime: String, url: String) -> wa_ui::status::DraftPreview {
+    wa_ui::status::draft_preview(&mime, &url)
+}
+
 /// The story viewer's chrome (arrows, pause glyph, reply bar, view counter).
 #[tauri::command]
 pub fn ui_status_chrome(input: wa_ui::status::ViewerChromeInput) -> wa_ui::status::ViewerChrome {

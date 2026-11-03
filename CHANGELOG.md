@@ -4,6 +4,29 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.40] — 2026-11-03
+
+- **The status composer's draft rules moved to Rust (`wa_ui::status`).**
+  - `own_update(input)` builds the optimistic own story after a successful post:
+    it keeps the **server id** when the post returned one (only that id can be
+    revoked), falls back to the client id for local media (which the local media
+    map is keyed by) and then to `local-<timestamp>`, and always marks it
+    `from_me` + `viewed` with the `me`/`Me` identity fallbacks. Both post paths
+    (text and media) and the media composer's text fallback use it.
+  - `draft_preview(mime, url)` returns `{ kind, html }` — `<video controls>` for
+    videos, `<img>` for images, nothing otherwise — so the composer's preview
+    markup is escaped and built in Rust. A picked file that cannot be previewed
+    is now **dropped from the draft** (it used to linger as `statusDraftFile`
+    until the post-time check rejected it).
+  Commands `ui_status_own_update`, `ui_status_draft_preview`.
+- 2 new `wa-ui` unit tests (212 total, plus 3 contract) and a status-composer
+  CDP e2e section: the server/local/keyed ids, the three preview kinds (including
+  a quote-injection URL that cannot break out of the attribute), and a live
+  composer that previews a real image then clears the draft for a PDF.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.39] — 2026-11-03
 
 - **The history re-sync rules moved to Rust (`wa_ui::history`).**

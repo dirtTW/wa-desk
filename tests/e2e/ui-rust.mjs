@@ -488,6 +488,102 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# status composer draft (rust)");
+const statusDraft = await page.evaluate(async () => {
+  const server = await invoke("ui_status_own_update", {
+    input: {
+      server_id: "3EB0",
+      sender: "6285@s.whatsapp.net",
+      name: "Ada",
+      kind: "text",
+      text: "hello",
+      background: "#243640",
+      timestamp: 42,
+    },
+  });
+  const local = await invoke("ui_status_own_update", { input: { timestamp: 99 } });
+  const keyed = await invoke("ui_status_own_update", {
+    input: { local_id: "local-status-7", kind: "video", timestamp: 99 },
+  });
+  const previews = {
+    video: await invoke("ui_status_draft_preview", { mime: "video/mp4", url: "blob:abc" }),
+    image: await invoke("ui_status_draft_preview", { mime: "image/png", url: "blob:def" }),
+    other: await invoke("ui_status_draft_preview", { mime: "application/pdf", url: "blob:x" }),
+    quoted: await invoke("ui_status_draft_preview", {
+      mime: "image/png",
+      url: 'blob:x" onerror="alert(1)',
+    }),
+  };
+
+  // Live: the composer previews a real image, then drops a file it cannot show.
+  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 0);
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 500));
+    openStatusComposer();
+    const preview = document.getElementById("status-preview");
+    const input = document.getElementById("status-file");
+    const pick = (file) => {
+      const data = new DataTransfer();
+      data.items.add(file);
+      input.files = data.files;
+      input.dispatchEvent(new Event("change"));
+    };
+    pick(new File([new Uint8Array([1, 2, 3])], "probe.png", { type: "image/png" }));
+    await new Promise((r) => setTimeout(r, 500));
+    const image = {
+      hidden: preview.hidden,
+      tag: preview.innerHTML.startsWith("<img src=\"blob:"),
+      draft: Boolean(statusDraftFile),
+    };
+    pick(new File([new Uint8Array([1])], "probe.pdf", { type: "application/pdf" }));
+    await new Promise((r) => setTimeout(r, 600));
+    const rejected = {
+      hidden: preview.hidden,
+      empty: preview.innerHTML === "",
+      draftCleared: statusDraftFile === null,
+    };
+    resetStatusDraft();
+    document.getElementById("status-composer").hidden = true;
+    live = { image, rejected };
+  }
+  return { server, local, keyed, previews, live };
+});
+check(
+  "the optimistic own story keeps the server id and starts seen",
+  statusDraft.server.id === "3EB0" &&
+    statusDraft.server.from_me &&
+    statusDraft.server.viewed &&
+    statusDraft.server.background === "#243640" &&
+    statusDraft.local.id === "local-99" &&
+    statusDraft.local.sender === "me" &&
+    statusDraft.keyed.id === "local-status-7" &&
+    statusDraft.keyed.kind === "video",
+  JSON.stringify(statusDraft.server),
+);
+check(
+  "the draft preview picks a tag per mime",
+  statusDraft.previews.video.kind === "video" &&
+    statusDraft.previews.video.html.includes("controls") &&
+    statusDraft.previews.image.html === '<img src="blob:def" alt="" />' &&
+    statusDraft.previews.other.html === "" &&
+    !statusDraft.previews.quoted.html.includes('" onerror='),
+  JSON.stringify(statusDraft.previews.other),
+);
+if (statusDraft.live) {
+  check(
+    "the live composer previews an image and drops an unusable file",
+    statusDraft.live.image.hidden === false &&
+      statusDraft.live.image.tag &&
+      statusDraft.live.image.draft &&
+      statusDraft.live.rejected.hidden &&
+      statusDraft.live.rejected.empty &&
+      statusDraft.live.rejected.draftCleared,
+    JSON.stringify(statusDraft.live),
+  );
+}
+
 console.log("\n# history sync + rail badges (rust)");
 const syncRail = await page.evaluate(async () => {
   const progress = {

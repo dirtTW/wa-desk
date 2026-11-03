@@ -572,7 +572,7 @@ function wire() {
     $("status-composer").hidden = true;
   });
   $("status-choose-media").addEventListener("click", () => $("status-file").click());
-  $("status-file").addEventListener("change", (event) => {
+  $("status-file").addEventListener("change", async (event) => {
     const file = event.target.files && event.target.files[0];
     event.target.value = "";
     if (!file) return;
@@ -580,10 +580,24 @@ function wire() {
     if (statusDraftUrl) URL.revokeObjectURL(statusDraftUrl);
     statusDraftUrl = URL.createObjectURL(file);
     const preview = $("status-preview");
+    // The preview tag (video vs image) is wa_ui::status::draft_preview.
+    const draft = await invoke("ui_status_draft_preview", {
+      mime: file.type || "",
+      url: statusDraftUrl,
+    }).catch(() => ({ kind: "", html: "" }));
+    if (!draft.html) {
+      // A file that cannot be previewed is not a usable draft: drop it so the
+      // composer cannot post it by accident.
+      statusDraftFile = null;
+      if (statusDraftUrl) URL.revokeObjectURL(statusDraftUrl);
+      statusDraftUrl = null;
+      preview.hidden = true;
+      preview.innerHTML = "";
+      toast("Only photos and videos can be posted as a status.");
+      return;
+    }
     preview.hidden = false;
-    preview.innerHTML = file.type.startsWith("video/")
-      ? `<video src="${statusDraftUrl}" controls></video>`
-      : `<img src="${statusDraftUrl}" alt="" />`;
+    preview.innerHTML = draft.html;
   });
   $("status-post").addEventListener("click", () => postStatus());
   document.querySelectorAll(".status-tab").forEach((tab) => {

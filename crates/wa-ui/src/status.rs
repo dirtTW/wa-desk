@@ -24,7 +24,7 @@ pub struct ViewerRow {
     pub timestamp: i64,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct StatusUpdateView {
     #[serde(default)]
     pub id: String,
@@ -257,6 +257,93 @@ pub fn list(req: &StatusRequest) -> StatusListOutput {
         mine_thumb_html: thumb_html,
         mine_thumb_style: thumb_style,
         mine_thumb_has_image: thumb_has_image,
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct OwnUpdateInput {
+    /// The server id when the post returned one, otherwise empty.
+    #[serde(default)]
+    pub server_id: String,
+    /// The client-side id (local media is keyed by it) when there is no server
+    /// id; empty falls back to `local-<timestamp>`.
+    #[serde(default)]
+    pub local_id: String,
+    #[serde(default)]
+    pub sender: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub background: String,
+    #[serde(default)]
+    pub timestamp: i64,
+}
+
+/// The optimistic own story after a successful post: ours, already seen, and
+/// keeping the server id when there is one (only that id can be revoked).
+pub fn own_update(input: &OwnUpdateInput) -> StatusUpdateView {
+    let id = if !input.server_id.is_empty() {
+        input.server_id.clone()
+    } else if !input.local_id.is_empty() {
+        input.local_id.clone()
+    } else {
+        format!("local-{}", input.timestamp)
+    };
+    StatusUpdateView {
+        id,
+        sender: if input.sender.is_empty() {
+            "me".to_string()
+        } else {
+            input.sender.clone()
+        },
+        name: if input.name.is_empty() {
+            "Me".to_string()
+        } else {
+            input.name.clone()
+        },
+        kind: if input.kind.is_empty() {
+            "text".to_string()
+        } else {
+            input.kind.clone()
+        },
+        text: input.text.clone(),
+        background: input.background.clone(),
+        timestamp: input.timestamp,
+        viewed: true,
+        from_me: true,
+        viewers: Vec::new(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DraftPreview {
+    /// `video` or `image` (empty when the MIME is neither).
+    pub kind: &'static str,
+    /// The `<video controls>` / `<img>` preview markup for the draft.
+    pub html: String,
+}
+
+/// The composer's draft preview for a picked file.
+pub fn draft_preview(mime: &str, url: &str) -> DraftPreview {
+    let kind = if mime.starts_with("video/") {
+        "video"
+    } else if mime.starts_with("image/") {
+        "image"
+    } else {
+        ""
+    };
+    let safe = crate::html::escape(url);
+    DraftPreview {
+        kind,
+        html: match kind {
+            "video" => format!("<video src=\"{safe}\" controls></video>"),
+            "image" => format!("<img src=\"{safe}\" alt=\"\" />"),
+            _ => String::new(),
+        },
     }
 }
 
@@ -908,6 +995,63 @@ mod tests {
             me_lid: String::new(),
             now: 1_770_000_000_000,
         }
+    }
+
+    #[test]
+    fn own_updates_keep_the_server_id_and_start_viewed() {
+        let text = own_update(&OwnUpdateInput {
+            server_id: "3EB0".into(),
+            local_id: String::new(),
+            sender: "6285@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            kind: "text".into(),
+            text: "hello".into(),
+            background: "#243640".into(),
+            timestamp: 42,
+        });
+        assert_eq!(text.id, "3EB0", "the server id is what can be revoked");
+        assert!(text.from_me && text.viewed);
+        assert_eq!(text.kind, "text");
+        assert_eq!(text.background, "#243640");
+        assert!(text.viewers.is_empty());
+
+        // No server id: a local id, plus the fallbacks for identity and kind.
+        let local = own_update(&OwnUpdateInput {
+            timestamp: 99,
+            ..Default::default()
+        });
+        assert_eq!(local.id, "local-99");
+        assert_eq!(local.sender, "me");
+        assert_eq!(local.name, "Me");
+        assert_eq!(local.kind, "text");
+        assert!(local.background.is_empty());
+
+        // A client id (local media is keyed by it) wins over the fallback.
+        let keyed = own_update(&OwnUpdateInput {
+            local_id: "local-status-7".into(),
+            timestamp: 99,
+            ..Default::default()
+        });
+        assert_eq!(keyed.id, "local-status-7");
+    }
+
+    #[test]
+    fn the_draft_preview_picks_a_tag_per_mime() {
+        let video = draft_preview("video/mp4", "blob:abc");
+        assert_eq!(video.kind, "video");
+        assert!(video.html.starts_with("<video src=\"blob:abc\""));
+        assert!(video.html.contains("controls"));
+
+        let image = draft_preview("image/png", "blob:def");
+        assert_eq!(image.kind, "image");
+        assert_eq!(image.html, "<img src=\"blob:def\" alt=\"\" />");
+
+        // Anything else has no preview, and quotes in the URL cannot break out.
+        let other = draft_preview("application/pdf", "blob:x");
+        assert_eq!(other.kind, "");
+        assert!(other.html.is_empty());
+        let quoted = draft_preview("image/png", "blob:x\" onerror=\"alert(1)");
+        assert!(!quoted.html.contains("\" onerror="));
     }
 
     #[test]
