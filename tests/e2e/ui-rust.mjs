@@ -460,6 +460,59 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# status frame clock (rust)");
+const clock = await page.evaluate(async () => {
+  const timing = await invoke("ui_status_timing");
+  const text = await invoke("ui_status_frame_duration", { kind: "text", text: "short" });
+  const long = await invoke("ui_status_frame_duration", { kind: "text", text: "x".repeat(200) });
+  const image = await invoke("ui_status_frame_duration", { kind: "image", text: "" });
+  const video = await invoke("ui_status_frame_duration", { kind: "video", text: "" });
+  const anchor = await invoke("ui_status_anchor", { total: 8000, remaining: 8000, now: 1000 });
+  const elapsed = await invoke("ui_status_elapsed", {
+    total: anchor.total,
+    remaining: anchor.remaining,
+    endsAt: anchor.ends_at,
+    now: 5000,
+  });
+  const paused = await invoke("ui_status_pause_remaining", {
+    remaining: anchor.remaining,
+    endsAt: anchor.ends_at,
+    now: 3500,
+  });
+  const resumed = await invoke("ui_status_resume", { total: 8000, remaining: 0 });
+  const progress = await invoke("ui_status_progress", { total: 8000, remaining: 4000 });
+  const thumb = await invoke("ui_status_thumb_scale", { width: 640, height: 480 });
+  const seek = await invoke("ui_status_poster_seek", { duration: 10 });
+
+  const entry = [...state.statuses.values()].find((e) => e.updates.length > 0);
+  let viewer = null;
+  if (entry) {
+    openStatus();
+    await new Promise((r) => setTimeout(r, 800));
+    openStatusViewer(entry.jid);
+    await new Promise((r) => setTimeout(r, 1500));
+    const before = statusFrameEndsAt > 0 && statusFrameTotal > 0;
+    await pauseStatusFrame();
+    const pausedState = statusPaused && statusFrameEndsAt === 0;
+    await resumeStatusFrame();
+    const resumedState = !statusPaused && statusFrameEndsAt > 0;
+    viewer = { before, pausedState, resumedState };
+    closeStatusViewer();
+    closeStatus();
+  }
+  return { timing, text, long, image, video, anchor, elapsed, paused, resumed, progress, thumb, seek, viewer };
+});
+check("the timing constants render", clock.timing.text_ms === 10000 && clock.timing.thumb_max_px === 320, JSON.stringify(clock.timing));
+check("frame durations follow the kind", clock.text === 10000 && clock.long === 14000 && clock.image === 8000 && clock.video === 0);
+check("the anchor and elapsed clock render", clock.anchor.ends_at === 9000 && clock.elapsed === 4000, JSON.stringify(clock.anchor));
+check("pause keeps the remaining time", clock.paused === 5500 && clock.resumed[1] === 1);
+check("the progress fill renders", clock.progress === 0.5);
+check("thumbnails fit the capture box", clock.thumb.width === 320 && clock.thumb.height === 240);
+check("the poster seek renders", clock.seek === 0.2);
+if (clock.viewer) {
+  check("the viewer pauses and resumes", clock.viewer.before && clock.viewer.pausedState && clock.viewer.resumedState, JSON.stringify(clock.viewer));
+}
+
 console.log("\n# status composer (rust)");
 const composer = await page.evaluate(async () => {
   openStatus();

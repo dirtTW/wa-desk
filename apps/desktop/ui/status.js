@@ -512,25 +512,27 @@ let statusFrameRemaining = 0;
 let statusFrameToken = 0;
 let statusProgressRaf = null;
 
-// WhatsApp gives text stories 5 s, which is short for reading. Ours runs longer
-// (and the pause button freezes the bar for as long as you need).
-const STATUS_TEXT_MS = 10_000;
-const STATUS_IMAGE_MS = 8_000;
-// While a status' media is still downloading the bar must keep moving: an empty
-// active segment is the "black line" that appears in place of the progress.
-// A video whose metadata has not arrived yet gets this placeholder duration,
-// and the real length replaces it once `loadedmetadata` lands.
-const STATUS_VIDEO_FALLBACK_MS = 20_000;
-// The server no longer has the media — still show a moving bar for the frame.
-const STATUS_MEDIA_FAILED_MS = 3_000;
+// The frame timings and capture limits come from wa_ui::status.
+let statusTiming = {
+  textMs: 10000,
+  imageMs: 8000,
+  videoFallbackMs: 20000,
+  mediaFailedMs: 3000,
+  thumbMaxPx: 320,
+  posterTimeoutMs: 4000,
+};
+invoke("ui_status_timing")
+  .then((timing) => {
+    statusTiming = timing;
+  })
+  .catch(() => {});
 
-function statusFrameDuration(update) {
+async function statusFrameDuration(update) {
   if (!update) return 0;
-  if (update.kind === "video") return 0; // the video's own duration wins once known
-  if (update.kind !== "text") return STATUS_IMAGE_MS;
-  // Long stories need more time than a one-liner.
-  const extra = Math.min(4000, Math.max(0, String(update.text || "").length - 80) * 40);
-  return STATUS_TEXT_MS + extra;
+  return invoke("ui_status_frame_duration", {
+    kind: update.kind || "text",
+    text: String(update.text || ""),
+  }).catch(() => 0);
 }
 
 function currentStatusBar() {
@@ -539,9 +541,13 @@ function currentStatusBar() {
 
 // How far into the current frame we are, read from the same clock the advance
 // timer uses, so the bar and the frame can never disagree.
-function statusFrameElapsed() {
-  if (!statusFrameEndsAt) return Math.max(0, statusFrameTotal - statusFrameRemaining);
-  return Math.max(0, statusFrameTotal - Math.max(0, statusFrameEndsAt - performance.now()));
+async function statusFrameElapsed() {
+  return invoke("ui_status_elapsed", {
+    total: statusFrameTotal,
+    remaining: statusFrameRemaining,
+    endsAt: statusFrameEndsAt,
+    now: performance.now(),
+  }).catch(() => Math.max(0, statusFrameTotal - statusFrameRemaining));
 }
 
 // Paint the fill as a scaled layer: sub-pixel, compositor-friendly, and free of
@@ -580,11 +586,18 @@ function startStatusProgress() {
 
 // Anchor the active frame: `total` is its full duration, `remaining` how much of
 // it is left. The bar, the advance timer and pause/resume all read this anchor.
-function anchorStatusFrame(total, remaining, token = statusFrameToken) {
+async function anchorStatusFrame(total, remaining, token = statusFrameToken) {
   if (token !== statusFrameToken) return;
-  statusFrameTotal = Math.max(1, Math.round(total));
-  statusFrameRemaining = Math.max(0, Math.round(remaining));
-  statusFrameEndsAt = performance.now() + statusFrameRemaining;
+  const now = performance.now();
+  const anchor = await invoke("ui_status_anchor", { total, remaining, now }).catch(() => ({
+    total: Math.max(1, Math.round(total)),
+    remaining: Math.max(0, Math.round(remaining)),
+    ends_at: now + Math.max(0, Math.round(remaining)),
+  }));
+  if (token !== statusFrameToken) return;
+  statusFrameTotal = anchor.total;
+  statusFrameRemaining = anchor.remaining;
+  statusFrameEndsAt = anchor.ends_at;
   clearTimeout(statusTimer);
   statusTimer = null;
   if (!statusPaused && !$("status-viewer").hidden) {
@@ -604,14 +617,16 @@ function updateStatusPauseButton() {
   button.title = statusPaused ? "Play" : "Pause";
 }
 
-function pauseStatusFrame() {
+async function pauseStatusFrame() {
   if (statusPaused || $("status-viewer").hidden) return;
   const update = statusQueue[statusIndex];
   if (!update) return;
   statusPaused = true;
-  statusFrameRemaining = statusFrameEndsAt
-    ? Math.max(0, statusFrameEndsAt - performance.now())
-    : statusFrameRemaining;
+  statusFrameRemaining = await invoke("ui_status_pause_remaining", {
+    remaining: statusFrameRemaining,
+    endsAt: statusFrameEndsAt,
+    now: performance.now(),
+  }).catch(() => statusFrameRemaining);
   statusFrameEndsAt = 0;
   clearTimeout(statusTimer);
   statusTimer = null;
@@ -626,11 +641,14 @@ function pauseStatusFrame() {
   updateStatusPauseButton();
 }
 
-function resumeStatusFrame() {
+async function resumeStatusFrame() {
   if (!statusPaused) return;
   statusPaused = false;
-  const remaining = Math.max(1, statusFrameRemaining || statusFrameTotal || 1);
-  anchorStatusFrame(statusFrameTotal || remaining, remaining);
+  const [total, remaining] = await invoke("ui_status_resume", {
+    total: statusFrameTotal,
+    remaining: statusFrameRemaining,
+  }).catch(() => [statusFrameTotal || 1, Math.max(1, statusFrameRemaining || 1)]);
+  await anchorStatusFrame(total, remaining);
   const video = document.querySelector("#status-viewer-body video");
   if (video?.dataset.pausedByUser) {
     delete video.dataset.pausedByUser;
@@ -657,7 +675,7 @@ async function renderStatusFrame() {
   clearTimeout(statusTimer);
   statusTimer = null;
   statusPaused = false;
-  statusFrameTotal = statusFrameDuration(update);
+  statusFrameTotal = await statusFrameDuration(update);
   statusFrameEndsAt = 0;
   statusFrameRemaining = 0;
   updateStatusPauseButton();
@@ -703,7 +721,7 @@ async function renderStatusFrame() {
 
   // The bar starts with the frame, not with the media: waiting for a download
   // left the active segment empty (the black line) for as long as it took.
-  const placeholder = update.kind === "video" ? STATUS_VIDEO_FALLBACK_MS : STATUS_IMAGE_MS;
+  const placeholder = update.kind === "video" ? statusTiming.videoFallbackMs : statusTiming.imageMs;
   anchorStatusFrame(placeholder, placeholder, token);
   try {
     let url = statusLocalMedia.get(update.id);
@@ -733,12 +751,13 @@ async function renderStatusFrame() {
         },
         { once: true },
       );
-      const adoptDuration = () => {
+      const adoptDuration = async () => {
         if (token !== statusFrameToken || !(video.duration > 0)) return;
         const total = Math.round(video.duration * 1000);
         // Keep the time already spent on the placeholder countdown, so the bar
         // never jumps backwards when the real length lands.
-        anchorStatusFrame(total, Math.max(1, total - statusFrameElapsed()), token);
+        const spent = await statusFrameElapsed();
+        anchorStatusFrame(total, Math.max(1, total - spent), token);
       };
       video.addEventListener("loadedmetadata", adoptDuration, { once: true });
       if (video.readyState >= 1) adoptDuration();
@@ -752,7 +771,7 @@ async function renderStatusFrame() {
     body.innerHTML = await invoke("ui_status_media_error").catch(
       () => '<div class="text-status">Status media is no longer available.</div>',
     );
-    anchorStatusFrame(STATUS_MEDIA_FAILED_MS, STATUS_MEDIA_FAILED_MS, token);
+    anchorStatusFrame(statusTiming.mediaFailedMs, statusTiming.mediaFailedMs, token);
   }
 }
 
@@ -1034,10 +1053,10 @@ async function postTextStatus() {
 }
 
 function statusImageThumb(file) {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
+    img.onload = async () => {
       const scale = Math.min(1, 320 / img.width, 320 / img.height);
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(img.width * scale));
@@ -1065,19 +1084,31 @@ function statusVideoMeta(file) {
       URL.revokeObjectURL(url);
       resolve({ thumb, duration: Math.max(1, Math.round(duration || 1)) });
     };
-    const timer = setTimeout(() => finish("", video.duration || 1), 4000);
+    const timer = setTimeout(
+      () => finish("", video.duration || 1),
+      statusTiming.posterTimeoutMs,
+    );
     video.muted = true;
     video.preload = "metadata";
     video.src = url;
-    video.onloadeddata = () => {
-      video.currentTime = Math.min(0.2, (video.duration || 1) / 2);
+    video.onloadeddata = async () => {
+      video.currentTime = await invoke("ui_status_poster_seek", {
+        duration: Number(video.duration) || 0,
+      }).catch(() => 0.2);
     };
-    video.onseeked = () => {
+    video.onseeked = async () => {
       clearTimeout(timer);
-      const scale = Math.min(1, 320 / video.videoWidth, 320 / video.videoHeight);
+      const size = await invoke("ui_status_thumb_scale", {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        max: statusTiming.thumbMaxPx,
+      }).catch(() => ({
+        width: Math.max(1, video.videoWidth),
+        height: Math.max(1, video.videoHeight),
+      }));
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      canvas.width = size.width;
+      canvas.height = size.height;
       canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
       finish(canvas.toDataURL("image/jpeg", 0.72).split(",")[1] || "", video.duration || 1);
     };

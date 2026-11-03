@@ -399,6 +399,85 @@ pub fn ui_picker(request: wa_ui::PickerRequest) -> wa_ui::PickerOutput {
     wa_ui::picker::render(&request)
 }
 
+/// A story frame's duration for its kind and text length.
+#[tauri::command]
+pub fn ui_status_frame_duration(kind: String, text: String) -> i64 {
+    wa_ui::status::frame_duration(&kind, &text)
+}
+
+/// The story timing constants (ms) and capture limits.
+#[tauri::command]
+pub fn ui_status_timing() -> StatusTiming {
+    StatusTiming {
+        text_ms: wa_ui::status::STATUS_TEXT_MS,
+        image_ms: wa_ui::status::STATUS_IMAGE_MS,
+        video_fallback_ms: wa_ui::status::STATUS_VIDEO_FALLBACK_MS,
+        media_failed_ms: wa_ui::status::STATUS_MEDIA_FAILED_MS,
+        thumb_max_px: wa_ui::status::STATUS_THUMB_MAX_PX,
+        poster_timeout_ms: wa_ui::status::STATUS_POSTER_TIMEOUT_MS,
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct StatusTiming {
+    pub text_ms: i64,
+    pub image_ms: i64,
+    pub video_fallback_ms: i64,
+    pub media_failed_ms: i64,
+    pub thumb_max_px: u32,
+    pub poster_timeout_ms: i64,
+}
+
+/// Anchor a story frame (total, remaining, end instant).
+#[tauri::command]
+pub fn ui_status_anchor(total: i64, remaining: i64, now: f64) -> wa_ui::status::FrameAnchor {
+    wa_ui::status::anchor(total, remaining, now)
+}
+
+/// Elapsed time in a story frame.
+#[tauri::command]
+pub fn ui_status_elapsed(total: i64, remaining: i64, ends_at: f64, now: f64) -> i64 {
+    wa_ui::status::elapsed(total, remaining, ends_at, now)
+}
+
+/// Remaining time when a story frame is paused.
+#[tauri::command]
+pub fn ui_status_pause_remaining(remaining: i64, ends_at: f64, now: f64) -> i64 {
+    wa_ui::status::pause_remaining(remaining, ends_at, now)
+}
+
+/// Totals when a story frame resumes.
+#[tauri::command]
+pub fn ui_status_resume(total: i64, remaining: i64) -> (i64, i64) {
+    wa_ui::status::resume_totals(total, remaining)
+}
+
+/// The progress bar fill (0..1).
+#[tauri::command]
+pub fn ui_status_progress(total: i64, remaining: i64) -> f64 {
+    wa_ui::status::progress_ratio(total, remaining)
+}
+
+/// Fit a captured thumbnail into its box.
+#[tauri::command]
+pub fn ui_status_thumb_scale(
+    width: u32,
+    height: u32,
+    max: Option<u32>,
+) -> wa_ui::status::ThumbSize {
+    wa_ui::status::thumb_scale(
+        width,
+        height,
+        max.unwrap_or(wa_ui::status::STATUS_THUMB_MAX_PX),
+    )
+}
+
+/// Where to seek for a video poster frame.
+#[tauri::command]
+pub fn ui_status_poster_seek(duration: f64) -> f64 {
+    wa_ui::status::poster_seek_seconds(duration)
+}
+
 /// The status rail list (recent/viewed sections, my own row).
 #[tauri::command]
 pub fn ui_status_list(request: wa_ui::StatusRequest) -> wa_ui::StatusListOutput {

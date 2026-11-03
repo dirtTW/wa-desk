@@ -444,9 +444,187 @@ pub fn views(viewers: &[ViewerRow], req: &StatusRequest) -> StatusViewsOutput {
     }
 }
 
+/// Text stories get 10 s (plus a little for long ones); photos 8 s.
+pub const STATUS_TEXT_MS: i64 = 10_000;
+pub const STATUS_IMAGE_MS: i64 = 8_000;
+/// A video whose metadata has not arrived gets this placeholder duration.
+pub const STATUS_VIDEO_FALLBACK_MS: i64 = 20_000;
+/// The server no longer has the media — still show a moving bar.
+pub const STATUS_MEDIA_FAILED_MS: i64 = 3_000;
+/// Thumbnail/poster capture limits.
+pub const STATUS_THUMB_MAX_PX: u32 = 320;
+pub const STATUS_POSTER_TIMEOUT_MS: i64 = 4_000;
+
+/// How long one story frame stays up. A video returns 0 until its real
+/// duration is known; long text stories get up to 4 s extra.
+pub fn frame_duration(kind: &str, text: &str) -> i64 {
+    match kind {
+        "video" => 0,
+        "text" => {
+            let len = text.chars().count() as i64;
+            let extra = ((len - 80).max(0) * 40).min(4_000);
+            STATUS_TEXT_MS + extra
+        }
+        _ => STATUS_IMAGE_MS,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct FrameAnchor {
+    pub total: i64,
+    pub remaining: i64,
+    /// `performance.now()` coordinate when the frame ends.
+    pub ends_at: f64,
+}
+
+/// Anchor a frame: total duration, remaining time and the end instant.
+pub fn anchor(total: i64, remaining: i64, now: f64) -> FrameAnchor {
+    let total = total.max(1);
+    let remaining = remaining.max(0);
+    FrameAnchor {
+        total,
+        remaining,
+        ends_at: now + remaining as f64,
+    }
+}
+
+/// How far into the frame we are, from the same clock the advance timer uses.
+pub fn elapsed(total: i64, remaining: i64, ends_at: f64, now: f64) -> i64 {
+    let left = if ends_at > 0.0 {
+        (ends_at - now).max(0.0)
+    } else {
+        remaining as f64
+    };
+    (total as f64 - left).max(0.0).round() as i64
+}
+
+/// Freezing the clock freezes the bar: keep the remaining time, drop the end.
+pub fn pause_remaining(remaining: i64, ends_at: f64, now: f64) -> i64 {
+    if ends_at > 0.0 {
+        (ends_at - now).max(0.0).round() as i64
+    } else {
+        remaining.max(0)
+    }
+}
+
+/// Resuming re-anchors with at least one millisecond left.
+pub fn resume_totals(total: i64, remaining: i64) -> (i64, i64) {
+    let remaining = remaining.max(1).max(total.min(remaining.max(1)));
+    let remaining = remaining.max(1);
+    (total.max(remaining), remaining)
+}
+
+/// The bar fill (0..1) for a frame.
+pub fn progress_ratio(total: i64, remaining: i64) -> f64 {
+    if total <= 0 {
+        return 0.0;
+    }
+    ((total - remaining) as f64 / total as f64).clamp(0.0, 1.0)
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ThumbSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Fit a picture into the capture box, never enlarging it.
+pub fn thumb_scale(width: u32, height: u32, max: u32) -> ThumbSize {
+    if width == 0 || height == 0 {
+        return ThumbSize {
+            width: 1,
+            height: 1,
+        };
+    }
+    let scale = (max as f64 / width as f64)
+        .min(max as f64 / height as f64)
+        .min(1.0);
+    ThumbSize {
+        width: ((width as f64 * scale).round() as u32).max(1),
+        height: ((height as f64 * scale).round() as u32).max(1),
+    }
+}
+
+/// Where to seek for a video poster (a frame just after the start).
+pub fn poster_seek_seconds(duration: f64) -> f64 {
+    let duration = if duration.is_finite() && duration > 0.0 {
+        duration
+    } else {
+        1.0
+    };
+    (duration / 2.0).min(0.2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durations_follow_the_kind() {
+        assert_eq!(frame_duration("video", "anything"), 0);
+        assert_eq!(frame_duration("image", ""), STATUS_IMAGE_MS);
+        assert_eq!(frame_duration("text", "short"), STATUS_TEXT_MS);
+        // 180 chars => 100 chars over the threshold => 4000 ms extra (capped).
+        assert_eq!(frame_duration("text", &"x".repeat(180)), 14_000);
+        assert_eq!(frame_duration("text", &"x".repeat(500)), 14_000);
+        assert_eq!(frame_duration("text", &"x".repeat(100)), 10_800);
+    }
+
+    #[test]
+    fn anchors_and_elapsed_time() {
+        let a = anchor(8_000, 8_000, 1_000.0);
+        assert_eq!(a.total, 8_000);
+        assert_eq!(a.ends_at, 9_000.0);
+        assert_eq!(elapsed(a.total, a.remaining, a.ends_at, 1_000.0), 0);
+        assert_eq!(elapsed(a.total, a.remaining, a.ends_at, 5_000.0), 4_000);
+        assert_eq!(elapsed(a.total, a.remaining, a.ends_at, 20_000.0), 8_000);
+        // Total is clamped to at least 1 ms.
+        assert_eq!(anchor(0, 0, 0.0).total, 1);
+    }
+
+    #[test]
+    fn pause_and_resume_keep_the_clock() {
+        let a = anchor(8_000, 8_000, 1_000.0);
+        let remaining = pause_remaining(a.remaining, a.ends_at, 3_500.0);
+        assert_eq!(remaining, 5_500);
+        // Paused again with no end instant keeps the stored remaining.
+        assert_eq!(pause_remaining(remaining, 0.0, 9_999.0), 5_500);
+
+        let (total, remaining) = resume_totals(8_000, 0);
+        assert_eq!(total, 8_000);
+        assert_eq!(remaining, 1, "never resumes with zero time");
+        let (total, remaining) = resume_totals(8_000, 5_500);
+        assert_eq!((total, remaining), (8_000, 5_500));
+    }
+
+    #[test]
+    fn progress_ratio_is_clamped() {
+        assert_eq!(progress_ratio(8_000, 8_000), 0.0);
+        assert_eq!(progress_ratio(8_000, 4_000), 0.5);
+        assert_eq!(progress_ratio(8_000, 0), 1.0);
+        assert_eq!(progress_ratio(0, 0), 0.0);
+        assert_eq!(progress_ratio(8_000, 12_000), 0.0);
+    }
+
+    #[test]
+    fn thumbnails_fit_and_never_enlarge() {
+        assert_eq!(thumb_scale(640, 480, 320).width, 320);
+        assert_eq!(thumb_scale(640, 480, 320).height, 240);
+        assert_eq!(thumb_scale(100, 50, 320).width, 100, "no upscaling");
+        assert_eq!(thumb_scale(0, 0, 320).width, 1);
+        assert_eq!(thumb_scale(1080, 1920, 320).height, 320);
+    }
+
+    #[test]
+    fn poster_seek() {
+        assert_eq!(poster_seek_seconds(10.0), 0.2);
+        assert_eq!(poster_seek_seconds(0.2), 0.1);
+        assert_eq!(poster_seek_seconds(0.0), 0.2);
+        assert_eq!(poster_seek_seconds(f64::NAN), 0.2);
+        assert_eq!(STATUS_POSTER_TIMEOUT_MS, 4_000);
+        assert_eq!(STATUS_VIDEO_FALLBACK_MS, 20_000);
+        assert_eq!(STATUS_MEDIA_FAILED_MS, 3_000);
+    }
 
     fn update(id: &str, kind: &str, ts: i64, viewed: bool) -> StatusUpdateView {
         StatusUpdateView {

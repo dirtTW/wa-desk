@@ -4,6 +4,29 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.15] — 2026-11-03
+
+- **The story viewer's frame clock moved to Rust.** `wa_ui::status` now owns the
+  timings (text 10 s + 40 ms/char beyond 80 capped at 4 s, photo 8 s, video
+  placeholder 20 s, failed media 3 s), the frame anchor (`total`, `remaining`,
+  `ends_at`), elapsed time from the same clock, the pause freeze
+  (`remaining = ends_at - now`, end cleared) and resume re-anchor (never zero),
+  the progress fill ratio, the thumbnail capture box (320 px, never enlarging)
+  and the video poster seek (min 0.2 s, duration/2) plus its 4 s timeout.
+  Commands: `ui_status_timing`, `ui_status_frame_duration`,
+  `ui_status_anchor`, `ui_status_elapsed`, `ui_status_pause_remaining`,
+  `ui_status_resume`, `ui_status_progress`, `ui_status_thumb_scale`,
+  `ui_status_poster_seek`. The per-rAF paint keeps only the linear scaleX it
+  derives from the Rust anchor (an IPC call per animation frame would be
+  wasteful).
+- `status.js` dropped its timing constants and the pause/resume arithmetic;
+  `resumeStatusFrame` now awaits the re-anchor so the bar cannot sample a
+  half-reset clock.
+- 6 new `wa-ui` unit tests (130 total, plus 3 contract) and a status-clock CDP
+  e2e section: constants, durations, anchor 9000/elapsed 4000, pause 5500,
+  resume ≥1 ms, ratio 0.5, thumbnail 320×240, seek 0.2 and a live
+  pause/resume of the viewer.
+
 ## [0.2.0-rc.14] — 2026-11-03
 
 - **Incoming-message application rules moved to Rust.** `wa_ui::incoming`
