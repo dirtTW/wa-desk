@@ -657,7 +657,7 @@ async function leaveCurrentGroup() {
 let memberTarget = null;
 
 function closeMemberMenu() {
-  $("member-menu").hidden = true;
+  closeMenuSession();
   memberTarget = null;
 }
 
@@ -672,7 +672,8 @@ async function openMemberMenu(button) {
   const menu = $("member-menu");
   menu.querySelector('[data-member-action="promote"]').hidden = memberTarget.admin;
   menu.querySelector('[data-member-action="demote"]').hidden = !memberTarget.admin;
-  menu.hidden = false;
+  // One popover at a time.
+  await openMenuSession("member", memberTarget.jid || "");
 
   // The edge maths is wa_ui::menus::member_menu_position.
   const rect = button.getBoundingClientRect();

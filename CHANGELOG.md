@@ -4,6 +4,37 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.48] — 2026-11-03
+
+Batch release (one cut for the whole batch, not one per file).
+
+- **`chat-menu.js` + `message-actions.js` are gone — merged into one `menus.js`
+  whose open/close state is a Rust transition (19 → 17 JS files).**
+  `wa_ui::menus::menu_session(current, event)` is the state machine: `open`
+  replaces whatever popover was up, `toggle` on the same kind+target closes it,
+  `close` always does, and an empty kind opens nothing. The chat list menu, the
+  message menu, the sidebar kebab, the member menu and the status add menu all
+  share it (`ui_menu_session`), so opening the message menu now closes the chat
+  menu — previously both could be visible at once. The remaining DOM code for
+  both files lives in `menus.js`, loaded before `wiring.js`.
+- **Peer lookup targeting is one call.** `wa_ui::state::peer_targets` picks the
+  chats that still need a `usync` lookup — LIDs always, phone-number chats only
+  while the name is still the bare number, never groups, our own ids or chats
+  already tried — capping the batch. `resolvePeers` used to make one
+  `ui_placeholder_name` round trip per chat; it now makes exactly one call
+  (`ui_peer_targets`).
+- **The draft cap is Rust's.** `ui_draft_limits` returns
+  `actions::MAX_DRAFT_FILES`, which `chats.js` mirrors at boot instead of
+  hard-coding 10.
+- 2 new `wa-ui` unit tests (227 total, plus 3 contract) and a menu-session CDP
+  e2e section: the merged module is the only one loaded (17 scripts), the
+  one-popover transition, the peer-target selection plus the draft cap, and a
+  live pass where a right-click opens the chat menu and clicking a message closes
+  it.
+- Audits: `check-undefined` 20 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.47] — 2026-11-03
 
 - **`emoji.js` is deleted — 19 → 18 JS files, with real Rust behind it.**

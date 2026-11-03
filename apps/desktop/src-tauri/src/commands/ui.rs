@@ -722,6 +722,33 @@ pub fn ui_profile_name_error(name: String) -> Option<String> {
     wa_ui::settings::profile_name_error(&name)
 }
 
+/// One menu open/close/toggle transition (only one popover may be open).
+#[tauri::command]
+pub fn ui_menu_session(
+    current: wa_ui::menus::MenuSession,
+    event: wa_ui::menus::MenuEvent,
+) -> wa_ui::menus::MenuSession {
+    wa_ui::menus::menu_session(&current, &event)
+}
+
+/// Which chats still need a peer lookup (one call instead of one per chat).
+#[tauri::command]
+pub fn ui_peer_targets(
+    chats: Vec<wa_ui::state::PeerChatInput>,
+    me_jid: String,
+    me_lid: String,
+    seen: Vec<String>,
+    limit: Option<usize>,
+) -> Vec<String> {
+    wa_ui::state::peer_targets(&chats, &me_jid, &me_lid, &seen, limit.unwrap_or(100))
+}
+
+/// The draft stack cap the picker's "add more" affordance mirrors.
+#[tauri::command]
+pub fn ui_draft_limits() -> usize {
+    wa_ui::actions::MAX_DRAFT_FILES
+}
+
 /// Place a menu under its anchor button, inside the window.
 #[tauri::command]
 pub fn ui_menu_anchor(

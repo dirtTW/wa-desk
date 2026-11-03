@@ -1950,6 +1950,110 @@ if (docCheck.live) {
   );
 }
 
+console.log("\n# menu session + peer targets (rust, menus.js merge)");
+const menuBatch = await page.evaluate(async () => {
+  const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
+    node.getAttribute("src"),
+  );
+  const loads = {
+    chatMenu: scripts.some((src) => String(src).includes("chat-menu.js")),
+    messageActions: scripts.some((src) => String(src).includes("message-actions.js")),
+    menus: scripts.some((src) => String(src).includes("menus.js")),
+  };
+
+  // The session transition (one popover at a time).
+  const closed = { kind: "", target: "", open: false };
+  const opened = await invoke("ui_menu_session", {
+    current: closed,
+    event: { action: "open", kind: "chat", target: "1@s.whatsapp.net" },
+  });
+  const replaced = await invoke("ui_menu_session", {
+    current: opened,
+    event: { action: "open", kind: "message", target: "m1" },
+  });
+  const toggled = await invoke("ui_menu_session", {
+    current: replaced,
+    event: { action: "toggle", kind: "message", target: "m1" },
+  });
+
+  // Peer targets: one call instead of one per chat.
+  const me = state.meJid || "";
+  const targets = await invoke("ui_peer_targets", {
+    chats: [
+      { jid: "111@lid", name: "111", is_group: false },
+      { jid: "222@s.whatsapp.net", name: "222", is_group: false },
+      { jid: "333@s.whatsapp.net", name: "Budi", is_group: false },
+      { jid: "444@g.us", name: "Team", is_group: true },
+    ],
+    meJid: me,
+    meLid: state.meLid || "",
+    seen: [],
+    limit: 100,
+  });
+  const caps = await invoke("ui_draft_limits");
+
+  // Live: opening one menu closes the other.
+  const chat = [...state.chats.values()].find((entry) => entry.messages.some((m) => m.text));
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    const row = document.querySelector(`#chat-list .chat-item[data-jid]`);
+    row?.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, clientX: 200, clientY: 200 }),
+    );
+    await new Promise((r) => setTimeout(r, 500));
+    const chatOpen = !document.getElementById("chat-list-menu").hidden;
+    const message = chat.messages.find((m) => m.text);
+    await openMessageMenu(message, 300, 300);
+    await new Promise((r) => setTimeout(r, 400));
+    live = {
+      chatOpen,
+      chatClosedAfter: document.getElementById("chat-list-menu").hidden,
+      messageOpen: !document.getElementById("msg-menu").hidden,
+      session: `${menuSession.kind}:${menuSession.open}`,
+    };
+    closeMessageMenu();
+    await new Promise((r) => setTimeout(r, 200));
+    live.allClosed = document.getElementById("msg-menu").hidden && !menuSession.open;
+  }
+  return { scripts, loads, opened, replaced, toggled, targets, caps, live };
+});
+check(
+  "menus.js replaced chat-menu.js and message-actions.js",
+  menuBatch.loads.menus &&
+    !menuBatch.loads.chatMenu &&
+    !menuBatch.loads.messageActions &&
+    menuBatch.scripts.length === expectedScripts,
+  `${menuBatch.scripts.length} scripts (expected ${expectedScripts}), loads=${JSON.stringify(menuBatch.loads)}`,
+);
+check(
+  "only one menu is open at a time",
+  menuBatch.opened.open &&
+    menuBatch.opened.kind === "chat" &&
+    menuBatch.replaced.kind === "message" &&
+    menuBatch.replaced.open &&
+    !menuBatch.toggled.open,
+  JSON.stringify({ opened: menuBatch.opened, replaced: menuBatch.replaced, toggled: menuBatch.toggled }),
+);
+check(
+  "peer targets are picked in one Rust call",
+  menuBatch.targets.join(",") === "111@lid,222@s.whatsapp.net" &&
+    menuBatch.caps === 10,
+  `${JSON.stringify(menuBatch.targets)} cap=${menuBatch.caps}`,
+);
+if (menuBatch.live) {
+  check(
+    "opening the message menu closes the chat menu",
+    menuBatch.live.chatOpen &&
+      menuBatch.live.chatClosedAfter &&
+      menuBatch.live.messageOpen &&
+      menuBatch.live.session === "message:true" &&
+      menuBatch.live.allClosed,
+    JSON.stringify(menuBatch.live),
+  );
+}
+
 console.log("\n# message menu dispatch + composer rules (rust)");
 const menuActions = await page.evaluate(async () => {
   const plan = (action, hasSender) =>

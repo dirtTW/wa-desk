@@ -899,7 +899,8 @@ function openStatusComposer() {
 async function openStatusAddMenu() {
   const menu = $("status-add-menu");
   const rect = $("status-mine").getBoundingClientRect();
-  menu.hidden = false;
+  // One popover at a time.
+  await openMenuSession("status-add");
   const width = menu.offsetWidth || 236;
   const height = menu.offsetHeight || 112;
   // The edge maths live in wa_ui::menus::clamp_popover.
@@ -917,8 +918,7 @@ async function openStatusAddMenu() {
 }
 
 function closeStatusAddMenu() {
-  const menu = $("status-add-menu");
-  if (menu) menu.hidden = true;
+  closeMenuSession();
 }
 
 /* -------------------------------------- full-screen text status composer */

@@ -521,6 +521,40 @@ pub fn contact_sync_needed(syncing: bool, known: usize) -> bool {
     !syncing && known == 0
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PeerChatInput {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub is_group: bool,
+}
+
+/// Which chats still need a `usync` peer lookup, in store order: private chats
+/// we already tried are skipped, LID chats always go, and a phone-number chat
+/// only while its name is still the bare number. One call replaces a round trip
+/// per chat.
+pub fn peer_targets(
+    chats: &[PeerChatInput],
+    me_jid: &str,
+    me_lid: &str,
+    seen: &[String],
+    limit: usize,
+) -> Vec<String> {
+    chats
+        .iter()
+        .filter(|chat| !chat.jid.is_empty() && !chat.is_group)
+        .filter(|chat| !crate::text::is_self_jid(&chat.jid, me_jid, me_lid))
+        .filter(|chat| !seen.iter().any(|jid| jid == &chat.jid))
+        .filter(|chat| {
+            chat.jid.ends_with("@lid") || crate::text::is_placeholder_name(&chat.jid, &chat.name)
+        })
+        .take(limit)
+        .map(|chat| chat.jid.clone())
+        .collect()
+}
+
 /// Profile photos are fetched a few at a time, like WhatsApp Web.
 pub const PHOTO_CONCURRENCY: usize = 3;
 /// A failed profile photo is retried after this long instead of being hidden
@@ -861,6 +895,54 @@ mod tests {
             "deduped"
         );
         assert!(views[1].senders.is_empty());
+    }
+
+    #[test]
+    fn peer_lookups_target_lids_and_placeholder_phones() {
+        let chat = |jid: &str, name: &str, is_group: bool| PeerChatInput {
+            jid: jid.into(),
+            name: name.into(),
+            is_group,
+        };
+        let chats = vec![
+            chat("111@lid", "111", false),
+            chat("222@s.whatsapp.net", "222", false),
+            chat("333@s.whatsapp.net", "Budi", false),
+            chat("444@g.us", "Team", true),
+            chat("555@s.whatsapp.net", "555", false),
+            chat("666@lid", "666", false),
+        ];
+        let targets = peer_targets(
+            &chats,
+            "999@s.whatsapp.net",
+            "999@lid",
+            &["666@lid".to_string()],
+            100,
+        );
+        assert_eq!(
+            targets,
+            vec![
+                "111@lid".to_string(),
+                "222@s.whatsapp.net".to_string(),
+                "555@s.whatsapp.net".to_string()
+            ],
+            "groups, named chats and already-tried jids are skipped"
+        );
+
+        // Our own ids never go; another person's LID is still a target.
+        let mine = vec![
+            chat("999@s.whatsapp.net", "999", false),
+            chat("999@lid", "999", false),
+            chat("111@lid", "111", false),
+        ];
+        assert_eq!(
+            peer_targets(&mine, "999@s.whatsapp.net", "999@lid", &[], 100),
+            vec!["111@lid".to_string()]
+        );
+        let many: Vec<PeerChatInput> = (0..10)
+            .map(|i| chat(&format!("{i}@lid"), "x", false))
+            .collect();
+        assert_eq!(peer_targets(&many, "", "", &[], 4).len(), 4);
     }
 
     #[test]

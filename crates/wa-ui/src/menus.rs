@@ -249,9 +249,133 @@ pub fn member_menu_position(
     ClampedPosition { left, top }
 }
 
+/// Which popover is open and what it points at. The webview keeps the value; the
+/// transitions live here so only one menu can ever be open.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct MenuSession {
+    /// `chat`, `message`, `side`, `member`, `status-add`, or empty when closed.
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub target: String,
+    #[serde(default)]
+    pub open: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MenuEvent {
+    /// `open`, `close` or `toggle`.
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub target: String,
+}
+
+/// Apply one menu event: `open` replaces whatever was open, `toggle` on the same
+/// kind+target closes it, and `close` always closes.
+pub fn menu_session(current: &MenuSession, event: &MenuEvent) -> MenuSession {
+    let closed = MenuSession::default();
+    match event.action.as_str() {
+        "close" => closed,
+        "toggle" => {
+            if current.open && current.kind == event.kind && current.target == event.target {
+                closed
+            } else {
+                open_menu(event)
+            }
+        }
+        _ => open_menu(event),
+    }
+}
+
+fn open_menu(event: &MenuEvent) -> MenuSession {
+    if event.kind.is_empty() {
+        return MenuSession::default();
+    }
+    MenuSession {
+        kind: event.kind.clone(),
+        target: event.target.clone(),
+        open: true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_one_menu_is_open_at_a_time() {
+        let closed = MenuSession::default();
+        let open_chat = menu_session(
+            &closed,
+            &MenuEvent {
+                action: "open".into(),
+                kind: "chat".into(),
+                target: "1@s.whatsapp.net".into(),
+            },
+        );
+        assert!(open_chat.open);
+        assert_eq!(open_chat.kind, "chat");
+
+        // Opening the message menu replaces the chat menu.
+        let open_msg = menu_session(
+            &open_chat,
+            &MenuEvent {
+                action: "open".into(),
+                kind: "message".into(),
+                target: "m1".into(),
+            },
+        );
+        assert_eq!(open_msg.kind, "message");
+        assert_eq!(open_msg.target, "m1");
+        assert!(open_msg.open);
+
+        // Toggling the same one closes it…
+        let toggled = menu_session(
+            &open_msg,
+            &MenuEvent {
+                action: "toggle".into(),
+                kind: "message".into(),
+                target: "m1".into(),
+            },
+        );
+        assert!(!toggled.open && toggled.kind.is_empty());
+
+        // …while toggling a different target opens that one.
+        let other = menu_session(
+            &open_msg,
+            &MenuEvent {
+                action: "toggle".into(),
+                kind: "message".into(),
+                target: "m2".into(),
+            },
+        );
+        assert!(other.open && other.target == "m2");
+
+        // Close always closes, and an empty kind opens nothing.
+        assert!(
+            !menu_session(
+                &other,
+                &MenuEvent {
+                    action: "close".into(),
+                    ..Default::default()
+                }
+            )
+            .open
+        );
+        assert!(
+            !menu_session(
+                &other,
+                &MenuEvent {
+                    action: "open".into(),
+                    ..Default::default()
+                }
+            )
+            .open
+        );
+    }
 
     #[test]
     fn the_member_menu_hugs_its_row() {

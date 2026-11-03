@@ -133,32 +133,25 @@ async function foldChat(from, to, name) {
 // Ask the library for the real identity: it also persists the LID↔PN mapping
 // so future traffic is canonicalised instead of creating another row.
 async function resolvePeers(chats) {
-  const pending = [];
-  for (const chat of chats) {
-    if (
-      !chat ||
-      chat.isGroup ||
-      chat.jid === state.meJid ||
-      chat.jid === state.meLid ||
-      peerLookups.has(chat.jid)
-    ) {
-      continue;
-    }
-    // A LID chat always needs a peer lookup; a PN chat only while its name is
-    // still the bare number (decided by wa_ui::text).
-    const isLid = String(chat.jid).endsWith("@lid");
-    if (!isLid) {
-      const placeholder = await invoke("ui_placeholder_name", {
-        jid: chat.jid,
-        name: chat.name,
-      }).catch(() => false);
-      if (!placeholder) continue;
-    }
-    pending.push(chat);
-  }
-  if (!pending.length) return;
-
-  const batch = pending.slice(0, 100);
+  // Which chats still need a lookup (LIDs always, phone numbers only while the
+  // name is the bare number, never ourselves, groups or repeats) is
+  // wa_ui::state::peer_targets.
+  const targets = await invoke("ui_peer_targets", {
+    chats: chats
+      .filter(Boolean)
+      .map((chat) => ({
+        jid: chat.jid || "",
+        name: chat.name || "",
+        is_group: Boolean(chat.isGroup),
+      })),
+    meJid: state.meJid || "",
+    meLid: state.meLid || "",
+    seen: [...peerLookups],
+    limit: 100,
+  }).catch(() => []);
+  if (!targets.length) return;
+  const batch = targets.map((jid) => state.chats.get(jid)).filter(Boolean);
+  if (!batch.length) return;
   for (const chat of batch) peerLookups.add(chat.jid);
 
   let lookups;
@@ -216,8 +209,13 @@ function schedulePeerLookups(delay = 4000) {
 
 let draftFiles = [];
 let draftUrls = [];
-// The cap itself is wa_ui::actions::MAX_DRAFT_FILES; kept for the UI checks.
-const DRAFT_FILE_LIMIT = 10;
+// The cap itself is wa_ui::actions::MAX_DRAFT_FILES, fetched once here.
+let DRAFT_FILE_LIMIT = 10;
+invoke("ui_draft_limits")
+  .then((limit) => {
+    if (typeof limit === "number" && limit > 0) DRAFT_FILE_LIMIT = limit;
+  })
+  .catch(() => {});
 
 async function addDraftFiles(files) {
   if (!state.active) {
