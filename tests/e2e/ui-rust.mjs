@@ -460,6 +460,143 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# chat fold + outgoing bubble (rust)");
+const foldCheck = await page.evaluate(async () => {
+  const merge = await invoke("ui_fold_plan", {
+    input: {
+      from: "111@lid",
+      to: "6285@s.whatsapp.net",
+      name: "Ada",
+      source_exists: true,
+      target_exists: true,
+      target_name: "6285",
+      source_ids: ["a", "b"],
+      target_ids: ["b", "c"],
+      source_last_ts: 500,
+      target_last_ts: 400,
+      source_unread: 2,
+    },
+  });
+  const rekey = await invoke("ui_fold_plan", {
+    input: { from: "111@lid", to: "6285@s.whatsapp.net", name: "Ada", source_exists: true, target_exists: false },
+  });
+  const rename = await invoke("ui_fold_plan", {
+    input: {
+      from: "111@lid",
+      to: "6285@s.whatsapp.net",
+      name: "Ada",
+      source_exists: false,
+      target_exists: true,
+      target_name: "6285",
+    },
+  });
+  const kept = await invoke("ui_fold_plan", {
+    input: {
+      from: "111@lid",
+      to: "6285@s.whatsapp.net",
+      name: "Ada",
+      source_exists: false,
+      target_exists: true,
+      target_name: "Budi",
+    },
+  });
+  const plain = await invoke("ui_outgoing_message", {
+    input: {
+      temp_id: "local-1",
+      chat: "1@s.whatsapp.net",
+      is_group: false,
+      timestamp: 42,
+      text: "hello",
+      quote: null,
+    },
+  });
+  const quoted = await invoke("ui_outgoing_message", {
+    input: {
+      temp_id: "local-2",
+      chat: "1@g.us",
+      is_group: true,
+      timestamp: 43,
+      text: "answer",
+      quote: { id: "q1", text: "question", sender_name: "", from_me: true, kind: "text" },
+    },
+  });
+
+  // Live: two probe chats merge through the plan (the source disappears).
+  const from = "999000333@lid";
+  const to = "999000333@s.whatsapp.net";
+  state.chats.set(from, {
+    jid: from,
+    name: "Fold Probe",
+    isGroup: false,
+    messages: [{ id: "fp1", timestamp: 2000, text: "a", kind: "text" }],
+    last: { id: "fp1", timestamp: 2000, text: "a" },
+    lastTs: 2000,
+    unread: 2,
+  });
+  state.chats.set(to, {
+    jid: to,
+    name: "999000333",
+    isGroup: false,
+    messages: [{ id: "fp2", timestamp: 1000, text: "b", kind: "text" }],
+    last: { id: "fp2", timestamp: 1000, text: "b" },
+    lastTs: 1000,
+    unread: 0,
+  });
+  const folded = await foldChat(from, to, "Fold Probe");
+  const target = state.chats.get(to);
+  const live = {
+    folded,
+    sourceGone: !state.chats.has(from),
+    ids: target ? target.messages.map((m) => m.id) : [],
+    unread: target?.unread,
+    lastTs: target?.lastTs,
+    name: target?.name,
+  };
+  if (target) state.chats.delete(to);
+  renderChatList();
+  return { merge, rekey, rename, kept, plain, quoted, live };
+});
+check(
+  "the fold plan merges only the missing ids",
+  foldCheck.merge.mode === "merge" &&
+    foldCheck.merge.append_ids.join(",") === "a" &&
+    foldCheck.merge.last_ts === 500 &&
+    foldCheck.merge.unread_add === 2,
+  JSON.stringify(foldCheck.merge),
+);
+check(
+  "the fold plan re-keys, renames or leaves alone",
+  foldCheck.rekey.mode === "rekey" &&
+    foldCheck.rename.mode === "rename_only" &&
+    foldCheck.kept.mode === "none",
+  `${foldCheck.rekey.mode}/${foldCheck.rename.mode}/${foldCheck.kept.mode}`,
+);
+check(
+  "the optimistic text bubble renders",
+  foldCheck.plain.id === "local-1" &&
+    foldCheck.plain.pending &&
+    foldCheck.plain.text === "hello" &&
+    foldCheck.plain.reply_to === null,
+  JSON.stringify(foldCheck.plain),
+);
+check(
+  "a quoted send carries its quote card",
+  foldCheck.quoted.reply_to.id === "q1" &&
+    foldCheck.quoted.reply_to.sender_name === "You" &&
+    foldCheck.quoted.is_group,
+  JSON.stringify(foldCheck.quoted.reply_to),
+);
+check(
+  "the live fold merges two chats",
+  foldCheck.live.folded &&
+    foldCheck.live.sourceGone &&
+    foldCheck.live.ids.join(",") === "fp2,fp1" &&
+    foldCheck.live.unread === 2 &&
+    foldCheck.live.lastTs === 2000 &&
+    foldCheck.live.name === "Fold Probe",
+  JSON.stringify(foldCheck.live),
+);
+
 console.log("\n# chat row upsert + sorted insert (rust)");
 const upsertCheck = await page.evaluate(async () => {
   const create = await invoke("ui_upsert_plan", {

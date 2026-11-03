@@ -192,6 +192,8 @@ pub fn run() {
             crate::commands::ui::ui_avatar_style,
             crate::commands::ui::ui_initials,
             crate::commands::ui::ui_is_self_jid,
+            crate::commands::ui::ui_fold_plan,
+            crate::commands::ui::ui_outgoing_message,
             crate::commands::ui::ui_upsert_plan,
             crate::commands::ui::ui_insert_index,
             crate::commands::ui::ui_photo_pump,

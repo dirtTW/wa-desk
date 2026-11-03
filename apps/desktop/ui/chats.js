@@ -77,39 +77,52 @@ async function foldChat(from, to, name) {
 
   const source = state.chats.get(from);
   const target = state.chats.get(to);
-  if (!source) {
-    if (
-      target &&
-      name &&
-      (await invoke("ui_placeholder_name", { jid: target.jid, name: target.name }).catch(() => false))
-    ) {
-      target.name = name;
-      return true;
-    }
-    return false;
-  }
+  // Which of rename / re-key / merge happens is wa_ui::state::fold_plan.
+  const plan = await invoke("ui_fold_plan", {
+    input: {
+      from,
+      to,
+      name: name || "",
+      source_exists: Boolean(source),
+      target_exists: Boolean(target),
+      target_name: target?.name || "",
+      source_ids: source ? source.messages.map((m) => m.id) : [],
+      target_ids: target ? target.messages.map((m) => m.id) : [],
+      source_last_ts: source?.last?.timestamp || source?.lastTs || 0,
+      target_last_ts: target?.last?.timestamp || target?.lastTs || 0,
+      source_unread: source?.unread || 0,
+    },
+  }).catch(() => null);
 
-  if (!target) {
+  if (plan?.mode === "none" || !plan) return false;
+  if (plan.mode === "rename_only") {
+    const only = state.chats.get(to);
+    if (!only) return false;
+    only.name = plan.name;
+    return true;
+  }
+  if (plan.mode === "rekey") {
+    if (!source) return false;
     source.jid = to;
     state.chats.delete(from);
     state.chats.set(to, source);
-    if (name) source.name = name;
+    if (plan.name) source.name = plan.name;
     if (state.active === from) state.active = to;
     return true;
   }
+  if (!source || !target) return false;
 
+  const wanted = new Set(plan.append_ids);
   for (const message of source.messages) {
-    if (!target.messages.some((candidate) => candidate.id === message.id)) {
-      target.messages.push(message);
-    }
+    if (wanted.has(message.id)) target.messages.push(message);
   }
   target.messages.sort((a, b) => a.timestamp - b.timestamp);
-  if ((source.last?.timestamp || 0) > (target.last?.timestamp || 0)) {
+  if (plan.last_ts !== null && plan.last_ts !== undefined) {
     target.last = source.last;
-    target.lastTs = source.lastTs;
+    target.lastTs = plan.last_ts;
   }
-  target.unread += source.unread;
-  if (name) target.name = name;
+  target.unread += plan.unread_add;
+  if (plan.name) target.name = plan.name;
   state.chats.delete(from);
   if (state.active === from) state.active = to;
   return true;

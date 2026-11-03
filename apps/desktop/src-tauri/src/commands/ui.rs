@@ -187,6 +187,18 @@ pub fn ui_is_self_jid(jid: String, me_jid: String, me_lid: String) -> bool {
     wa_ui::text::is_self_jid(&jid, &me_jid, &me_lid)
 }
 
+/// How one chat key folds into another after a peer lookup.
+#[tauri::command]
+pub fn ui_fold_plan(input: wa_ui::state::FoldInput) -> wa_ui::state::FoldPlan {
+    wa_ui::state::fold_plan(&input)
+}
+
+/// The optimistic bubble for a text send (with its reply quote).
+#[tauri::command]
+pub fn ui_outgoing_message(input: wa_ui::actions::OutgoingInput) -> serde_json::Value {
+    wa_ui::actions::outgoing_message(&input)
+}
+
 /// What a message/contact event does to its chat row (create / rename / group).
 #[tauri::command]
 pub fn ui_upsert_plan(input: wa_ui::state::UpsertInput) -> wa_ui::state::UpsertPlan {

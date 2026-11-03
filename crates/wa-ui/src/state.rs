@@ -578,6 +578,132 @@ pub fn insert_index(timestamps: &[i64], timestamp: i64) -> usize {
     }
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FoldInput {
+    #[serde(default)]
+    pub from: String,
+    #[serde(default)]
+    pub to: String,
+    /// The verified identity name, when the lookup returned one.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub source_exists: bool,
+    #[serde(default)]
+    pub target_exists: bool,
+    #[serde(default)]
+    pub target_name: String,
+    #[serde(default)]
+    pub source_ids: Vec<String>,
+    #[serde(default)]
+    pub target_ids: Vec<String>,
+    #[serde(default)]
+    pub source_last_ts: i64,
+    #[serde(default)]
+    pub target_last_ts: i64,
+    #[serde(default)]
+    pub source_unread: i64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FoldMode {
+    /// Nothing to do.
+    None,
+    /// Only the surviving row takes the verified name.
+    RenameOnly,
+    /// The source key moves to `to` (the target row never existed).
+    Rekey,
+    /// The source's messages move into the target row.
+    Merge,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FoldPlan {
+    pub mode: FoldMode,
+    /// Source message ids the target does not have yet, in source order.
+    pub append_ids: Vec<String>,
+    /// The merged row's `lastTs`, when the source was newer.
+    pub last_ts: Option<i64>,
+    pub unread_add: i64,
+    /// The verified name to apply (empty when unchanged).
+    pub name: String,
+}
+
+/// Fold one chat key into another after a peer lookup: rename in place, re-key
+/// an empty target, or merge the message sets. A name only replaces a row whose
+/// display name is still the bare JID user part.
+pub fn fold_plan(input: &FoldInput) -> FoldPlan {
+    let none = FoldPlan {
+        mode: FoldMode::None,
+        append_ids: Vec::new(),
+        last_ts: None,
+        unread_add: 0,
+        name: String::new(),
+    };
+    let wants_rename = !input.name.is_empty() && input.target_name != input.name;
+
+    if input.from == input.to {
+        if !input.target_exists || !wants_rename {
+            return none;
+        }
+        return FoldPlan {
+            mode: FoldMode::RenameOnly,
+            name: input.name.clone(),
+            ..none
+        };
+    }
+    if input.from.is_empty() || input.to.is_empty() {
+        return none;
+    }
+
+    if !input.source_exists {
+        // Only a placeholder row may take the verified name.
+        if input.target_exists
+            && !input.name.is_empty()
+            && crate::text::is_placeholder_name(&input.to, &input.target_name)
+        {
+            return FoldPlan {
+                mode: FoldMode::RenameOnly,
+                name: input.name.clone(),
+                ..none
+            };
+        }
+        return none;
+    }
+
+    if !input.target_exists {
+        return FoldPlan {
+            mode: FoldMode::Rekey,
+            name: if input.name.is_empty() {
+                String::new()
+            } else {
+                input.name.clone()
+            },
+            ..none
+        };
+    }
+
+    let append_ids: Vec<String> = input
+        .source_ids
+        .iter()
+        .filter(|id| !input.target_ids.contains(id))
+        .cloned()
+        .collect();
+    let last_ts = if input.source_last_ts > input.target_last_ts {
+        Some(input.source_last_ts)
+    } else {
+        None
+    };
+    FoldPlan {
+        mode: FoldMode::Merge,
+        append_ids,
+        last_ts,
+        unread_add: input.source_unread,
+        name: input.name.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,6 +915,82 @@ mod tests {
             plan.renames,
             vec![("6285@s.whatsapp.net".to_string(), "Ada".to_string())]
         );
+    }
+
+    #[test]
+    fn fold_plans_rename_rekey_and_merge() {
+        // Both rows exist: merge the missing ids, sum unread, keep the newer ts.
+        let merge = fold_plan(&FoldInput {
+            from: "111@lid".into(),
+            to: "6285@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            source_exists: true,
+            target_exists: true,
+            target_name: "6285".into(),
+            source_ids: vec!["a".into(), "b".into()],
+            target_ids: vec!["b".into(), "c".into()],
+            source_last_ts: 500,
+            target_last_ts: 400,
+            source_unread: 2,
+        });
+        assert_eq!(merge.mode, FoldMode::Merge);
+        assert_eq!(merge.append_ids, vec!["a".to_string()]);
+        assert_eq!(merge.last_ts, Some(500));
+        assert_eq!(merge.unread_add, 2);
+        assert_eq!(merge.name, "Ada");
+
+        // The target never existed: the source takes the new key.
+        let rekey = fold_plan(&FoldInput {
+            from: "111@lid".into(),
+            to: "6285@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            source_exists: true,
+            target_exists: false,
+            source_unread: 1,
+            ..Default::default()
+        });
+        assert_eq!(rekey.mode, FoldMode::Rekey);
+        assert_eq!(rekey.name, "Ada");
+
+        // Only the target exists and its name is a placeholder: rename.
+        let rename = fold_plan(&FoldInput {
+            from: "111@lid".into(),
+            to: "6285@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            source_exists: false,
+            target_exists: true,
+            target_name: "6285".into(),
+            ..Default::default()
+        });
+        assert_eq!(rename.mode, FoldMode::RenameOnly);
+        assert_eq!(rename.name, "Ada");
+
+        // A real target name is never overwritten by a lookup.
+        let kept = fold_plan(&FoldInput {
+            from: "111@lid".into(),
+            to: "6285@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            source_exists: false,
+            target_exists: true,
+            target_name: "Budi".into(),
+            ..Default::default()
+        });
+        assert_eq!(kept.mode, FoldMode::None);
+
+        // Same key: a rename only.
+        let same = fold_plan(&FoldInput {
+            from: "6285@s.whatsapp.net".into(),
+            to: "6285@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            source_exists: true,
+            target_exists: true,
+            target_name: "6285".into(),
+            ..Default::default()
+        });
+        assert_eq!(same.mode, FoldMode::RenameOnly);
+
+        // Nothing anywhere.
+        assert_eq!(fold_plan(&FoldInput::default()).mode, FoldMode::None);
     }
 
     #[test]

@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.30] — 2026-11-03
+
+- **The chat merge and the optimistic text bubble moved to Rust.**
+  `wa_ui::state::fold_plan` decides which of *rename in place / re-key / merge*
+  a peer lookup triggers, which source ids the target is missing, whether the
+  source's `lastTs` wins, how much unread to add, and that a verified name only
+  replaces a row still showing the bare JID user part.
+  `wa_ui::actions::outgoing_message` shapes the optimistic send bubble —
+  `pending`, `from_me`, the group flag, timestamp, text and the reply-quote card
+  (`You` when we quoted ourselves). Commands `ui_fold_plan`,
+  `ui_outgoing_message`; `foldChat` and `sendCurrent` only apply the results.
+- **Data-attribute audit.** `scripts/check-data-attrs.mjs` cross-references every
+  `dataset.x` / `[data-x]` read against the markup emitted by `index.html`, the
+  Rust renderers and the JS templates, ignoring attributes the JS writes itself:
+  **0 unemitted** of 84 read (81 emitted, 26 runtime-only).
+- 2 new `wa-ui` unit tests (185 total, plus 3 contract) and a chat-fold/outgoing
+  CDP e2e section: the four fold modes, the plain and quoted bubbles, and a live
+  merge where the source row disappears and the target ends up with both ids,
+  summed unread, the newer `lastTs` and the verified name.
+
 ## [0.2.0-rc.29] — 2026-11-03
 
 - **The chat-row store mutation moved to Rust.** `wa_ui::state::upsert_plan`

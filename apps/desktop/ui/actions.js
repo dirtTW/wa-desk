@@ -475,26 +475,27 @@ async function sendCurrent() {
 
   const quoted = state.reply && state.reply.chat === chat ? state.reply : null;
   if (quoted) cancelReply(false);
-  const optimistic = {
-    id: `local-${++state.localSeq}`,
-    chat,
-    sender: null,
-    sender_name: null,
-    from_me: true,
-    is_group: entry.isGroup,
-    timestamp: Date.now(),
-    kind: "text",
-    text,
-    pending: true,
-    reply_to: quoted
-      ? {
-          id: quoted.id,
-          text: quoted.text,
-          sender_name: quoted.sender_name || (quoted.from_me ? "You" : undefined),
-          kind: quoted.kind,
-        }
-      : null,
-  };
+  // The optimistic bubble (including the pending quote card) is shaped by
+  // wa_ui::actions::outgoing_message.
+  const optimistic = await invoke("ui_outgoing_message", {
+    input: {
+      temp_id: `local-${++state.localSeq}`,
+      chat,
+      is_group: Boolean(entry.isGroup),
+      timestamp: Date.now(),
+      text,
+      quote: quoted
+        ? {
+            id: quoted.id || "",
+            text: quoted.text || "",
+            sender_name: quoted.sender_name || "",
+            from_me: Boolean(quoted.from_me),
+            kind: quoted.kind || "text",
+          }
+        : null,
+    },
+  }).catch(() => null);
+  if (!optimistic) return;
 
   entry.messages.push(optimistic);
   entry.last = optimistic;

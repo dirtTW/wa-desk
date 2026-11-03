@@ -293,6 +293,72 @@ pub fn draft_send_plan(count: usize, caption: &str) -> Vec<SendItem> {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+pub struct QuoteRef {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub sender_name: String,
+    #[serde(default)]
+    pub from_me: bool,
+    #[serde(default)]
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct OutgoingInput {
+    #[serde(default)]
+    pub temp_id: String,
+    #[serde(default)]
+    pub chat: String,
+    #[serde(default)]
+    pub is_group: bool,
+    #[serde(default)]
+    pub timestamp: i64,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub quote: Option<QuoteRef>,
+}
+
+/// The optimistic bubble for a text send, including the pending reply quote
+/// ("You" as the author when we quoted ourselves).
+pub fn outgoing_message(input: &OutgoingInput) -> serde_json::Value {
+    let reply_to = match input.quote.as_ref() {
+        Some(quote) => {
+            let sender_name = if !quote.sender_name.is_empty() {
+                serde_json::Value::String(quote.sender_name.clone())
+            } else if quote.from_me {
+                serde_json::Value::String("You".to_string())
+            } else {
+                serde_json::Value::Null
+            };
+            serde_json::json!({
+                "id": quote.id,
+                "text": quote.text,
+                "sender_name": sender_name,
+                "kind": quote.kind,
+            })
+        }
+        None => serde_json::Value::Null,
+    };
+    serde_json::json!({
+        "id": input.temp_id,
+        "chat": input.chat,
+        "sender": serde_json::Value::Null,
+        "sender_name": serde_json::Value::Null,
+        "from_me": true,
+        "is_group": input.is_group,
+        "timestamp": input.timestamp,
+        "kind": "text",
+        "text": input.text,
+        "pending": true,
+        "reply_to": reply_to,
+    })
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct AttachmentInput {
     #[serde(default)]
     pub temp_id: String,
@@ -554,6 +620,59 @@ mod tests {
         assert_eq!(plan[0].caption, "hello");
         assert!(plan[1].caption.is_empty() && plan[2].caption.is_empty());
         assert!(draft_send_plan(0, "x").is_empty());
+    }
+
+    #[test]
+    fn outgoing_messages_carry_the_reply_quote() {
+        let plain = outgoing_message(&OutgoingInput {
+            temp_id: "local-1".into(),
+            chat: "1@s.whatsapp.net".into(),
+            is_group: false,
+            timestamp: 42,
+            text: "hello".into(),
+            quote: None,
+        });
+        assert_eq!(plain["id"], "local-1");
+        assert_eq!(plain["kind"], "text");
+        assert_eq!(plain["text"], "hello");
+        assert_eq!(plain["pending"], true);
+        assert!(plain["reply_to"].is_null());
+        assert!(plain["sender"].is_null());
+
+        let quoted = outgoing_message(&OutgoingInput {
+            temp_id: "local-2".into(),
+            chat: "1@g.us".into(),
+            is_group: true,
+            timestamp: 43,
+            text: "answer".into(),
+            quote: Some(QuoteRef {
+                id: "q1".into(),
+                text: "the question".into(),
+                sender_name: String::new(),
+                from_me: true,
+                kind: "text".into(),
+            }),
+        });
+        assert_eq!(quoted["reply_to"]["id"], "q1");
+        assert_eq!(quoted["reply_to"]["sender_name"], "You");
+        assert_eq!(quoted["is_group"], true);
+
+        let named = outgoing_message(&OutgoingInput {
+            temp_id: "local-3".into(),
+            chat: "1@g.us".into(),
+            is_group: false,
+            timestamp: 44,
+            text: "x".into(),
+            quote: Some(QuoteRef {
+                id: "q2".into(),
+                sender_name: "Budi".into(),
+                from_me: false,
+                kind: "image".into(),
+                ..Default::default()
+            }),
+        });
+        assert_eq!(named["reply_to"]["sender_name"], "Budi");
+        assert_eq!(named["reply_to"]["kind"], "image");
     }
 
     #[test]
