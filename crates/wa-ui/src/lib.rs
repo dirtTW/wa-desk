@@ -63,7 +63,7 @@ pub use picker::{PickerChat, PickerOutput, PickerRequest};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
 pub use scroll::{anchor_scroll_top, distance_from_bottom, is_following, show_latest_button};
 pub use search::{SearchLabel, count_label, matched_indices};
-pub use settings::{SettingsOutput, SettingsRequest};
+pub use settings::{AiFormInput, AiPreview, AiSavePlan, AiToggle, SettingsOutput, SettingsRequest};
 pub use sidebar::{SidebarChat, SidebarOutput, SidebarRequest};
 pub use state::{
     AliasChat, AliasPlan, MergeChatView, MergePlan, SeedContact, SeededChat, TrimChatView, TrimPlan,

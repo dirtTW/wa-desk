@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.31] — 2026-11-03
+
+- **The AI settings form is validated in Rust.** `wa_ui::settings::ai_save_plan`
+  trims every field, rejects a blank or non-`http(s)` base URL and a blank model,
+  and turns an empty key field into `apiKey: null` so the stored key survives —
+  returning the exact `save_ai_settings` payload. `ai_toggle` gates enabling on a
+  stored key (`Add an API key first`) while disabling never needs one;
+  `ai_require_toast` owns the `/ai` toggle copy; `ai_preview` requires an open
+  one-to-one chat and falls back to the sample prompt; `toast_excerpt` cuts long
+  model replies to 100/120 chars + `…`; `profile_name_error` rejects a blank
+  display name. Commands `ui_ai_save_plan`, `ui_ai_toggle`,
+  `ui_ai_require_toast`, `ui_ai_preview`, `ui_toast_excerpt`,
+  `ui_profile_name_error`.
+- 3 new `wa-ui` unit tests (188 total, plus 3 contract) and an AI-form CDP e2e
+  section: the shaped payload, the URL rejection, the three toggle outcomes, both
+  requirement toasts, the preview guard/sample, the truncated excerpt, the blank
+  name, and a live AI-mode toggle round-trip on the settings page.
+- Audit scripts re-run on the built app: `check-undefined` 22 (all false
+  positives: `async`/`scaleX`/words inside template strings), `check-ids` 0
+  missing of 271, `check-data-attrs` 0 unemitted of 84.
+
 ## [0.2.0-rc.30] — 2026-11-03
 
 - **The chat merge and the optimistic text bubble moved to Rust.**

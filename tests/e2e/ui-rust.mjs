@@ -460,6 +460,112 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# AI form + profile guard (rust)");
+const aiForm = await page.evaluate(async () => {
+  const save = await invoke("ui_ai_save_plan", {
+    input: {
+      enabled: true,
+      require_trigger: false,
+      base_url: " https://opencode.ai/zen/go/v1 ",
+      model: " deepseek-v4.1-flash ",
+      vision_model: "  ",
+      system_prompt: " you are <me> ",
+      api_key: "  ",
+    },
+  });
+  const saveBadUrl = await invoke("ui_ai_save_plan", {
+    input: { enabled: true, base_url: "ftp://x", model: "m" },
+  });
+  const toggles = {
+    noKey: await invoke("ui_ai_toggle", { enabled: false, hasKey: false }),
+    on: await invoke("ui_ai_toggle", { enabled: false, hasKey: true }),
+    off: await invoke("ui_ai_toggle", { enabled: true, hasKey: false }),
+  };
+  const requireToasts = [
+    await invoke("ui_ai_require_toast", { requireTrigger: true }),
+    await invoke("ui_ai_require_toast", { requireTrigger: false }),
+  ];
+  const preview = {
+    dm: await invoke("ui_ai_preview", { hasDm: false, text: "hi" }),
+    sample: await invoke("ui_ai_preview", { hasDm: true, text: "  " }),
+  };
+  const excerpt = await invoke("ui_toast_excerpt", { reply: "x".repeat(150), limit: 100 });
+  const names = [
+    await invoke("ui_profile_name_error", { name: "   " }),
+    await invoke("ui_profile_name_error", { name: "Ada" }),
+  ];
+
+  // Live: the AI page renders and the toggle round-trips through Rust.
+  openSettings("ai");
+  await new Promise((r) => setTimeout(r, 800));
+  const page = {
+    title: document.getElementById("settings-title").textContent,
+    rows: document.querySelectorAll("#settings-body .settings-row").length,
+    hasForm: Boolean(document.getElementById("ai-base")),
+  };
+  const before = Boolean(state.ai?.enabled);
+  await toggleAiMode();
+  await new Promise((r) => setTimeout(r, 600));
+  const after = Boolean(state.ai?.enabled);
+  await toggleAiMode();
+  await new Promise((r) => setTimeout(r, 600));
+  const restored = Boolean(state.ai?.enabled);
+  closeSettings();
+  return { save, saveBadUrl, toggles, requireToasts, preview, excerpt, names, page, toggle: { before, after, restored } };
+});
+check(
+  "the AI form trims and keeps the saved key",
+  aiForm.save.ok &&
+    aiForm.save.settings.baseUrl === "https://opencode.ai/zen/go/v1" &&
+    aiForm.save.settings.model === "deepseek-v4.1-flash" &&
+    aiForm.save.settings.visionModel === "" &&
+    aiForm.save.settings.apiKey === null,
+  JSON.stringify(aiForm.save.settings),
+);
+check(
+  "a non-http base url is rejected",
+  !aiForm.saveBadUrl.ok && aiForm.saveBadUrl.error.includes("http://"),
+  aiForm.saveBadUrl.error,
+);
+check(
+  "enabling needs a key, disabling does not",
+  !aiForm.toggles.noKey.allow &&
+    aiForm.toggles.on.allow &&
+    aiForm.toggles.off.allow &&
+    !aiForm.toggles.off.next,
+  `${aiForm.toggles.noKey.toast} / ${aiForm.toggles.off.toast}`,
+);
+check(
+  "the /ai requirement toasts render",
+  aiForm.requireToasts[0] === "Contacts must use /ai" &&
+    aiForm.requireToasts[1].includes("Instant AI replies"),
+  aiForm.requireToasts.join(" | "),
+);
+check(
+  "preview needs a dm and falls back to a sample prompt",
+  !aiForm.preview.dm.ok &&
+    aiForm.preview.dm.toast === "Open a one-to-one chat first" &&
+    aiForm.preview.sample.text.startsWith("Halo, ini contoh pesan"),
+  aiForm.preview.sample.text,
+);
+check(
+  "long replies are cut for the toast",
+  aiForm.excerpt.endsWith("…") && aiForm.excerpt.length === 101,
+  `${aiForm.excerpt.length} chars`,
+);
+check(
+  "the profile name rejects blanks",
+  aiForm.names[0] === "Name cannot be empty." && aiForm.names[1] === null,
+  JSON.stringify(aiForm.names),
+);
+check(
+  "the AI settings page renders and toggles",
+  aiForm.page.title === "AI assistant" && aiForm.page.hasForm && aiForm.page.rows >= 3 &&
+    aiForm.toggle.after !== aiForm.toggle.before &&
+    aiForm.toggle.restored === aiForm.toggle.before,
+  JSON.stringify(aiForm.toggle),
+);
+
 console.log("\n# chat fold + outgoing bubble (rust)");
 const foldCheck = await page.evaluate(async () => {
   const merge = await invoke("ui_fold_plan", {

@@ -618,6 +618,157 @@ pub fn theme_toggle_icon(resolved: &str) -> &'static str {
     }
 }
 
+/* ------------------------------------------------------------- AI form rules */
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AiFormInput {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub require_trigger: bool,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub vision_model: String,
+    #[serde(default)]
+    pub system_prompt: String,
+    /// The key field's value; empty means "keep the stored key".
+    #[serde(default)]
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiSavePlan {
+    pub ok: bool,
+    /// Shown under the form when `ok` is false.
+    pub error: Option<String>,
+    /// The payload for `save_ai_settings` (camelCase keys, key `null` when the
+    /// field was left empty so the stored key survives).
+    pub settings: serde_json::Value,
+    pub toast: String,
+}
+
+/// Validate and shape the AI settings form.
+pub fn ai_save_plan(input: &AiFormInput) -> AiSavePlan {
+    let base_url = input.base_url.trim();
+    let model = input.model.trim();
+    let mut error = None;
+    if base_url.is_empty() {
+        error = Some("API base URL cannot be empty.".to_string());
+    } else if !(base_url.starts_with("http://") || base_url.starts_with("https://")) {
+        error = Some("API base URL must start with http:// or https://.".to_string());
+    } else if model.is_empty() {
+        error = Some("Model cannot be empty.".to_string());
+    }
+    let key = input.api_key.trim();
+    let settings = serde_json::json!({
+        "enabled": input.enabled,
+        "baseUrl": base_url,
+        "model": model,
+        "visionModel": input.vision_model.trim(),
+        "systemPrompt": input.system_prompt.trim(),
+        "requireTrigger": input.require_trigger,
+        "apiKey": if key.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(key.to_string())
+        },
+    });
+    AiSavePlan {
+        ok: error.is_none(),
+        error,
+        settings,
+        toast: "AI settings saved".to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiToggle {
+    pub allow: bool,
+    pub next: bool,
+    pub toast: String,
+}
+
+/// Enabling AI mode needs a stored key; disabling never does.
+pub fn ai_toggle(enabled: bool, has_key: bool) -> AiToggle {
+    let next = !enabled;
+    if next && !has_key {
+        return AiToggle {
+            allow: false,
+            next,
+            toast: "Add an API key first".to_string(),
+        };
+    }
+    AiToggle {
+        allow: true,
+        next,
+        toast: if next {
+            "AI mode on".to_string()
+        } else {
+            "AI mode off".to_string()
+        },
+    }
+}
+
+/// The confirmation toast for the `/ai` requirement toggle.
+pub fn ai_require_toast(require_trigger: bool) -> &'static str {
+    if require_trigger {
+        "Contacts must use /ai"
+    } else {
+        "Instant AI replies enabled (AI mode must be on)"
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiPreview {
+    pub ok: bool,
+    pub toast: Option<String>,
+    pub text: String,
+}
+
+/// "Preview reply" needs an open one-to-one chat; the composer text is the
+/// prompt, or a sample line when the composer is empty.
+pub fn ai_preview(has_dm: bool, text: &str) -> AiPreview {
+    if !has_dm {
+        return AiPreview {
+            ok: false,
+            toast: Some("Open a one-to-one chat first".to_string()),
+            text: String::new(),
+        };
+    }
+    let text = text.trim();
+    AiPreview {
+        ok: true,
+        toast: None,
+        text: if text.is_empty() {
+            "Halo, ini contoh pesan. Balas dengan singkat.".to_string()
+        } else {
+            text.to_string()
+        },
+    }
+}
+
+/// Long model output is cut before it goes into a toast.
+pub fn toast_excerpt(reply: &str, limit: usize) -> String {
+    let trimmed = reply.trim();
+    let mut out: String = trimmed.chars().take(limit).collect();
+    if trimmed.chars().count() > limit {
+        out.push('…');
+    }
+    out
+}
+
+/// The profile editor only needs a non-empty name.
+pub fn profile_name_error(name: &str) -> Option<String> {
+    if name.trim().is_empty() {
+        Some("Name cannot be empty.".to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,6 +804,91 @@ mod tests {
             },
             with_avatar: true,
         }
+    }
+
+    #[test]
+    fn ai_form_validates_and_keeps_the_saved_key() {
+        let base = AiFormInput {
+            enabled: true,
+            require_trigger: false,
+            base_url: " https://opencode.ai/zen/go/v1 ".into(),
+            model: " deepseek-v4.1-flash ".into(),
+            vision_model: "  ".into(),
+            system_prompt: " you are <me> ".into(),
+            api_key: "  ".into(),
+        };
+        let plan = ai_save_plan(&base);
+        assert!(plan.ok, "a blank key field keeps the stored key");
+        assert_eq!(plan.settings["baseUrl"], "https://opencode.ai/zen/go/v1");
+        assert_eq!(plan.settings["model"], "deepseek-v4.1-flash");
+        assert_eq!(plan.settings["visionModel"], "");
+        assert_eq!(plan.settings["systemPrompt"], "you are <me>");
+        assert!(plan.settings["apiKey"].is_null());
+        assert_eq!(plan.toast, "AI settings saved");
+
+        let mut with_key = base.clone();
+        with_key.api_key = " sk-test ".into();
+        assert_eq!(ai_save_plan(&with_key).settings["apiKey"], "sk-test");
+
+        let mut blank_url = base.clone();
+        blank_url.base_url = "  ".into();
+        assert_eq!(
+            ai_save_plan(&blank_url).error.as_deref(),
+            Some("API base URL cannot be empty.")
+        );
+
+        let mut http = base.clone();
+        http.base_url = "ftp://x".into();
+        assert!(ai_save_plan(&http).error.unwrap().contains("http://"));
+
+        let mut no_model = base;
+        no_model.model = String::new();
+        assert_eq!(
+            ai_save_plan(&no_model).error.as_deref(),
+            Some("Model cannot be empty.")
+        );
+    }
+
+    #[test]
+    fn ai_toggles_and_preview_guards() {
+        let no_key = ai_toggle(false, false);
+        assert!(!no_key.allow && no_key.next);
+        assert_eq!(no_key.toast, "Add an API key first");
+
+        let on = ai_toggle(false, true);
+        assert!(on.allow && on.next);
+        assert_eq!(on.toast, "AI mode on");
+
+        let off = ai_toggle(true, false);
+        assert!(off.allow && !off.next, "disabling never needs a key");
+        assert_eq!(off.toast, "AI mode off");
+
+        assert_eq!(ai_require_toast(true), "Contacts must use /ai");
+        assert!(ai_require_toast(false).contains("Instant AI replies"));
+
+        let group = ai_preview(false, "hi");
+        assert!(!group.ok);
+        assert_eq!(group.toast.as_deref(), Some("Open a one-to-one chat first"));
+
+        let sample = ai_preview(true, "   ");
+        assert!(sample.ok);
+        assert!(sample.text.starts_with("Halo, ini contoh pesan"));
+        assert_eq!(ai_preview(true, "  halo  ").text, "halo");
+
+        assert_eq!(toast_excerpt("short", 100), "short");
+        let long = "x".repeat(150);
+        let cut = toast_excerpt(&long, 100);
+        assert_eq!(cut.chars().count(), 101, "100 chars plus the ellipsis");
+        assert!(cut.ends_with('…'));
+    }
+
+    #[test]
+    fn the_profile_name_must_not_be_blank() {
+        assert_eq!(
+            profile_name_error("   ").as_deref(),
+            Some("Name cannot be empty.")
+        );
+        assert!(profile_name_error("Ada").is_none());
     }
 
     #[test]

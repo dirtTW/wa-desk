@@ -303,15 +303,20 @@ async function loadAiSettings() {
 }
 
 async function toggleAiMode() {
-  const next = !state.ai.enabled;
-  if (next && !state.ai.hasKey) {
-    toast("Add an API key first");
+  // Enabling needs a stored key (wa_ui::settings::ai_toggle).
+  const plan = await invoke("ui_ai_toggle", {
+    enabled: Boolean(state.ai.enabled),
+    hasKey: Boolean(state.ai.hasKey),
+  }).catch(() => null);
+  if (!plan) return;
+  if (!plan.allow) {
+    toast(plan.toast);
     return;
   }
   try {
-    state.ai = await invoke("set_ai_enabled", { enabled: next });
+    state.ai = await invoke("set_ai_enabled", { enabled: plan.next });
     renderSettings();
-    toast(next ? "AI mode on" : "AI mode off");
+    toast(plan.toast);
   } catch (err) {
     toast(String(err));
   }
@@ -320,20 +325,29 @@ async function toggleAiMode() {
 async function saveAiSettings() {
   const error = $("ai-error");
   error.hidden = true;
+  // Trimming, the URL/model checks and the "blank key keeps the saved key"
+  // rule are wa_ui::settings::ai_save_plan.
+  const plan = await invoke("ui_ai_save_plan", {
+    input: {
+      enabled: Boolean(state.ai.enabled),
+      require_trigger: Boolean(state.ai.requireTrigger),
+      base_url: $("ai-base").value,
+      model: $("ai-model").value,
+      vision_model: $("ai-vision-model").value,
+      system_prompt: $("ai-prompt").value,
+      api_key: $("ai-key").value,
+    },
+  }).catch(() => null);
+  if (!plan) return;
+  if (!plan.ok) {
+    error.textContent = plan.error || "Could not save the AI settings.";
+    error.hidden = false;
+    return;
+  }
   try {
-    state.ai = await invoke("save_ai_settings", {
-      settings: {
-        enabled: state.ai.enabled,
-        baseUrl: $("ai-base").value.trim(),
-        model: $("ai-model").value.trim(),
-        visionModel: $("ai-vision-model").value.trim(),
-        systemPrompt: $("ai-prompt").value.trim(),
-        requireTrigger: state.ai.requireTrigger,
-        apiKey: $("ai-key").value.trim() || null,
-      },
-    });
+    state.ai = await invoke("save_ai_settings", { settings: plan.settings });
     renderSettings();
-    toast("AI settings saved");
+    toast(plan.toast);
   } catch (err) {
     error.textContent = String(err);
     error.hidden = false;
@@ -355,11 +369,7 @@ async function toggleRequireTrigger() {
       },
     });
     renderSettings();
-    toast(
-      next
-        ? "Contacts must use /ai"
-        : "Instant AI replies enabled (AI mode must be on)",
-    );
+    toast(await invoke("ui_ai_require_toast", { requireTrigger: next }));
   } catch (err) {
     toast(String(err));
   }
@@ -370,7 +380,8 @@ async function testAiConnection() {
   if (button) button.disabled = true;
   try {
     const reply = await invoke("test_ai");
-    toast(`AI replied: ${String(reply).slice(0, 100)}`);
+    const excerpt = await invoke("ui_toast_excerpt", { reply: String(reply), limit: 100 });
+    toast(`AI replied: ${excerpt}`);
   } catch (err) {
     toast(String(err));
   } finally {
@@ -380,15 +391,20 @@ async function testAiConnection() {
 
 async function previewAiReply() {
   const chat = state.chats.get(state.active);
-  if (!chat || chat.isGroup) {
-    toast("Open a one-to-one chat first");
+  // The "open a 1:1 chat first" guard and the sample prompt are wa_ui::settings.
+  const plan = await invoke("ui_ai_preview", {
+    hasDm: Boolean(chat && !chat.isGroup),
+    text: $("input").value,
+  }).catch(() => null);
+  if (!plan) return;
+  if (!plan.ok) {
+    if (plan.toast) toast(plan.toast);
     return;
   }
-  const text =
-    $("input").value.trim() || "Halo, ini contoh pesan. Balas dengan singkat.";
   try {
-    const reply = await invoke("ai_draft_reply", { chat: chat.jid, text });
-    toast(`AI draft: ${String(reply).slice(0, 120)}`);
+    const reply = await invoke("ai_draft_reply", { chat: chat.jid, text: plan.text });
+    const excerpt = await invoke("ui_toast_excerpt", { reply: String(reply), limit: 120 });
+    toast(`AI draft: ${excerpt}`);
   } catch (err) {
     toast(String(err));
   }
@@ -408,8 +424,9 @@ async function saveProfile() {
   const error = $("profile-error");
   error.hidden = true;
 
-  if (!name) {
-    error.textContent = "Name cannot be empty.";
+  const nameError = await invoke("ui_profile_name_error", { name }).catch(() => null);
+  if (nameError) {
+    error.textContent = nameError;
     error.hidden = false;
     return;
   }

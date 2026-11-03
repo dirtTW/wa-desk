@@ -420,6 +420,42 @@ pub fn ui_status_own_ids(request: wa_ui::StatusRequest) -> Vec<String> {
     wa_ui::status::own_update_ids(&request)
 }
 
+/// Validate and shape the AI settings form.
+#[tauri::command]
+pub fn ui_ai_save_plan(input: wa_ui::settings::AiFormInput) -> wa_ui::settings::AiSavePlan {
+    wa_ui::settings::ai_save_plan(&input)
+}
+
+/// Whether the AI on/off toggle may proceed, and its toast.
+#[tauri::command]
+pub fn ui_ai_toggle(enabled: bool, has_key: bool) -> wa_ui::settings::AiToggle {
+    wa_ui::settings::ai_toggle(enabled, has_key)
+}
+
+/// The confirmation toast for the `/ai` requirement toggle.
+#[tauri::command]
+pub fn ui_ai_require_toast(require_trigger: bool) -> String {
+    wa_ui::settings::ai_require_toast(require_trigger).to_string()
+}
+
+/// The "preview reply" guard and its prompt text.
+#[tauri::command]
+pub fn ui_ai_preview(has_dm: bool, text: String) -> wa_ui::settings::AiPreview {
+    wa_ui::settings::ai_preview(has_dm, &text)
+}
+
+/// Cut a model reply down to a toast-sized excerpt.
+#[tauri::command]
+pub fn ui_toast_excerpt(reply: String, limit: Option<usize>) -> String {
+    wa_ui::settings::toast_excerpt(&reply, limit.unwrap_or(100))
+}
+
+/// The profile editor's name validation.
+#[tauri::command]
+pub fn ui_profile_name_error(name: String) -> Option<String> {
+    wa_ui::settings::profile_name_error(&name)
+}
+
 /// Place a menu under its anchor button, inside the window.
 #[tauri::command]
 pub fn ui_menu_anchor(
