@@ -36,7 +36,7 @@ pub mod viewer;
 mod emoji_data;
 
 pub use actions::{PostCheck, ReplyPreview, SelectionBar, SendPlan, StatusPermissions};
-pub use cache::{CachePayloadInput, FingerChat, RestoreOutput};
+pub use cache::{CachePayloadInput, DiskChatRow, FingerChat, RestoreOutput};
 pub use chat_actions::{
     ChatActionInput, ChatActionPlan, DeleteCommand, DeleteTarget, InfoRow, MessageInfoInput,
 };

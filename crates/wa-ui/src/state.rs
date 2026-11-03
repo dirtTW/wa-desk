@@ -418,6 +418,53 @@ pub fn peer_fold_plan(plan: &[AliasLookup], chats: &[AliasChat]) -> AliasPlan {
     out
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ContactChatView {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub name: String,
+    /// The account's own chat, which is never renamed by a contact.
+    #[serde(default)]
+    pub is_self: bool,
+    /// Distinct sender JIDs already seen in this chat.
+    #[serde(default)]
+    pub senders: Vec<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct ContactPlan {
+    /// Chats whose display name becomes the saved contact name.
+    pub chat_renames: Vec<(String, String)>,
+    /// (chat jid, sender jid, name) for every sender to relabel.
+    pub sender_renames: Vec<(String, String, String)>,
+    pub changed: bool,
+}
+
+/// Apply the address book to the chat store: rename a one-to-one chat whose user
+/// part matches, and every sender bubble in any chat.
+pub fn contact_rename_plan(updates: &[(String, String)], chats: &[ContactChatView]) -> ContactPlan {
+    let mut plan = ContactPlan::default();
+    for (key, name) in updates {
+        if key.is_empty() || name.is_empty() {
+            continue;
+        }
+        for chat in chats {
+            if !chat.is_self && crate::text::phone_from_jid(&chat.jid) == *key {
+                plan.chat_renames.push((chat.jid.clone(), name.clone()));
+            }
+            for sender in &chat.senders {
+                if crate::text::phone_from_jid(sender) == *key {
+                    plan.sender_renames
+                        .push((chat.jid.clone(), sender.clone(), name.clone()));
+                }
+            }
+        }
+    }
+    plan.changed = !plan.chat_renames.is_empty() || !plan.sender_renames.is_empty();
+    plan
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,6 +641,53 @@ mod tests {
             plan.renames,
             vec![("6285@s.whatsapp.net".to_string(), "Ada".to_string())]
         );
+    }
+
+    #[test]
+    fn contact_plan_renames_chats_and_senders() {
+        let chats = vec![
+            ContactChatView {
+                jid: "628770000000@s.whatsapp.net".into(),
+                name: "628770000000".into(),
+                is_self: false,
+                senders: Vec::new(),
+            },
+            ContactChatView {
+                jid: "1@g.us".into(),
+                name: "Team".into(),
+                is_self: false,
+                senders: vec![
+                    "628770000000@s.whatsapp.net".into(),
+                    "628990000000@s.whatsapp.net".into(),
+                ],
+            },
+            ContactChatView {
+                jid: "628770000000@s.whatsapp.net".into(),
+                name: "Me".into(),
+                is_self: true,
+                senders: Vec::new(),
+            },
+        ];
+        let plan = contact_rename_plan(&[("628770000000".to_string(), "Budi".to_string())], &chats);
+        assert!(plan.changed);
+        assert_eq!(
+            plan.chat_renames,
+            vec![(
+                "628770000000@s.whatsapp.net".to_string(),
+                "Budi".to_string()
+            )]
+        );
+        assert_eq!(
+            plan.sender_renames,
+            vec![(
+                "1@g.us".to_string(),
+                "628770000000@s.whatsapp.net".to_string(),
+                "Budi".to_string()
+            )]
+        );
+
+        let empty = contact_rename_plan(&[("1".into(), String::new())], &chats);
+        assert!(!empty.changed);
     }
 
     #[test]

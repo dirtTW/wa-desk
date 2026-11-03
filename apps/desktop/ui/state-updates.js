@@ -11,27 +11,65 @@ function contactNameFor(jid) {
 
 // Saved-contact names arrive from the phone's address book (app-state sync)
 // after the chats were already drawn, so patch chats, senders and the list.
+// Which chats and sender bubbles take a saved name is decided by
+// wa_ui::state::contact_rename_plan; this applies the plan.
+function contactChatViews() {
+  const views = [];
+  for (const chat of state.chats.values()) {
+    const senders = new Set();
+    for (const message of chat.messages) {
+      if (message.sender) senders.add(message.sender);
+    }
+    views.push({
+      jid: chat.jid,
+      name: chat.name || "",
+      is_self: chat.jid === state.meJid || chat.jid === state.meLid,
+      senders: [...senders],
+    });
+  }
+  return views;
+}
+
+function applyContactPlan(plan) {
+  if (!plan || !plan.changed) return false;
+  for (const [jid, name] of plan.chat_renames) {
+    const chat = state.chats.get(jid);
+    if (chat) chat.name = name;
+  }
+  for (const [jid, sender, name] of plan.sender_renames) {
+    const chat = state.chats.get(jid);
+    if (!chat) continue;
+    for (const message of chat.messages) {
+      if (message.sender === sender) message.sender_name = name;
+    }
+  }
+  return true;
+}
+
+// The address book replays hundreds of events; collect them and ask Rust for
+// one rename plan per burst.
+const pendingContactUpdates = new Map();
+let contactPlanTimer = null;
+
+function flushContactPlan() {
+  contactPlanTimer = null;
+  const updates = [...pendingContactUpdates];
+  pendingContactUpdates.clear();
+  if (!updates.length) return;
+  invoke("ui_contact_plan", { updates, chats: contactChatViews() })
+    .then((plan) => {
+      if (applyContactPlan(plan)) scheduleContactRender();
+    })
+    .catch(() => {});
+}
+
 function applyContactName(jid, name) {
   const key = jidUser(jid);
   if (!key) return;
   if (name) state.contacts.set(key, name);
   else state.contacts.delete(key);
-
-  let changed = false;
-  for (const chat of state.chats.values()) {
-    if (chat.jid === state.meJid || chat.jid === state.meLid) continue;
-    if (jidUser(chat.jid) === key && name) {
-      chat.name = name;
-      changed = true;
-    }
-    for (const message of chat.messages) {
-      if (message.sender && jidUser(message.sender) === key && name) {
-        message.sender_name = name;
-        changed = true;
-      }
-    }
-  }
-  if (changed) scheduleContactRender();
+  pendingContactUpdates.set(key, name || "");
+  if (!contactPlanTimer) contactPlanTimer = setTimeout(flushContactPlan, 150);
 }
 
 // The address book arrives as hundreds of individual events; repaint once.
@@ -50,7 +88,17 @@ function scheduleContactRender() {
 async function loadContacts() {
   try {
     const map = await invoke("get_contacts");
-    for (const [jid, name] of Object.entries(map || {})) applyContactName(jid, name);
+    const updates = Object.entries(map || {}).map(([jid, name]) => [jidUser(jid), name]);
+    for (const [key, name] of updates) {
+      if (!key) continue;
+      if (name) state.contacts.set(key, name);
+      else state.contacts.delete(key);
+    }
+    const plan = await invoke("ui_contact_plan", {
+      updates,
+      chats: contactChatViews(),
+    }).catch(() => null);
+    if (applyContactPlan(plan)) scheduleContactRender();
   } catch (err) {
     console.warn("contacts unavailable", err);
   }

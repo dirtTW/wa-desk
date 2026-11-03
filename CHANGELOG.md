@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.19] — 2026-11-03
+
+- **The disk chat-list mirror and the address-book renames are Rust decisions.**
+  `wa_ui::cache::restore_disk` shapes the rows recovered from `chats.json`
+  (broadcast rows dropped, JID user part as the fallback name, a preview
+  synthesized from `lastText`/`lastTs`), so `restoreDiskChatCache` only inserts
+  them. `wa_ui::state::contact_rename_plan` decides which one-to-one chats take
+  a saved name (never the account's own chat) and which sender bubbles in any
+  chat get relabelled; `state-updates.js` applies the plan and now batches the
+  address-book replay into one call per 150 ms burst instead of one call per
+  contact.
+- Commands `ui_restore_disk_cache`, `ui_contact_plan`.
+- 2 new `wa-ui` unit tests (148 total, plus 3 contract) and a restore/contacts
+  CDP e2e section: the restored rows, the rename plan and a live rename applied
+  to a probe chat and its sender bubble.
+
 ## [0.2.0-rc.18] — 2026-11-03
 
 - **AI context and sticker selection moved to Rust.** `wa_ui::context` builds

@@ -151,6 +151,21 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// Rows recovered from the disk chat-list mirror.
+#[tauri::command]
+pub fn ui_restore_disk_cache(raw: String) -> Vec<wa_ui::cache::DiskChatRow> {
+    wa_ui::cache::restore_disk(&raw)
+}
+
+/// Address-book renames to apply to chats and sender bubbles.
+#[tauri::command]
+pub fn ui_contact_plan(
+    updates: Vec<(String, String)>,
+    chats: Vec<wa_ui::state::ContactChatView>,
+) -> wa_ui::state::ContactPlan {
+    wa_ui::state::contact_rename_plan(&updates, &chats)
+}
+
 /// The bounded AI transcript for one chat.
 #[tauri::command]
 pub fn ui_ai_context(

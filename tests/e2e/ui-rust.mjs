@@ -460,6 +460,61 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# restore + contacts (rust)");
+const restore = await page.evaluate(async () => {
+  const disk = await invoke("ui_restore_disk_cache", {
+    raw: JSON.stringify({
+      v: 1,
+      chats: [
+        { jid: "a@s.whatsapp.net", name: "Ada", lastTs: 10, unread: 2, lastText: "hi" },
+        { jid: "b@g.us", isGroup: true, lastTs: 5 },
+        { jid: "status@broadcast", name: "S" },
+      ],
+    }),
+  });
+  const plan = await invoke("ui_contact_plan", {
+    updates: [["628770000000", "Budi"]],
+    chats: [
+      { jid: "628770000000@s.whatsapp.net", name: "628770000000", is_self: false, senders: [] },
+      { jid: "1@g.us", name: "Team", is_self: false, senders: ["628770000000@s.whatsapp.net"] },
+    ],
+  });
+  const probeJid = "999000111@s.whatsapp.net";
+  state.chats.set(probeJid, {
+    jid: probeJid,
+    name: "999000111",
+    isGroup: false,
+    messages: [{ id: "p1", sender: "999000111@s.whatsapp.net", sender_name: "999000111", timestamp: 1, kind: "text", text: "x" }],
+    last: null,
+    lastTs: 0,
+    unread: 0,
+  });
+  applyContactName(probeJid, "Probe Name");
+  await new Promise((r) => setTimeout(r, 600));
+  const entry = state.chats.get(probeJid);
+  const live = { name: entry?.name, sender: entry?.messages[0]?.sender_name };
+  state.chats.delete(probeJid);
+  state.contacts.delete("999000111");
+  return { disk, plan, live };
+});
+check(
+  "the disk cache restores",
+  restore.disk.length === 2 && restore.disk[1].name === "b" && restore.disk[0].last_text === "hi",
+  JSON.stringify(restore.disk),
+);
+check(
+  "the contact plan renames chats and senders",
+  restore.plan.changed &&
+    restore.plan.chat_renames[0][1] === "Budi" &&
+    restore.plan.sender_renames[0][2] === "Budi",
+  JSON.stringify(restore.plan.chat_renames),
+);
+check(
+  "the contact plan applies to the store",
+  restore.live.name === "Probe Name" && restore.live.sender === "Probe Name",
+  JSON.stringify(restore.live),
+);
+
 console.log("\n# context + hydration (rust)");
 const ctx = await page.evaluate(async () => {
   const limits = await invoke("ui_media_limits");

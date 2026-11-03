@@ -322,27 +322,28 @@ async function persistChatCache() {
 
 async function restoreDiskChatCache() {
   if (state.chats.size > 0) return;
-  let parsed;
+  let raw;
   try {
-    const raw = await invoke("load_chat_cache");
-    parsed = raw ? JSON.parse(raw) : null;
+    raw = await invoke("load_chat_cache");
   } catch {
     return;
   }
-  if (!parsed || !Array.isArray(parsed.chats) || state.chats.size > 0) return;
+  if (!raw || state.chats.size > 0) return;
 
-  for (const chat of parsed.chats) {
+  // Row shaping (broadcast filtering, fallback names, preview synthesis) is
+  // wa_ui::cache::restore_disk.
+  const rows = await invoke("ui_restore_disk_cache", { raw }).catch(() => []);
+  for (const chat of rows) {
     if (!chat || !chat.jid || state.chats.has(chat.jid)) continue;
-    if (chat.jid.endsWith("@broadcast")) continue;
     state.chats.set(chat.jid, {
       jid: chat.jid,
-      name: chat.name || chat.jid.replace(/@.*/, ""),
-      isGroup: Boolean(chat.isGroup),
+      name: chat.name,
+      isGroup: Boolean(chat.is_group),
       messages: [],
-      last: chat.lastText
-        ? { text: chat.lastText, timestamp: chat.lastTs || 0 }
+      last: chat.last_text
+        ? { text: chat.last_text, timestamp: chat.last_ts || 0 }
         : null,
-      lastTs: chat.lastTs || 0,
+      lastTs: chat.last_ts || 0,
       unread: chat.unread || 0,
     });
   }

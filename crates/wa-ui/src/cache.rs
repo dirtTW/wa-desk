@@ -396,6 +396,64 @@ pub fn disk_payload(chats: &[DiskChatInput], limit: usize) -> String {
     json!({ "v": 1, "chats": rows }).to_string()
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DiskChatRow {
+    pub jid: String,
+    pub name: String,
+    pub is_group: bool,
+    pub last_ts: i64,
+    pub unread: i64,
+    /// Synthesized preview message from the metadata mirror.
+    pub last_text: Option<String>,
+}
+
+/// Parse the disk chat-list mirror into rows (broadcasts skipped, jid fallback
+/// name), so a restart without a webview cache still has a sidebar.
+pub fn restore_disk(raw: &str) -> Vec<DiskChatRow> {
+    let parsed: Value = serde_json::from_str(raw).unwrap_or(Value::Null);
+    let Some(chats) = parsed.get("chats").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for chat in chats {
+        let Some(chat) = chat.as_object() else {
+            continue;
+        };
+        let jid = chat
+            .get("jid")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if jid.is_empty() || jid.ends_with("@broadcast") {
+            continue;
+        }
+        let fallback = jid.split('@').next().unwrap_or("").to_string();
+        let name = chat
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .unwrap_or(fallback);
+        let last_text = chat
+            .get("lastText")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        out.push(DiskChatRow {
+            jid,
+            name,
+            is_group: chat
+                .get("isGroup")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            last_ts: chat.get("lastTs").and_then(Value::as_i64).unwrap_or(0),
+            unread: chat.get("unread").and_then(Value::as_i64).unwrap_or(0),
+            last_text,
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,6 +494,28 @@ mod tests {
             status: status.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn disk_restore_shapes_rows() {
+        let raw = json!({
+            "v": 1,
+            "chats": [
+                {"jid": "a@s.whatsapp.net", "name": "Ada", "lastTs": 10, "unread": 2, "lastText": "hi"},
+                {"jid": "b@g.us", "isGroup": true, "lastTs": 5},
+                {"jid": "status@broadcast", "name": "S"}
+            ]
+        })
+        .to_string();
+        let rows = restore_disk(&raw);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "Ada");
+        assert_eq!(rows[0].last_text.as_deref(), Some("hi"));
+        assert_eq!(rows[1].name, "b", "jid fallback name");
+        assert!(rows[1].is_group);
+        assert!(rows[1].last_text.is_none());
+        assert!(restore_disk("nope").is_empty());
+        assert!(restore_disk("{}").is_empty());
     }
 
     #[test]

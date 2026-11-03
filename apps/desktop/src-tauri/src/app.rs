@@ -186,6 +186,8 @@ pub fn run() {
             crate::commands::ui::ui_emoji_search,
             crate::commands::ui::ui_emoji_groups,
             crate::commands::ui::ui_emoji_recents,
+            crate::commands::ui::ui_restore_disk_cache,
+            crate::commands::ui::ui_contact_plan,
             crate::commands::ui::ui_ai_context,
             crate::commands::ui::ui_recent_stickers,
             crate::commands::ui::ui_ai_sticker_ids,
