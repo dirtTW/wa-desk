@@ -4,6 +4,32 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.32] — 2026-11-03
+
+- **Fixed: the delete dialog never opened.** `askDelete` sent `self_chat` while
+  Tauri binds command arguments as camelCase (`selfChat`), so
+  `ui_delete_confirm` rejected every call and the dialog silently returned —
+  Delete for me / for everyone did nothing. Found by a new audit script
+  (`check-command-args.mjs`) that compares each `invoke("x", { … })` top-level key
+  against the Rust command's parameter names; it now reports **0**.
+- **The message menu is a Rust dispatch table.**
+  `wa_ui::chat_actions::message_action` maps every row to an action kind, closes
+  the menu for Forward, refuses `message-sender`/`reply-privately` without an
+  author and owns the "Ask Meta AI isn't available…"/"Reporting isn't
+  supported…" copy. `forward_payload` / `delete_targets` build the multi-select
+  payloads (id + text; author only for someone else's message) and
+  `copy_text` rejects blank bodies. Commands `ui_message_action`,
+  `ui_forward_payload`, `ui_delete_targets`, `ui_copy_text`.
+- **Status composer rules in Rust.** `wa_ui::composer::can_post_text` enables the
+  text-send button only for non-blank text and `wizard_back` owns the Esc order
+  (emoji panel → text screen → composer). Commands `ui_can_post_text`,
+  `ui_status_wizard_back`.
+- 4 new `wa-ui` unit tests (192 total, plus 3 contract) and a message-menu /
+  composer CDP e2e section: the whole dispatch table, the author guards, the
+  unsupported toasts, copy/composer gates, the back stack, both payloads and a
+  live "selection → delete dialog opens" check that would have failed before the
+  fix.
+
 ## [0.2.0-rc.31] — 2026-11-03
 
 - **The AI settings form is validated in Rust.** `wa_ui::settings::ai_save_plan`

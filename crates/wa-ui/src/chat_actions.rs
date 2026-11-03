@@ -148,7 +148,7 @@ pub fn plan_chat_action(input: &ChatActionInput) -> ChatActionPlan {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct DeleteTarget {
     #[serde(default)]
     pub chat: String,
@@ -193,6 +193,127 @@ pub fn delete_commands(items: &[DeleteTarget], everyone: bool) -> Vec<DeleteComm
             },
         })
         .collect()
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SelectedMessage {
+    #[serde(default)]
+    pub chat: String,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub from_me: bool,
+    #[serde(default)]
+    pub sender: String,
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub deleted_for_me: bool,
+    #[serde(default)]
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ForwardItem {
+    pub id: String,
+    pub text: String,
+}
+
+/// What a forward carries: the message id and its text (media forwards only need
+/// the id).
+pub fn forward_payload(items: &[SelectedMessage]) -> Vec<ForwardItem> {
+    items
+        .iter()
+        .filter(|item| !item.id.is_empty())
+        .map(|item| ForwardItem {
+            id: item.id.clone(),
+            text: item.text.clone(),
+        })
+        .collect()
+}
+
+/// The delete targets for a multi-selection.
+pub fn delete_targets(items: &[SelectedMessage]) -> Vec<DeleteTarget> {
+    items
+        .iter()
+        .filter(|item| !item.id.is_empty())
+        .map(|item| DeleteTarget {
+            chat: item.chat.clone(),
+            id: item.id.clone(),
+            from_me: item.from_me,
+            participant: if item.from_me || item.sender.is_empty() {
+                None
+            } else {
+                Some(item.sender.clone())
+            },
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MessageActionPlan {
+    /// `edit`, `forward`, `reply`, `select`, `star`, `info`, `reply_privately`,
+    /// `copy`, `message_sender`, `delete`, `toast` or `none`.
+    pub kind: String,
+    pub toast: Option<String>,
+    pub close_menu: bool,
+}
+
+/// The message-menu dispatch table: every row maps to one action kind, the
+/// unsupported rows say so, and "reply privately" needs an author to open.
+pub fn message_action(action: &str, has_sender: bool) -> MessageActionPlan {
+    let plan = |kind: &str| MessageActionPlan {
+        kind: kind.to_string(),
+        toast: None,
+        close_menu: false,
+    };
+    match action {
+        "edit" => plan("edit"),
+        "forward" => MessageActionPlan {
+            close_menu: true,
+            ..plan("forward")
+        },
+        "reply" => plan("reply"),
+        "select" => plan("select"),
+        "star" => plan("star"),
+        "message-info" => plan("info"),
+        "copy" => plan("copy"),
+        "delete" => plan("delete"),
+        "message-sender" => {
+            if has_sender {
+                plan("message_sender")
+            } else {
+                plan("none")
+            }
+        }
+        "reply-privately" => {
+            if has_sender {
+                plan("reply_privately")
+            } else {
+                plan("none")
+            }
+        }
+        "ask-ai" => MessageActionPlan {
+            kind: "toast".to_string(),
+            toast: Some("Ask Meta AI isn't available in WA Desk yet.".to_string()),
+            close_menu: false,
+        },
+        "report" => MessageActionPlan {
+            kind: "toast".to_string(),
+            toast: Some("Reporting isn't supported by WA Desk yet.".to_string()),
+            close_menu: false,
+        },
+        _ => plan("none"),
+    }
+}
+
+/// The text a "copy" row puts on the clipboard, or `None` when there is none.
+pub fn copy_text(text: &str) -> Option<String> {
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -445,6 +566,81 @@ mod tests {
         assert_eq!(mine[0].command, "delete_for_me");
         assert_eq!(mine[1].from_me, Some(false));
         assert_eq!(mine[1].participant.as_deref(), Some("6285@s.whatsapp.net"));
+    }
+
+    #[test]
+    fn message_action_dispatch_table() {
+        assert_eq!(message_action("edit", false).kind, "edit");
+        let forward = message_action("forward", true);
+        assert_eq!(forward.kind, "forward");
+        assert!(forward.close_menu, "forwarding closes the menu first");
+        assert_eq!(message_action("copy", true).kind, "copy");
+        assert_eq!(message_action("message-info", true).kind, "info");
+
+        // Rows that need an author do nothing without one.
+        assert_eq!(message_action("message-sender", false).kind, "none");
+        assert_eq!(
+            message_action("reply-privately", true).kind,
+            "reply_privately"
+        );
+
+        // Unsupported rows explain themselves.
+        let ai = message_action("ask-ai", true);
+        assert_eq!(ai.kind, "toast");
+        assert!(ai.toast.unwrap().contains("Meta AI"));
+        let report = message_action("report", true);
+        assert!(report.toast.unwrap().contains("Reporting"));
+
+        assert_eq!(message_action("nonsense", true).kind, "none");
+    }
+
+    #[test]
+    fn forwarding_and_deleting_carry_the_right_fields() {
+        let items = vec![
+            SelectedMessage {
+                chat: "1@s.whatsapp.net".into(),
+                id: "a".into(),
+                from_me: true,
+                sender: "me@s.whatsapp.net".into(),
+                text: "hello".into(),
+                ..Default::default()
+            },
+            SelectedMessage {
+                chat: "2@g.us".into(),
+                id: "b".into(),
+                from_me: false,
+                sender: "6285@s.whatsapp.net".into(),
+                text: String::new(),
+                ..Default::default()
+            },
+            SelectedMessage {
+                id: String::new(),
+                ..Default::default()
+            },
+        ];
+        let forward = forward_payload(&items);
+        assert_eq!(forward.len(), 2, "an id-less row is skipped");
+        assert_eq!(forward[0].text, "hello");
+        assert_eq!(forward[1].text, "");
+
+        let targets = delete_targets(&items);
+        assert_eq!(targets.len(), 2);
+        assert!(
+            targets[0].participant.is_none(),
+            "our own message has no author"
+        );
+        assert_eq!(
+            targets[1].participant.as_deref(),
+            Some("6285@s.whatsapp.net")
+        );
+        assert!(!targets[1].from_me);
+    }
+
+    #[test]
+    fn copy_needs_some_text() {
+        assert_eq!(copy_text("  hi  "), Some("  hi  ".to_string()));
+        assert!(copy_text("   ").is_none());
+        assert!(copy_text("").is_none());
     }
 
     #[test]

@@ -967,7 +967,21 @@ async function openStatusTextComposer() {
   input.focus();
 }
 
-function closeStatusTextComposer() {
+async function closeStatusTextComposer() {
+  const next = await invoke("ui_status_wizard_back", {
+    textScreenOpen: !$("status-text-screen").hidden,
+    emojiOpen: !$("status-emoji-panel").hidden,
+  }).catch(() => "text_screen");
+  if (next === "emoji") {
+    $("status-emoji-panel").hidden = true;
+    return;
+  }
+  if (next === "text_screen") {
+    $("status-text-screen").hidden = true;
+    $("status-emoji-panel").hidden = true;
+    return;
+  }
+  $("status-composer").hidden = true;
   $("status-text-screen").hidden = true;
   $("status-emoji-panel").hidden = true;
 }
@@ -1003,8 +1017,13 @@ function resizeStatusTextInput() {
   input.style.height = `${Math.min(input.scrollHeight, Math.round(window.innerHeight * 0.62))}px`;
 }
 
-function updateStatusTextSend() {
-  $("status-text-send").disabled = !$("status-text-input").value.trim();
+async function updateStatusTextSend() {
+  // Enabling needs non-blank text (wa_ui::composer::can_post_text).
+  const canSend = await invoke("ui_can_post_text", {
+    text: $("status-text-input").value,
+  }).catch(() => Boolean($("status-text-input").value.trim()));
+  const send = $("status-text-send");
+  if (send) send.disabled = !canSend;
 }
 
 async function buildStatusEmojiPanel() {

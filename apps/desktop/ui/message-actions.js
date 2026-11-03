@@ -113,8 +113,11 @@ function cancelReply() {
 }
 
 async function copyMessageText(message) {
-  const text = String(message.text || "");
-  if (!text.trim()) return;
+  // Blank messages have nothing to copy (wa_ui::chat_actions::copy_text).
+  const text = await invoke("ui_copy_text", { text: String(message.text || "") }).catch(
+    () => null,
+  );
+  if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
     toast("Copied to clipboard");
@@ -185,7 +188,7 @@ async function askDelete(items) {
         deleted: Boolean(item.deleted),
         chat: item.chat || "",
       })),
-      self_chat: isSelfChat(list[0].chat),
+      selfChat: isSelfChat(list[0].chat),
     });
   } catch (err) {
     console.warn("delete confirm failed", err);
@@ -254,26 +257,45 @@ function selectedMessages() {
     .filter(Boolean);
 }
 
-function forwardSelection() {
+async function forwardSelection() {
   const list = selectedMessages();
   if (!list.length) return;
-  state.forwardQueue = list.map((message) => ({
-    id: message.id,
-    text: message.text || "",
-  }));
+  // Which ids/text a forward carries is wa_ui::chat_actions::forward_payload.
+  state.forwardQueue = await invoke("ui_forward_payload", {
+    items: list.map(selectionRow),
+  }).catch(() => []);
+  if (!state.forwardQueue.length) return;
   openForwardPicker(list[0]);
+}
+
+/// One selected message reduced to the fields the Rust plans read.
+function selectionRow(message) {
+  return {
+    chat: message.chat || "",
+    id: message.id || "",
+    from_me: Boolean(message.from_me),
+    sender: message.sender || "",
+    deleted: Boolean(message.deleted),
+    deleted_for_me: Boolean(message.deletedForMe),
+    text: message.text || "",
+  };
 }
 
 async function deleteSelection() {
   const list = selectedMessages();
   if (!list.length) return;
+  // wa_ui::chat_actions::delete_targets drops id-less rows and our own author.
+  const targets = await invoke("ui_delete_targets", {
+    items: list.map(selectionRow),
+  }).catch(() => []);
+  if (!targets.length) return;
   askDelete(
-    list.map((message) => ({
-      chat: message.chat,
-      id: message.id,
-      fromMe: message.from_me,
-      participant: message.sender,
-      deleted: message.deleted,
+    targets.map((target) => ({
+      chat: target.chat,
+      id: target.id,
+      fromMe: target.from_me,
+      participant: target.participant,
+      deleted: false,
     })),
   );
 }
@@ -390,76 +412,62 @@ function applyStar(chatJid, id, starred) {
   scheduleSave();
 }
 
+// The menu's dispatch table (including the unsupported rows and the rows that
+// need an author) is wa_ui::chat_actions::message_action.
 async function applyMessageAction(action, message) {
   if (!message) return;
-
-  if (action === "edit") {
-    startEdit(message);
+  const plan = await invoke("ui_message_action", {
+    action,
+    hasSender: Boolean(message.sender),
+  }).catch(() => ({ kind: "none", toast: null, close_menu: false }));
+  if (plan.close_menu) closeMessageMenu();
+  if (plan.toast) {
+    toast(plan.toast);
     return;
   }
 
-  if (action === "forward") {
-    closeMessageMenu();
-    openForwardPicker(message);
-    return;
-  }
-
-  if (action === "reply") {
-    startReply(message);
-    return;
-  }
-
-  if (action === "select") {
-    startSelection(message);
-    return;
-  }
-
-  if (action === "star") {
-    toggleStar(message);
-    return;
-  }
-
-  if (action === "ask-ai" || action === "report") {
-    toast(
-      action === "report"
-        ? "Reporting isn't supported by WA Desk yet."
-        : "Ask Meta AI isn't available in WA Desk yet.",
-    );
-    return;
-  }
-
-  if (action === "message-info") {
-    showMessageInfo(message);
-    return;
-  }
-
-  if (action === "reply-privately") {
-    if (!message.sender) return;
-    openChatFromPicker(message.sender, message.sender_name || "");
-    startReply(message);
-    return;
-  }
-
-  if (action === "copy") {
-    copyMessageText(message);
-    return;
-  }
-
-  if (action === "message-sender") {
-    openChatFromPicker(message.sender, message.sender_name || "");
-    return;
-  }
-
-  if (action === "delete") {
-    askDelete([
-      {
-        chat: message.chat,
-        id: message.id,
-        fromMe: message.from_me,
-        participant: message.sender,
-        deleted: message.deleted,
-      },
-    ]);
+  switch (plan.kind) {
+    case "edit":
+      startEdit(message);
+      return;
+    case "forward":
+      openForwardPicker(message);
+      return;
+    case "reply":
+      startReply(message);
+      return;
+    case "select":
+      startSelection(message);
+      return;
+    case "star":
+      toggleStar(message);
+      return;
+    case "info":
+      showMessageInfo(message);
+      return;
+    case "copy":
+      copyMessageText(message);
+      return;
+    case "message_sender":
+      openChatFromPicker(message.sender, message.sender_name || "");
+      return;
+    case "reply_privately":
+      openChatFromPicker(message.sender, message.sender_name || "");
+      startReply(message);
+      return;
+    case "delete":
+      askDelete([
+        {
+          chat: message.chat,
+          id: message.id,
+          fromMe: message.from_me,
+          participant: message.sender,
+          deleted: message.deleted,
+        },
+      ]);
+      return;
+    default:
+      return;
   }
 }
 

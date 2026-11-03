@@ -460,6 +460,131 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# message menu dispatch + composer rules (rust)");
+const menuActions = await page.evaluate(async () => {
+  const plan = (action, hasSender) =>
+    invoke("ui_message_action", { action, hasSender });
+  const actions = {
+    edit: await plan("edit", false),
+    forward: await plan("forward", true),
+    reply: await plan("reply", true),
+    select: await plan("select", true),
+    star: await plan("star", true),
+    info: await plan("message-info", true),
+    copy: await plan("copy", true),
+    del: await plan("delete", true),
+    senderOff: await plan("message-sender", false),
+    senderOn: await plan("message-sender", true),
+    private: await plan("reply-privately", true),
+    askAi: await plan("ask-ai", true),
+    report: await plan("report", true),
+    unknown: await plan("nonsense", true),
+  };
+  const copy = [
+    await invoke("ui_copy_text", { text: " hello " }),
+    await invoke("ui_copy_text", { text: "   " }),
+  ];
+  const canPost = [
+    await invoke("ui_can_post_text", { text: "  " }),
+    await invoke("ui_can_post_text", { text: " hi " }),
+  ];
+  const back = [
+    await invoke("ui_status_wizard_back", { textScreenOpen: true, emojiOpen: true }),
+    await invoke("ui_status_wizard_back", { textScreenOpen: true, emojiOpen: false }),
+    await invoke("ui_status_wizard_back", { textScreenOpen: false, emojiOpen: false }),
+  ];
+  const row = (id, fromMe, sender, text) => ({
+    chat: "1@g.us",
+    id,
+    from_me: fromMe,
+    sender,
+    deleted: false,
+    deleted_for_me: false,
+    text,
+  });
+  const forward = await invoke("ui_forward_payload", {
+    items: [row("a", true, "", "hello"), row("b", false, "6285@s.whatsapp.net", ""), row("", false, "", "x")],
+  });
+  const targets = await invoke("ui_delete_targets", {
+    items: [row("a", true, "", "hello"), row("b", false, "6285@s.whatsapp.net", "")],
+  });
+
+  // Live: the delete dialog must actually open from a selection. This was
+  // broken by a snake_case argument (`self_chat`) that Tauri never bound.
+  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 2);
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    const message = chat.messages.find((m) => m.text);
+    startSelection(message);
+    await new Promise((r) => setTimeout(r, 200));
+    await deleteSelection();
+    await new Promise((r) => setTimeout(r, 600));
+    live = {
+      dialogOpen: !document.getElementById("delete-confirm").hidden,
+      title: document.getElementById("delete-confirm-title").textContent,
+      everyone: !document.getElementById("delete-everyone-ok").hidden,
+    };
+    closeDeleteConfirm();
+    exitSelection();
+  }
+  return { actions, copy, canPost, back, forward, targets, live };
+});
+check(
+  "the message-menu dispatch table maps every row",
+  menuActions.actions.edit.kind === "edit" &&
+    menuActions.actions.forward.kind === "forward" &&
+    menuActions.actions.forward.close_menu &&
+    menuActions.actions.info.kind === "info" &&
+    menuActions.actions.copy.kind === "copy" &&
+    menuActions.actions.del.kind === "delete",
+  JSON.stringify(menuActions.actions.forward),
+);
+check(
+  "rows needing an author do nothing without one",
+  menuActions.actions.senderOff.kind === "none" &&
+    menuActions.actions.senderOn.kind === "message_sender" &&
+    menuActions.actions.private.kind === "reply_privately",
+  `${menuActions.actions.senderOff.kind}/${menuActions.actions.senderOn.kind}`,
+);
+check(
+  "unsupported rows explain themselves",
+  menuActions.actions.askAi.kind === "toast" &&
+    menuActions.actions.askAi.toast.includes("Meta AI") &&
+    menuActions.actions.report.toast.includes("Reporting") &&
+    menuActions.actions.unknown.kind === "none",
+  menuActions.actions.askAi.toast,
+);
+check(
+  "copy needs text and the composer needs content",
+  menuActions.copy[0] === " hello " &&
+    menuActions.copy[1] === null &&
+    menuActions.canPost[0] === false &&
+    menuActions.canPost[1] === true,
+  JSON.stringify(menuActions.copy),
+);
+check(
+  "the status back stack closes the emoji panel first",
+  menuActions.back.join(",") === "emoji,text_screen,composer",
+  menuActions.back.join(","),
+);
+check(
+  "forward and delete payloads carry the right fields",
+  menuActions.forward.length === 2 &&
+    menuActions.forward[0].text === "hello" &&
+    menuActions.targets[0].participant === null &&
+    menuActions.targets[1].participant === "6285@s.whatsapp.net",
+  JSON.stringify(menuActions.targets),
+);
+if (menuActions.live) {
+  check(
+    "the delete dialog opens from a selection",
+    menuActions.live.dialogOpen && menuActions.live.title === "Delete message?" && menuActions.live.everyone,
+    JSON.stringify(menuActions.live),
+  );
+}
+
 console.log("\n# AI form + profile guard (rust)");
 const aiForm = await page.evaluate(async () => {
   const save = await invoke("ui_ai_save_plan", {

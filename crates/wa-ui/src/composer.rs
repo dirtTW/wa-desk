@@ -5,6 +5,23 @@ use serde::Serialize;
 
 use crate::html::escape;
 
+/// The status text composer's send button: it enables once the text has content.
+pub fn can_post_text(text: &str) -> bool {
+    !text.trim().is_empty()
+}
+
+/// Where an Esc/back press in the status composer goes: the emoji panel closes
+/// first, then the text screen, and only then the media composer.
+pub fn wizard_back(text_screen_open: bool, emoji_open: bool) -> &'static str {
+    if emoji_open {
+        "emoji"
+    } else if text_screen_open {
+        "text_screen"
+    } else {
+        "composer"
+    }
+}
+
 /// The official composer's 20 backgrounds (read from the shipped client).
 pub const BACKGROUNDS: [&str; 20] = [
     "#A62C71", "#90A841", "#C1A03F", "#792138", "#AE8774", "#F0B330", "#B6B327", "#C69FCC",
@@ -136,6 +153,20 @@ pub fn emoji_group_html(index: usize, query: &str) -> EmojiPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_send_button_and_the_back_stack() {
+        assert!(!can_post_text("   "));
+        assert!(can_post_text(" hi "));
+
+        assert_eq!(
+            wizard_back(true, true),
+            "emoji",
+            "the emoji panel closes first"
+        );
+        assert_eq!(wizard_back(true, false), "text_screen");
+        assert_eq!(wizard_back(false, false), "composer");
+    }
 
     #[test]
     fn palette_matches_the_official_sets() {

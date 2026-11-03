@@ -641,6 +641,49 @@ pub fn ui_alias_plan(
     wa_ui::state::peer_fold_plan(&lookups, &chats)
 }
 
+/// What a forward carries (id + text) from a multi-selection.
+#[tauri::command]
+pub fn ui_forward_payload(
+    items: Vec<wa_ui::chat_actions::SelectedMessage>,
+) -> Vec<wa_ui::chat_actions::ForwardItem> {
+    wa_ui::chat_actions::forward_payload(&items)
+}
+
+/// The delete targets for a multi-selection.
+#[tauri::command]
+pub fn ui_delete_targets(
+    items: Vec<wa_ui::chat_actions::SelectedMessage>,
+) -> Vec<wa_ui::chat_actions::DeleteTarget> {
+    wa_ui::chat_actions::delete_targets(&items)
+}
+
+/// The message-menu dispatch table.
+#[tauri::command]
+pub fn ui_message_action(
+    action: String,
+    has_sender: bool,
+) -> wa_ui::chat_actions::MessageActionPlan {
+    wa_ui::chat_actions::message_action(&action, has_sender)
+}
+
+/// The text a "copy" row puts on the clipboard.
+#[tauri::command]
+pub fn ui_copy_text(text: String) -> Option<String> {
+    wa_ui::chat_actions::copy_text(&text)
+}
+
+/// The status composer's send-button state.
+#[tauri::command]
+pub fn ui_can_post_text(text: String) -> bool {
+    wa_ui::composer::can_post_text(&text)
+}
+
+/// Where an Esc press in the status composer goes next.
+#[tauri::command]
+pub fn ui_status_wizard_back(text_screen_open: bool, emoji_open: bool) -> String {
+    wa_ui::composer::wizard_back(text_screen_open, emoji_open).to_string()
+}
+
 /// The plans for a sidebar bulk action (`read`, `archive`, `delete`).
 #[tauri::command]
 pub fn ui_bulk_chat_plan(
