@@ -375,24 +375,20 @@ function isSelfChat(jid) {
     .some((self) => String(self).split("@")[0].split(":")[0] === user);
 }
 
-// Deterministic colour per contact, like WhatsApp's default avatar palette.
-// Each entry is the official `--WDS-components-profile-photo-surface-*` /
-// `-content-*` pair (the dark-theme tinted circle plus its letter colour).
-const AVATAR_COLORS = [
-  ["#35271E", "#DBA685"], // brown
-  ["#092642", "#53A6FD"], // cobalt
-  ["#242626", "#BDBDBD"], // gray
-  ["#103529", "#25D366"], // green
-  ["#35221E", "#FC9775"], // orange
-  ["#36192A", "#FF72A1"], // pink
-  ["#242447", "#A791FF"], // purple
-  ["#321622", "#FB5061"], // red
-  ["#092C3D", "#53BDEB"], // sky blue
-  ["#092D2F", "#42C7B8"], // teal
-  ["#362C1F", "#FFD279"], // yellow
-];
+// The official avatar tints come from wa_ui::html::avatar_palette(); the hash
+// stays local because setAvatar is synchronous.
+let AVATAR_COLORS = [];
+
+async function loadAvatarPalette() {
+  try {
+    AVATAR_COLORS = await invoke("ui_avatar_palette");
+  } catch {
+    AVATAR_COLORS = [];
+  }
+}
 
 function avatarStyle(name) {
+  if (!AVATAR_COLORS.length) return "background:#242626;color:#BDBDBD";
   let hash = 0;
   for (const ch of String(name || "?")) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
   const [bg, fg] = AVATAR_COLORS[hash % AVATAR_COLORS.length];
@@ -401,8 +397,13 @@ function avatarStyle(name) {
 
 // WhatsApp Web draws a two-person glyph for a group with no photo instead of
 // the sender initials it uses for a one-to-one chat.
-const GROUP_AVATAR_ICON =
-  '<svg class="avatar-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M40-160v-112q0-34 17.5-62.5T104-378q62-31 126-46.5T360-440q66 0 130 15.5T616-378q29 15 46.5 43.5T680-272v112H40Zm720 0v-120q0-44-24.5-84.5T666-434q51 6 96 20.5t84 35.5q36 20 55 44.5t19 53.5v120H760ZM247-527q-47-47-47-113t47-113q47-47 113-47t113 47q47 47 47 113t-47 113q-47 47-113 47t-113-47Zm466 0q-47 47-113 47-11 0-28-2.5t-28-5.5q27-32 41.5-71t14.5-81q0-42-14.5-81T544-792q14-5 28-6.5t28-1.5q66 0 113 47t47 113q0 66-47 113ZM120-240h480v-32q0-11-5.5-20T580-306q-54-27-109-40.5T360-360q-56 0-111 13.5T140-306q-9 5-14.5 14t-5.5 20v32Zm296.5-343.5Q440-607 440-640t-23.5-56.5Q393-720 360-720t-56.5 23.5Q280-673 280-640t23.5 56.5Q327-560 360-560t56.5-23.5ZM360-240Zm0-400Z"/></svg>';
+// The two-person glyph comes from wa_ui::html::GROUP_AVATAR_ICON at boot.
+let GROUP_AVATAR_ICON = "";
+invoke("ui_group_avatar_icon")
+  .then((svg) => {
+    GROUP_AVATAR_ICON = svg;
+  })
+  .catch(() => {});
 
 function isGroupJid(jid) {
   return typeof jid === "string" && jid.endsWith("@g.us");
@@ -531,20 +532,9 @@ function pumpPhotos() {
   }
 }
 
-function mediaIcon(kind) {
-  const icons = {
-    image:
-      '<svg viewBox="0 -960 960 960"><path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm40-80h480L570-480 450-320l-90-120-120 160Zm-40 80v-560 560Z"/></svg>',
-    video:
-      '<svg viewBox="0 -960 960 960"><path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h480q33 0 56.5 23.5T720-720v180l160-160v440L720-420v180q0 33-23.5 56.5T640-160H160Zm0-80h480v-480H160v480Zm0 0v-480 480Z"/></svg>',
-    audio:
-      '<svg viewBox="0 -960 960 960"><path d="M395-435q-35-35-35-85v-240q0-50 35-85t85-35q50 0 85 35t35 85v240q0 50-35 85t-85 35q-50 0-85-35Zm85-205Zm-40 520v-123q-104-14-172-93t-68-184h80q0 83 58.5 141.5T480-320q83 0 141.5-58.5T680-520h80q0 105-68 184t-172 93v123h-80Zm68.5-371.5Q520-503 520-520v-240q0-17-11.5-28.5T480-800q-17 0-28.5 11.5T440-760v240q0 17 11.5 28.5T480-480q17 0 28.5-11.5Z"/></svg>',
-    document:
-      '<svg viewBox="0 -960 960 960"><path d="M320-240h320v-80H320v80Zm0-160h320v-80H320v80ZM240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320l240 240v480q0 33-23.5 56.5T720-80H240Zm280-520v-200H240v640h480v-440H520ZM240-800v200-200 640-640Z"/></svg>',
-    sticker:
-      '<svg viewBox="0 -960 960 960"><path d="M460-360q69 0 120-45t60-113l-320 90q26 32 62 50t78 18ZM294-510l106-30q4-28-14-49t-46-21q-25 0-42.5 17.5T280-550q0 11 4 21t10 19Zm240-70 106-30q5-28-13.5-49T580-680q-25 0-42.5 17.5T520-620q0 11 4 21t10 19Zm106 460H200q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v440L640-120Zm-40-80v-80q0-33 23.5-56.5T680-360h80v-400H200v560h400Zm0 0Zm-400 0v-560 560Z"/></svg>',
-  };
-  return icons[kind] || icons.document;
+// The media glyph comes from wa_ui::chat::media_icon.
+async function mediaIcon(kind) {
+  return invoke("ui_media_icon", { kind: kind || "image" }).catch(() => "");
 }
 
 function toast(message) {

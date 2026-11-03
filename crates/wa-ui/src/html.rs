@@ -66,6 +66,14 @@ const AVATAR_COLORS: [(&str, &str); 11] = [
     ("#362C1F", "#FFD279"), // yellow
 ];
 
+/// The official default-avatar tint pairs, as (background, foreground).
+pub fn avatar_palette() -> Vec<(String, String)> {
+    AVATAR_COLORS
+        .iter()
+        .map(|(bg, fg)| ((*bg).to_string(), (*fg).to_string()))
+        .collect()
+}
+
 /// Deterministic avatar tint for a display name (the official default-avatar
 /// palette).
 pub fn avatar_style(name: &str) -> String {

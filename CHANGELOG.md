@@ -4,6 +4,32 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.26] — 2026-11-03
+
+- **The profile-photo pump, the theme rules and the avatar/media icon tables
+  moved to Rust.** `wa_ui::state::photo_pump` fills the fetcher up to its
+  concurrency window (3) and reports what is still waiting;
+  `photo_result_ok` keeps only real CDN URLs in the cache (a `blob:`/`data:`
+  URL would be persisted and fail to paint on the next start).
+  `wa_ui::settings` owns the theme labels, `resolve_theme` (explicit choice beats
+  the OS) and the toggle's label/icon. `wa_ui::html::avatar_palette` supplies the
+  11 official tints, `GROUP_AVATAR_ICON` the two-person glyph and
+  `wa_ui::chat::media_icon` the media glyphs — so `core.js` lost the colour
+  table, the ~750-byte inline SVG and the five-icon media table.
+  `wa_ui::emoji::active_group` decides the scrolling category strip.
+  Commands: `ui_photo_pump`, `ui_photo_result_ok`, `ui_theme_label`,
+  `ui_theme_resolve`, `ui_theme_toggle`, `ui_avatar_palette`,
+  `ui_group_avatar_icon`, `ui_avatar_style`, `ui_initials`, `ui_is_self_jid`,
+  `ui_media_icon`, `ui_emoji_active_group`.
+- The synchronous call sites keep a boot-fetched mirror (palette, group glyph,
+  thresholds) and the emoji strip asks Rust on a 50 ms debounce rather than per
+  scroll event; `requestAnimationFrame` was rejected because it is suspended
+  while the window is occluded, which left the debounce flag stuck.
+- 4 new `wa-ui` unit tests (179 total, plus 3 contract) and a
+  photo-pump/theme/icons CDP e2e section (pump windows, http-only cache, strip
+  maths, theme labels/resolution/toggle, 11 tints, `AL` initials, 194 painted
+  sidebar avatars, live theme toggle).
+
 ## [0.2.0-rc.25] — 2026-11-03
 
 - **The call codec and audio constants moved to Rust.** `wa_ui::calls` now owns

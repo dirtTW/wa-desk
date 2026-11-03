@@ -134,6 +134,20 @@ pub fn search_html(query: &str, limit: usize) -> String {
     html
 }
 
+/// Which group the category strip should highlight while the picker scrolls.
+/// `offsets` holds `(group_index, offset_top)` in document order; a title counts
+/// once it has scrolled to the top (plus `pad`).
+pub fn active_group(offsets: &[(usize, f64)], scroll_top: f64, pad: f64) -> usize {
+    let top = scroll_top + pad;
+    let mut current = offsets.first().map(|(index, _)| *index).unwrap_or(0);
+    for (index, offset) in offsets {
+        if *offset <= top {
+            current = *index;
+        }
+    }
+    current
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +159,20 @@ mod tests {
         assert!(count() > 2000, "count = {}", count());
         assert_eq!(groups[0].id, "smileys");
         assert!(!groups[0].items[0].char.is_empty());
+    }
+
+    #[test]
+    fn the_scrolling_category_follows_the_titles() {
+        // Titles sit at 0, 800, 1600, 2400.
+        let offsets = [(0, 0.0), (1, 800.0), (2, 1600.0), (3, 2400.0)];
+        assert_eq!(active_group(&offsets, 0.0, 8.0), 0);
+        assert_eq!(active_group(&offsets, 10.0, 8.0), 0);
+        assert_eq!(active_group(&offsets, 100.0, 8.0), 0);
+        assert_eq!(active_group(&offsets, 795.0, 8.0), 1, "the 8 px pad counts");
+        assert_eq!(active_group(&offsets, 1592.0, 8.0), 2, "top = 1600");
+        assert_eq!(active_group(&offsets, 9000.0, 8.0), 3);
+        // No titles yet.
+        assert_eq!(active_group(&[], 100.0, 8.0), 0);
     }
 
     #[test]

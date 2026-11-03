@@ -36,15 +36,43 @@ const darkMedia = window.matchMedia("(prefers-color-scheme: dark)");
 
 // Theme icons come from the Material Symbols registry (ui_icon); the toggle
 // shows the theme you would switch TO, like the official client.
+// Labels and resolution are wa_ui::settings' rules; cached for the synchronous
+// call sites (settings rows, theme dialog).
+let themeLabels = { light: "Light", dark: "Dark", system: "System default" };
+let themeCache = {};
+invoke("ui_theme_resolve", { preference: settingsPrefs.theme, systemDark: darkMedia.matches })
+  .then((resolved) => {
+    themeCache[settingsPrefs.theme] = resolved;
+  })
+  .catch(() => {});
+
 function themeLabel(value = settingsPrefs.theme) {
-  return value === "light" ? "Light" : value === "dark" ? "Dark" : "System default";
+  return themeLabels[value] || "System default";
 }
 
 function resolvedTheme() {
+  const cached = themeCache[settingsPrefs.theme];
+  if (cached) return cached;
   if (settingsPrefs.theme === "light" || settingsPrefs.theme === "dark") {
     return settingsPrefs.theme;
   }
   return darkMedia.matches ? "dark" : "light";
+}
+
+async function refreshThemeLabels() {
+  // The Rust rules are authoritative; fetch both resolutions for the cache.
+  const preferences = ["light", "dark", "system", "default"];
+  await Promise.all(
+    preferences.map(async (preference) => {
+      themeLabels[preference] = await invoke("ui_theme_label", { preference }).catch(
+        () => themeLabels[preference],
+      );
+      themeCache[preference] = await invoke("ui_theme_resolve", {
+        preference,
+        systemDark: darkMedia.matches,
+      }).catch(() => themeCache[preference]);
+    }),
+  );
 }
 
 function applyTheme() {
@@ -53,14 +81,16 @@ function applyTheme() {
 
   const toggle = $("theme-toggle");
   if (toggle) {
-    const next = resolved === "dark" ? "Light" : "Dark";
-    invoke("ui_icon", { name: resolved === "dark" ? "light_mode" : "dark_mode" })
-      .then((html) => {
-        toggle.innerHTML = html;
+    // The label/icon pair comes from wa_ui::settings::theme_toggle.
+    invoke("ui_theme_toggle", { resolved })
+      .then(async (next) => {
+        toggle.innerHTML = await invoke("ui_icon", { name: next.icon }).catch(
+          () => toggle.innerHTML,
+        );
+        toggle.title = `Switch to ${next.label.toLowerCase()} theme`;
+        toggle.setAttribute("aria-label", toggle.title);
       })
       .catch(() => {});
-    toggle.title = `Switch to ${next.toLowerCase()} theme`;
-    toggle.setAttribute("aria-label", toggle.title);
   }
 
   for (const node of document.querySelectorAll("[data-theme-label]")) {

@@ -8,6 +8,7 @@ async function main() {
 
   wire();
   await loadUiAssets();
+  await loadAvatarPalette();
   await restoreCache();
   loadStatuses();
   // Cached status replies/reactions stored before the "· Status" card existed

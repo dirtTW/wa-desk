@@ -460,6 +460,113 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# photo pump + theme + icons (rust)");
+const pumpTheme = await page.evaluate(async () => {
+  const pump = {
+    empty: await invoke("ui_photo_pump", { queue: [], inFlight: 0, connected: true }),
+    three: await invoke("ui_photo_pump", { queue: ["a", "b", "c", "d", "e"], inFlight: 0, connected: true }),
+    partial: await invoke("ui_photo_pump", { queue: ["a", "b", "c", "d", "e"], inFlight: 2, connected: true }),
+    full: await invoke("ui_photo_pump", { queue: ["a"], inFlight: 3, connected: true }),
+    offline: await invoke("ui_photo_pump", { queue: ["a"], inFlight: 0, connected: false }),
+  };
+  const photoOk = [
+    await invoke("ui_photo_result_ok", { url: "https://pps.whatsapp.net/x.jpg" }),
+    await invoke("ui_photo_result_ok", { url: "blob:abc" }),
+    await invoke("ui_photo_result_ok", { url: "" }),
+  ];
+  const groups = {
+    top: await invoke("ui_emoji_active_group", { offsets: [[0, 0], [1, 800], [2, 1600]], scrollTop: 0 }),
+    mid: await invoke("ui_emoji_active_group", { offsets: [[0, 0], [1, 800], [2, 1600]], scrollTop: 795 }),
+    deep: await invoke("ui_emoji_active_group", { offsets: [[0, 0], [1, 800], [2, 1600]], scrollTop: 5000 }),
+  };
+  const theme = {
+    labels: [
+      await invoke("ui_theme_label", { preference: "light" }),
+      await invoke("ui_theme_label", { preference: "dark" }),
+      await invoke("ui_theme_label", { preference: "system" }),
+    ],
+    resolved: [
+      await invoke("ui_theme_resolve", { preference: "light", systemDark: true }),
+      await invoke("ui_theme_resolve", { preference: "system", systemDark: true }),
+      await invoke("ui_theme_resolve", { preference: "system", systemDark: false }),
+    ],
+    toggle: await invoke("ui_theme_toggle", { resolved: "dark" }),
+  };
+  const icons = {
+    palette: (await invoke("ui_avatar_palette")).length,
+    style: await invoke("ui_avatar_style", { name: "Ada" }),
+    initials: await invoke("ui_initials", { name: "Ada Lovelace" }),
+    groupIcon: (await invoke("ui_group_avatar_icon")).length,
+    mediaIcon: (await invoke("ui_media_icon", { kind: "video" })).length,
+    selfJid: await invoke("ui_is_self_jid", { jid: state.meJid, meJid: state.meJid, meLid: state.meLid }),
+  };
+
+  // Live: avatars keep painting, and the theme toggle goes through Rust.
+  const avatars = [...document.querySelectorAll("#chat-list .chat-item .avatar")];
+  const liveAvatars = {
+    rows: avatars.length,
+    painted: avatars.filter((node) => node.innerHTML.length > 0).length,
+    groupGlyph: document.querySelectorAll(".group-avatar").length,
+  };
+  applyTheme();
+  await new Promise((r) => setTimeout(r, 500));
+  const themeToggle = {
+    theme: document.documentElement.dataset.theme,
+    title: document.getElementById("theme-toggle").title,
+    hasIcon: document.getElementById("theme-toggle").innerHTML.length > 0,
+  };
+  return { pump, photoOk, groups, theme, icons, liveAvatars, themeToggle };
+});
+check(
+  "the photo pump fills three slots",
+  pumpTheme.pump.three.start.join(",") === "a,b,c" &&
+    pumpTheme.pump.three.in_flight === 3 &&
+    pumpTheme.pump.three.waiting === 2 &&
+    pumpTheme.pump.partial.start.join(",") === "a",
+  JSON.stringify(pumpTheme.pump.three),
+);
+check(
+  "the pump stops when full or offline",
+  pumpTheme.pump.full.start.length === 0 && pumpTheme.pump.offline.start.length === 0,
+);
+check(
+  "only http photo urls are cached",
+  pumpTheme.photoOk.join(",") === "true,false,false",
+  pumpTheme.photoOk.join(","),
+);
+check(
+  "the emoji strip selection maths render",
+  pumpTheme.groups.top === 0 && pumpTheme.groups.mid === 1 && pumpTheme.groups.deep === 2,
+  JSON.stringify(pumpTheme.groups),
+);
+check(
+  "theme labels and resolution render",
+  pumpTheme.theme.labels.join(",") === "Light,Dark,System default" &&
+    pumpTheme.theme.resolved.join(",") === "light,dark,light" &&
+    pumpTheme.theme.toggle.label === "Light" &&
+    pumpTheme.theme.toggle.icon === "light_mode",
+  JSON.stringify(pumpTheme.theme.resolved),
+);
+check(
+  "the avatar palette and icons come from Rust",
+  pumpTheme.icons.palette === 11 &&
+    pumpTheme.icons.style.startsWith("background:#") &&
+    pumpTheme.icons.initials === "AL" &&
+    pumpTheme.icons.groupIcon > 100 &&
+    pumpTheme.icons.mediaIcon > 100,
+  `${pumpTheme.icons.palette} tints, ${pumpTheme.icons.initials}`,
+);
+check(
+  "avatars still paint in the sidebar",
+  pumpTheme.liveAvatars.rows > 0 && pumpTheme.liveAvatars.painted === pumpTheme.liveAvatars.rows,
+  JSON.stringify(pumpTheme.liveAvatars),
+);
+check(
+  "the theme toggle renders through Rust",
+  pumpTheme.themeToggle.hasIcon && pumpTheme.themeToggle.title.startsWith("Switch to"),
+  `${pumpTheme.themeToggle.theme} · ${pumpTheme.themeToggle.title}`,
+);
+
 console.log("\n# call codec + scroll maths (rust)");
 const codec = await page.evaluate(async () => {
   const video = await invoke("ui_video_config");

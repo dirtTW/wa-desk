@@ -790,7 +790,7 @@ fn media_label(kind: &str) -> Option<&'static str> {
     }
 }
 
-fn media_icon(kind: &str) -> String {
+pub fn media_icon(kind: &str) -> String {
     let name = match kind {
         "image" => "image",
         "video" => "videocam",

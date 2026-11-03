@@ -106,17 +106,26 @@ function setActiveEmojiGroup(index) {
 
 function bindEmojiScroll() {
   const scroll = $("emoji-scroll");
+  let groupScrollQueued = false;
   scroll.addEventListener(
     "scroll",
     () => {
-      if (emojiQuery) return;
-      const titles = [...scroll.querySelectorAll(".emoji-title")];
-      const top = scroll.scrollTop + 8;
-      let current = 0;
-      for (const title of titles) {
-        if (title.offsetTop <= top) current = Number(title.dataset.group);
-      }
-      if (current !== emojiActiveGroup) setActiveEmojiGroup(current);
+      if (emojiQuery || groupScrollQueued) return;
+      // The category maths is wa_ui::emoji::active_group; ask once per frame
+      // instead of per scroll event.
+      groupScrollQueued = true;
+      // setTimeout rather than requestAnimationFrame: rAF is suspended while the
+      // window is hidden/occluded, which would leave the flag stuck on.
+      setTimeout(async () => {
+        groupScrollQueued = false;
+        if (emojiQuery) return;
+        const titles = [...scroll.querySelectorAll(".emoji-title")];
+        const current = await invoke("ui_emoji_active_group", {
+          offsets: titles.map((title) => [Number(title.dataset.group), title.offsetTop]),
+          scrollTop: scroll.scrollTop,
+        }).catch(() => emojiActiveGroup);
+        if (current !== emojiActiveGroup) setActiveEmojiGroup(current);
+      }, 50);
     },
     { passive: true },
   );

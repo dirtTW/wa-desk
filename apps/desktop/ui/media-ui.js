@@ -874,7 +874,7 @@ function markMediaFailed(id, kind) {
 
 /// Retry a media tile that failed or timed out. The Rust side keeps the
 /// protobuf, so another attempt can still succeed once the CDN path is renewed.
-function retryMedia(node) {
+async function retryMedia(node) {
   const id = node.dataset.mediaId;
   const kind = node.dataset.mediaKind || "image";
   if (!id) return;
@@ -882,7 +882,8 @@ function retryMedia(node) {
   node.classList.remove("error", "retry");
   node.removeAttribute("data-failed");
   if (!thumbOf(id)) {
-    node.innerHTML = `<span class="media-icon">${mediaIcon(kind)}</span><span class="media-hint">Loading ${
+    const icon = await mediaIcon(kind);
+    node.innerHTML = `<span class="media-icon">${icon}</span><span class="media-hint">Loading ${
       MEDIA_LABELS[kind] || "media"
     }...</span>`;
   }

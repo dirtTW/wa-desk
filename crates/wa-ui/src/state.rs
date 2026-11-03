@@ -465,6 +465,51 @@ pub fn contact_rename_plan(updates: &[(String, String)], chats: &[ContactChatVie
     plan
 }
 
+/// Profile photos are fetched a few at a time, like WhatsApp Web.
+pub const PHOTO_CONCURRENCY: usize = 3;
+/// A failed profile photo is retried after this long instead of being hidden
+/// for the rest of the session.
+pub const PHOTO_RETRY_MS: i64 = 120_000;
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PhotoPump {
+    /// The JIDs whose fetch should start now.
+    pub start: Vec<String>,
+    /// How many remain in flight after starting them.
+    pub in_flight: usize,
+    /// How many are still waiting behind them.
+    pub waiting: usize,
+}
+
+/// Fill the photo fetcher up to its concurrency limit.
+pub fn photo_pump(
+    queue: &[String],
+    in_flight: usize,
+    connected: bool,
+    concurrency: usize,
+) -> PhotoPump {
+    if !connected || concurrency == 0 {
+        return PhotoPump {
+            start: Vec::new(),
+            in_flight,
+            waiting: queue.len(),
+        };
+    }
+    let free = concurrency.saturating_sub(in_flight);
+    let take = free.min(queue.len());
+    PhotoPump {
+        start: queue.iter().take(take).cloned().collect(),
+        in_flight: in_flight + take,
+        waiting: queue.len() - take,
+    }
+}
+
+/// Only a real CDN URL may be cached; anything else (empty, a stale `data:` or
+/// `blob:` blob) would be persisted and then fail to paint on the next start.
+pub fn photo_result_ok(url: &str) -> bool {
+    url.starts_with("http")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,6 +574,41 @@ mod tests {
         b.deleted = false;
         let plan = merge_plan(&[a, b]);
         assert!(!plan.ops[0].deleted);
+    }
+
+    #[test]
+    fn photo_pump_fills_the_concurrency_window() {
+        let queue: Vec<String> = (0..5).map(|i| format!("p{i}")).collect();
+        let pump = photo_pump(&queue, 0, true, PHOTO_CONCURRENCY);
+        assert_eq!(pump.start, vec!["p0", "p1", "p2"]);
+        assert_eq!(pump.in_flight, 3);
+        assert_eq!(pump.waiting, 2);
+
+        // Two already running: only one slot is free.
+        let pump = photo_pump(&queue, 2, true, PHOTO_CONCURRENCY);
+        assert_eq!(pump.start, vec!["p0"]);
+        assert_eq!(pump.in_flight, 3);
+
+        // Full or offline: nothing starts.
+        assert!(
+            photo_pump(&queue, 3, true, PHOTO_CONCURRENCY)
+                .start
+                .is_empty()
+        );
+        let offline = photo_pump(&queue, 0, false, PHOTO_CONCURRENCY);
+        assert!(offline.start.is_empty());
+        assert_eq!(offline.waiting, 5);
+        assert!(photo_pump(&[], 0, true, PHOTO_CONCURRENCY).start.is_empty());
+    }
+
+    #[test]
+    fn only_http_photo_urls_are_cached() {
+        assert!(photo_result_ok("https://pps.whatsapp.net/x.jpg"));
+        assert!(photo_result_ok("http://pps/x.jpg"));
+        assert!(!photo_result_ok(""));
+        assert!(!photo_result_ok("blob:abc"));
+        assert!(!photo_result_ok("data:image/jpeg;base64,AA"));
+        assert_eq!(PHOTO_RETRY_MS, 120_000);
     }
 
     #[test]

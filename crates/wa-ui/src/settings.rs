@@ -580,6 +580,44 @@ pub fn render(req: &SettingsRequest) -> SettingsOutput {
     }
 }
 
+/// The label for a stored theme preference.
+pub fn theme_label(preference: &str) -> &'static str {
+    match preference {
+        "light" => "Light",
+        "dark" => "Dark",
+        _ => "System default",
+    }
+}
+
+/// The theme actually painted: an explicit choice wins, otherwise the OS.
+pub fn resolve_theme(preference: &str, system_dark: bool) -> &'static str {
+    match preference {
+        "light" => "light",
+        "dark" => "dark",
+        _ => {
+            if system_dark {
+                "dark"
+            } else {
+                "light"
+            }
+        }
+    }
+}
+
+/// The toggle shows the theme you would switch **to**, like the official client.
+pub fn theme_toggle_label(resolved: &str) -> &'static str {
+    if resolved == "dark" { "Light" } else { "Dark" }
+}
+
+/// The Material icon the toggle shows.
+pub fn theme_toggle_icon(resolved: &str) -> &'static str {
+    if resolved == "dark" {
+        "light_mode"
+    } else {
+        "dark_mode"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,6 +653,28 @@ mod tests {
             },
             with_avatar: true,
         }
+    }
+
+    #[test]
+    fn theme_resolution_and_toggle_labels() {
+        assert_eq!(theme_label("light"), "Light");
+        assert_eq!(theme_label("dark"), "Dark");
+        assert_eq!(theme_label("system"), "System default");
+        assert_eq!(theme_label(""), "System default");
+
+        assert_eq!(
+            resolve_theme("light", true),
+            "light",
+            "an explicit choice wins"
+        );
+        assert_eq!(resolve_theme("dark", false), "dark");
+        assert_eq!(resolve_theme("system", true), "dark");
+        assert_eq!(resolve_theme("system", false), "light");
+
+        assert_eq!(theme_toggle_label("dark"), "Light");
+        assert_eq!(theme_toggle_label("light"), "Dark");
+        assert_eq!(theme_toggle_icon("dark"), "light_mode");
+        assert_eq!(theme_toggle_icon("light"), "dark_mode");
     }
 
     #[test]

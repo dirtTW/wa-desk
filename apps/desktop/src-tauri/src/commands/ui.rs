@@ -151,6 +151,101 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// The Material glyph for a media kind.
+#[tauri::command]
+pub fn ui_media_icon(kind: String) -> String {
+    wa_ui::chat::media_icon(&kind)
+}
+
+/// The 11 official avatar tint pairs `(background, foreground)`.
+#[tauri::command]
+pub fn ui_avatar_palette() -> Vec<(String, String)> {
+    wa_ui::html::avatar_palette()
+}
+
+/// The two-person group glyph for an avatar with no photo.
+#[tauri::command]
+pub fn ui_group_avatar_icon() -> String {
+    wa_ui::html::GROUP_AVATAR_ICON.to_string()
+}
+
+/// The avatar tint for a display name.
+#[tauri::command]
+pub fn ui_avatar_style(name: String) -> String {
+    wa_ui::html::avatar_style(&name)
+}
+
+/// Initials for a display name.
+#[tauri::command]
+pub fn ui_initials(name: String) -> String {
+    wa_ui::html::initials(&name)
+}
+
+/// Whether a JID is one of the account's own ids.
+#[tauri::command]
+pub fn ui_is_self_jid(jid: String, me_jid: String, me_lid: String) -> bool {
+    wa_ui::text::is_self_jid(&jid, &me_jid, &me_lid)
+}
+
+/// How many profile-photo fetches to start, given the queue and in-flight count.
+#[tauri::command]
+pub fn ui_photo_pump(
+    queue: Vec<String>,
+    in_flight: usize,
+    connected: bool,
+    concurrency: Option<usize>,
+) -> wa_ui::state::PhotoPump {
+    wa_ui::state::photo_pump(
+        &queue,
+        in_flight,
+        connected,
+        concurrency.unwrap_or(wa_ui::state::PHOTO_CONCURRENCY),
+    )
+}
+
+/// Whether a fetched photo URL may be cached (only real CDN URLs).
+#[tauri::command]
+pub fn ui_photo_result_ok(url: String) -> bool {
+    wa_ui::state::photo_result_ok(&url)
+}
+
+/// The emoji category that should be highlighted while the picker scrolls.
+#[tauri::command]
+pub fn ui_emoji_active_group(
+    offsets: Vec<(usize, f64)>,
+    scroll_top: f64,
+    pad: Option<f64>,
+) -> usize {
+    wa_ui::emoji::active_group(&offsets, scroll_top, pad.unwrap_or(8.0))
+}
+
+/// The label for a stored theme preference.
+#[tauri::command]
+pub fn ui_theme_label(preference: String) -> String {
+    wa_ui::settings::theme_label(&preference).to_string()
+}
+
+/// The theme actually painted (explicit choice or the OS setting).
+#[tauri::command]
+pub fn ui_theme_resolve(preference: String, system_dark: bool) -> String {
+    wa_ui::settings::resolve_theme(&preference, system_dark).to_string()
+}
+
+/// The theme toggle's label and icon.
+#[tauri::command]
+pub fn ui_theme_toggle(resolved: String) -> ThemeToggle {
+    ThemeToggle {
+        label: wa_ui::settings::theme_toggle_label(&resolved).to_string(),
+        icon: wa_ui::settings::theme_toggle_icon(&resolved).to_string(),
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct ThemeToggle {
+    pub label: String,
+    pub icon: String,
+}
+
 /// The H.264 encoder/decoder configuration for calls.
 #[tauri::command]
 pub fn ui_video_config() -> wa_ui::calls::VideoConfig {
