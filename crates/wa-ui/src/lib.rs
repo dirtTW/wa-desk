@@ -13,6 +13,7 @@ pub mod cache;
 pub mod chat;
 pub mod chat_actions;
 pub mod composer;
+pub mod context;
 pub mod emoji;
 pub mod export;
 pub mod history;
@@ -40,6 +41,7 @@ pub use chat_actions::{
     ChatActionInput, ChatActionPlan, DeleteCommand, DeleteTarget, InfoRow, MessageInfoInput,
 };
 pub use composer::{EmojiPanel, StatusPalette};
+pub use context::{ContextLine, ContextMessage, MediaLimits, StickerCandidate};
 pub use emoji::{EmojiGroupView, EmojiItem};
 pub use export::{ExistingMessage, ExportMessage, ImportPlan};
 pub use history::{AnchorRequest, HistoryChat};

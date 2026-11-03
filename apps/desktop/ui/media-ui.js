@@ -2,10 +2,22 @@
 
 /* --------------------------------------------------------- video posters */
 
-const MAX_THUMBS = 240;
-// Sampled video frames are far bigger than the inline JPEGs, so they get their
-// own, smaller budget.
-const MAX_VIDEO_POSTERS = 120;
+// The cache budgets and timeouts come from wa_ui::context.
+const mediaLimits = {
+  max_thumbs: 240,
+  max_video_posters: 120,
+  load_timeout_ms: 12000,
+  sticker_timeout_ms: 1200,
+  root_margin: "300px 0px",
+  poster_width: 480,
+  poster_quality: 0.72,
+  poster_timeout_ms: 12000,
+};
+invoke("ui_media_limits")
+  .then((limits) => {
+    Object.assign(mediaLimits, limits);
+  })
+  .catch(() => {});
 
 // Large link-preview thumbnails currently being fetched (one channel re-render
 // must not queue several downloads of the same image).
@@ -44,7 +56,7 @@ function ensureThumb(id) {
     .then((data) => {
       if (!data) return;
       state.thumbs.set(id, data);
-      while (state.thumbs.size > MAX_THUMBS) {
+      while (state.thumbs.size > mediaLimits.max_thumbs) {
         const oldest = state.thumbs.keys().next().value;
         if (oldest === undefined) break;
         state.thumbs.delete(oldest);
@@ -128,33 +140,34 @@ function captureVideoPoster(id) {
 
   probe.addEventListener(
     "loadedmetadata",
-    () => {
+    async () => {
       const duration = Number.isFinite(probe.duration) ? probe.duration : 0;
-      probe.currentTime = Math.min(1.5, Math.max(0.05, duration * 0.08));
+      probe.currentTime = await invoke("ui_poster_seek", { duration }).catch(() => 0.2);
     },
     { once: true },
   );
   probe.addEventListener(
     "seeked",
-    () => {
+    async () => {
       try {
         // Wide enough for the 420 px chat box and the filmstrip; the clip is
         // local by this point, so one frame costs nothing.
-        const width = 480;
-        const height = Math.max(
-          1,
-          Math.round((probe.videoHeight / probe.videoWidth) * width) || 180,
-        );
+        const width = mediaLimits.poster_width;
+        const height = await invoke("ui_poster_height", {
+          width,
+          videoWidth: Number(probe.videoWidth) || 0,
+          videoHeight: Number(probe.videoHeight) || 0,
+        }).catch(() => 180);
         const canvas = document.createElement("canvas");
         canvas.width = width;
         canvas.height = height;
         const context = canvas.getContext("2d");
         if (!context) throw new Error("no 2d context");
         context.drawImage(probe, 0, 0, width, height);
-        const data = canvas.toDataURL("image/jpeg", 0.72);
+        const data = canvas.toDataURL("image/jpeg", mediaLimits.poster_quality);
         if (data && data.startsWith("data:image/")) {
           state.videoPosters.set(id, data);
-          while (state.videoPosters.size > MAX_VIDEO_POSTERS) {
+          while (state.videoPosters.size > mediaLimits.max_video_posters) {
             const oldest = state.videoPosters.keys().next().value;
             if (oldest === undefined) break;
             state.videoPosters.delete(oldest);
@@ -170,7 +183,7 @@ function captureVideoPoster(id) {
     { once: true },
   );
   probe.addEventListener("error", cleanup, { once: true });
-  timer = setTimeout(cleanup, 12000);
+  timer = setTimeout(cleanup, mediaLimits.poster_timeout_ms);
   probe.src = cached.url;
 }
 
@@ -708,8 +721,6 @@ async function revealDocument(id) {
 
 // A stalled CDN request should become a retryable tile instead of an endless
 // "Loading photo..." spinner.
-const MEDIA_LOAD_TIMEOUT_MS = 12000;
-
 // Independent per-message watchdog: even if the invoke promise never settles
 // (a 30 s media-reupload wait on WhatsApp's side), the tile turns into a
 // retryable state after the timeout.
@@ -724,7 +735,7 @@ function armMediaWatchdog(id, kind) {
       if (state.media.get(id)?.status !== "loading") return;
       state.media.set(id, { status: "error", message: "the download timed out" });
       markMediaFailed(id, kind);
-    }, MEDIA_LOAD_TIMEOUT_MS),
+    }, mediaLimits.load_timeout_ms),
   );
 }
 
@@ -745,7 +756,7 @@ function ensureMediaObserver() {
         loadMedia(node.dataset.mediaId, node.dataset.mediaKind, node);
       }
     },
-    { root: $("messages"), rootMargin: "300px 0px" },
+    { root: $("messages"), rootMargin: mediaLimits.root_margin },
   );
   return mediaObserver;
 }
@@ -804,7 +815,7 @@ async function loadMedia(id, kind, node) {
       new Promise((_, reject) => {
         setTimeout(
           () => reject(new Error("the download is taking too long")),
-          MEDIA_LOAD_TIMEOUT_MS,
+          mediaLimits.load_timeout_ms,
         );
       }),
     ]);
@@ -970,7 +981,7 @@ function hydrateLinkThumbs(box) {
       .then((data) => {
         if (data) {
           state.thumbs.set(`link:${id}`, data);
-          while (state.thumbs.size > MAX_THUMBS) {
+          while (state.thumbs.size > mediaLimits.max_thumbs) {
             state.thumbs.delete(state.thumbs.keys().next().value);
           }
           apply(data);

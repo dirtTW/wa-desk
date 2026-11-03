@@ -151,6 +151,48 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// The bounded AI transcript for one chat.
+#[tauri::command]
+pub fn ui_ai_context(
+    messages: Vec<wa_ui::context::ContextMessage>,
+    limit: usize,
+) -> Vec<wa_ui::context::ContextLine> {
+    wa_ui::context::ai_context(&messages, limit)
+}
+
+/// Recent sticker ids (deduped, newest first, capped).
+#[tauri::command]
+pub fn ui_recent_stickers(
+    candidates: Vec<wa_ui::context::StickerCandidate>,
+    limit: usize,
+) -> Vec<String> {
+    wa_ui::context::recent_stickers(&candidates, limit)
+}
+
+/// Sticker ids whose media is cached, for the AI.
+#[tauri::command]
+pub fn ui_ai_sticker_ids(ids: Vec<String>, ready: Vec<String>, limit: usize) -> Vec<String> {
+    wa_ui::context::ai_sticker_ids(&ids, &ready, limit)
+}
+
+/// Media hydration limits and poster sampling parameters.
+#[tauri::command]
+pub fn ui_media_limits() -> wa_ui::context::MediaLimits {
+    wa_ui::context::media_limits()
+}
+
+/// Where to seek when sampling a video poster.
+#[tauri::command]
+pub fn ui_poster_seek(duration: f64) -> f64 {
+    wa_ui::context::poster_seek_seconds(duration)
+}
+
+/// The poster canvas height for a width.
+#[tauri::command]
+pub fn ui_poster_height(width: u32, video_width: f64, video_height: f64) -> u32 {
+    wa_ui::context::poster_height(width, video_width, video_height)
+}
+
 /// What the composer's send button does.
 #[tauri::command]
 pub fn ui_send_plan(

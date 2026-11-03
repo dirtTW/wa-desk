@@ -11,12 +11,18 @@ let aiStickerSyncTimer = 0;
 
 function syncAiStickers(immediate = false) {
   clearTimeout(aiStickerSyncTimer);
-  const push = () => {
-    const ids = recentStickerMessages()
-      .filter((message) => state.media.get(message.id)?.status === "ready")
-      .slice(0, 80)
-      .map((message) => message.id);
-    invoke("set_ai_stickers", { ids }).catch(() => {});
+  const push = async () => {
+    // Recent-sticker selection and the ready filter are decided by
+    // wa_ui::context.
+    const messages = await recentStickerMessages();
+    const ids = messages.map((message) => message.id);
+    const ready = ids.filter((id) => state.media.get(id)?.status === "ready");
+    const chosen = await invoke("ui_ai_sticker_ids", {
+      ids,
+      ready,
+      limit: 80,
+    }).catch(() => []);
+    invoke("set_ai_stickers", { ids: chosen }).catch(() => {});
   };
   if (immediate) push();
   else aiStickerSyncTimer = setTimeout(push, 800);
@@ -37,51 +43,50 @@ function scheduleAiContext() {
 
 // Seed the backend with a short, bounded transcript so the AI knows what the
 // chat was about even after an app restart.
-function syncAiContext(chat) {
+async function syncAiContext(chat) {
   const entry = state.chats.get(chat);
   if (!entry) return;
-  const lines = entry.messages
-    .filter(
-      (message) =>
-        !message.deleted &&
-        !message.deletedForMe &&
-        !message.cleared,
-    )
-    .slice(-24)
-    .map((message) => {
-      const text = (message.text || "").trim();
-      return {
-        id: message.id,
-        sender: message.from_me
-          ? "Gw"
-          : message.sender_name ||
-            message.sender_user ||
-            "Mereka",
-        text: text || (message.kind !== "text" ? `[${MEDIA_LABELS[message.kind] || "Media"}]` : ""),
-        timestamp: message.timestamp || 0,
-      };
-    })
-    .filter((line) => line.id && line.text);
-  if (lines.length === 0) return;
+  // Visibility, the 24-line window, senders and media placeholders are decided
+  // by wa_ui::context.
+  const lines = await invoke("ui_ai_context", {
+    messages: entry.messages.map((message) => ({
+      id: String(message.id || ""),
+      text: String(message.text || ""),
+      kind: message.kind || "text",
+      from_me: Boolean(message.from_me),
+      sender_name: message.sender_name || "",
+      sender_user: message.sender_user || "",
+      timestamp: message.timestamp || 0,
+      deleted: Boolean(message.deleted),
+      deleted_for_me: Boolean(message.deletedForMe),
+      cleared: Boolean(message.cleared),
+    })),
+    limit: 24,
+  }).catch(() => []);
+  if (!lines.length) return;
   invoke("set_ai_context", { chat, lines }).catch(() => {});
 }
 
 // Recent stickers are the sticker messages in the local cache; tapping one
 // forwards it, which is how WhatsApp's recent-sticker row behaves.
-function recentStickerMessages() {
+async function recentStickerMessages() {
+  // Collect the candidates; wa_ui::context dedupes, filters and sorts them.
   const byId = new Map();
   for (const chat of state.chats.values()) {
     for (const message of chat.messages) {
       if (message.kind !== "sticker") continue;
-      if (String(message.id).startsWith("local-")) continue;
-      const existing = byId.get(message.id);
-      if (!existing || existing.timestamp < message.timestamp) byId.set(message.id, message);
+      if (!byId.has(message.id)) byId.set(message.id, message);
     }
   }
-  return [...byId.values()]
-    .filter((message) => !message.pending)
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, STICKER_RECENT_LIMIT);
+  const ids = await invoke("ui_recent_stickers", {
+    candidates: [...byId.values()].map((message) => ({
+      id: message.id,
+      timestamp: message.timestamp || 0,
+      pending: Boolean(message.pending),
+    })),
+    limit: STICKER_RECENT_LIMIT,
+  }).catch(() => []);
+  return ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
 async function mapLimit(items, limit, fn) {
@@ -262,7 +267,7 @@ async function loadRecentStickers(force = false) {
   if (!force && !stickerDirty && $("sticker-grid").childElementCount > 0) return;
 
   const token = ++stickerLoadToken;
-  const messages = recentStickerMessages();
+  const messages = await recentStickerMessages();
   stickerDirty = false;
 
   if (messages.length === 0) {

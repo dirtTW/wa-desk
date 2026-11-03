@@ -460,6 +460,47 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# context + hydration (rust)");
+const ctx = await page.evaluate(async () => {
+  const limits = await invoke("ui_media_limits");
+  const seek = await invoke("ui_poster_seek", { duration: 10 });
+  const height = await invoke("ui_poster_height", { width: 480, videoWidth: 1920, videoHeight: 1080 });
+  const context = await invoke("ui_ai_context", {
+    messages: [
+      { id: "m1", text: "halo", kind: "text", from_me: false, sender_name: "Budi", timestamp: 1 },
+      { id: "m2", text: "", kind: "image", from_me: true, timestamp: 2 },
+      { id: "m3", text: "secret", kind: "text", from_me: false, deleted: true, timestamp: 3 },
+    ],
+    limit: 24,
+  });
+  const recent = await invoke("ui_recent_stickers", {
+    candidates: [
+      { id: "a", timestamp: 10, pending: false },
+      { id: "a", timestamp: 30, pending: false },
+      { id: "local-1", timestamp: 40, pending: false },
+      { id: "b", timestamp: 20, pending: true },
+    ],
+    limit: 80,
+  });
+  const aiStickers = await invoke("ui_ai_sticker_ids", {
+    ids: ["a", "b", "c"],
+    ready: ["b", "c"],
+    limit: 80,
+  });
+  document.getElementById("emoji-panel").hidden = false;
+  setStickerTab("recent");
+  await new Promise((r) => setTimeout(r, 2000));
+  const cells = document.querySelectorAll("#sticker-grid .sticker-cell").length;
+  document.getElementById("emoji-panel").hidden = true;
+  return { limits, seek, height, context, recent, aiStickers, cells };
+});
+check("the media limits render", ctx.limits.max_thumbs === 240 && ctx.limits.load_timeout_ms === 12000 && ctx.limits.root_margin === "300px 0px", JSON.stringify(ctx.limits));
+check("poster sampling maths render", ctx.seek === 0.8 && ctx.height === 270, `${ctx.seek}s @ ${ctx.height}px`);
+check("the AI context is bounded and labelled", ctx.context.length === 2 && ctx.context[1].sender === "Gw" && ctx.context[1].text === "[Photo]", JSON.stringify(ctx.context));
+check("recent stickers dedupe", ctx.recent.length === 1 && ctx.recent[0] === "a", ctx.recent.join(","));
+check("AI stickers need cached media", ctx.aiStickers.join(",") === "b,c", ctx.aiStickers.join(","));
+check("the sticker grid still renders", ctx.cells > 0, `${ctx.cells} cells`);
+
 console.log("\n# store plans (rust)");
 const storePlans2 = await page.evaluate(async () => {
   const sendText = await invoke("ui_send_plan", { isChannel: false, hasDraft: false, editing: false, text: " hello " });

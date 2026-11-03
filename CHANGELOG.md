@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.18] — 2026-11-03
+
+- **AI context and sticker selection moved to Rust.** `wa_ui::context` builds
+  the bounded transcript (visible messages only, newest 24, `Gw` for our own
+  turns, sender name → user → `Mereka`, `[Photo]`-style placeholders for media,
+  lines without an id/text dropped), dedupes the recent-sticker list (newest
+  copy per id, no `local-` optimistic bubbles, no pending ones, capped at 80)
+  and filters AI sticker ids to those whose media is cached.
+  Commands `ui_ai_context`, `ui_recent_stickers`, `ui_ai_sticker_ids`.
+- **Media hydration limits moved to Rust.** `ui_media_limits` returns the cache
+  budgets (240 thumbnails, 120 sampled posters), the 12 s download/watchdog
+  timeout, the 1.2 s sticker timeout, the 300 px observer margin, the poster
+  width/quality/timeout; `ui_poster_seek` (8% into the clip, clamped 0.05–1.5 s)
+  and `ui_poster_height` (aspect-correct, 180 px fallback) drive frame sampling.
+  `stickers.js` and `media-ui.js` now read those instead of their own constants.
+- 5 new `wa-ui` unit tests (146 total, plus 3 contract) and a
+  context/hydration CDP e2e section: limits, poster maths, the labelled
+  context, sticker dedupe, the cached-only AI filter and the grid still
+  rendering (37 cells).
+
 ## [0.2.0-rc.17] — 2026-11-03
 
 - **Composer, seeding and peer-alias plans moved to Rust.**
