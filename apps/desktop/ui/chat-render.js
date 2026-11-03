@@ -1,13 +1,24 @@
 /* WA Desk frontend: chat-render. Loaded in order by index.html; all files share the classic-script global scope. */
 
 let lastRenderedChat = null;
-const SCROLL_BOTTOM_THRESHOLD = 120;
+// Mirrors wa_ui::scroll constants; queried once at boot so the sync scroll
+// handler never awaits.
+let SCROLL_BOTTOM_THRESHOLD = 120;
+let LATEST_BUTTON_GAP_PX = 8;
+invoke("ui_scroll_constants")
+  .then((constants) => {
+    SCROLL_BOTTOM_THRESHOLD = constants.follow_threshold_px;
+    LATEST_BUTTON_GAP_PX = constants.latest_button_gap_px;
+  })
+  .catch(() => {});
 let scrollPumpToken = 0;
 let scrollLatestUnread = false;
 let lastMessageScrollTop = 0;
 let messageMediaObserver = null;
 
 function distanceFromBottom(box) {
+  // Same arithmetic as wa_ui::scroll::distance_from_bottom (kept sync: this runs
+  // on every scroll event and inside repaint decisions).
   return box.scrollHeight - box.scrollTop - box.clientHeight;
 }
 
@@ -27,7 +38,9 @@ function updateScrollLatestButton() {
 function refreshScrollLatestState(box, distance) {
   const button = $("scroll-latest");
   if (!button) return;
-  const show = box.childElementCount > 0 && distance > 8;
+  // The disc rule is wa_ui::scroll::show_latest_button (kept sync for the
+  // scroll handler); the thresholds are mirrored from that module.
+  const show = box.childElementCount > 0 && distance > LATEST_BUTTON_GAP_PX;
   button.hidden = !show;
   const dot = $("scroll-latest-dot");
   if (dot) dot.hidden = !(show && scrollLatestUnread);
@@ -385,7 +398,13 @@ async function renderChat() {
     scrollToLatest();
   } else if (anchor) {
     const node = box.querySelector(`[data-id="${CSS.escape(anchor.id)}"]`);
-    box.scrollTop = node ? Math.max(0, node.offsetTop - anchor.offset) : previousScrollTop;
+    box.scrollTop = node
+      ? await invoke("ui_scroll_anchor", {
+          nodeOffset: node.offsetTop,
+          anchorOffset: anchor.offset,
+          fallback: previousScrollTop,
+        }).catch(() => Math.max(0, node.offsetTop - anchor.offset))
+      : previousScrollTop;
   } else {
     box.scrollTop = previousScrollTop;
   }

@@ -4,6 +4,29 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.25] — 2026-11-03
+
+- **The call codec and audio constants moved to Rust.** `wa_ui::calls` now owns
+  the H.264 profile (`avc1.42E01F`), 640×480 @ 15 fps / 700 kbps with Annex-B
+  and the 30-frame keyframe interval (`ui_video_config`, `ui_is_keyframe`), the
+  16 kHz / 960-sample (60 ms) audio frame (`ui_audio_format`), the float→i16
+  conversion (`ui_pcm_sample`) and the jitter-buffer window: start 60 ms out,
+  reset when the peer is under 20 ms behind or over 600 ms ahead
+  (`ui_audio_schedule`). `calls.js` fetches the config once and its encoder,
+  decoder and audio scheduler read it; `isKeyframe` uses the Rust interval.
+- **The in-chat scroll maths moved to Rust.** `wa_ui::scroll` has
+  `distance_from_bottom`, `is_following` (120 px), `show_latest_button` (needs
+  content and a > 8 px gap) and `anchor_scroll_top` (never negative, falls back
+  to the previous position when metrics are missing). Commands
+  `ui_scroll_distance`, `ui_scroll_following`, `ui_scroll_latest_visible`,
+  `ui_scroll_anchor` and `ui_scroll_constants` (so the synchronous scroll
+  handler mirrors the thresholds without awaiting per event); the anchored
+  repaint asks Rust where to land.
+- 6 new `wa-ui` unit tests (175 total, plus 3 contract) and a codec/scroll CDP
+  e2e section: the video config, the keyframe cadence, the audio frame, the
+  jitter-buffer resets, symmetric PCM, the scroll thresholds and a live chat
+  that still sticks to the newest message (221 bubbles, `stickBottom = 1`).
+
 ## [0.2.0-rc.24] — 2026-11-03
 
 - **The composer's media-send pipeline is planned in Rust.**

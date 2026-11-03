@@ -17,6 +17,39 @@ function callDisplayName(peer) {
   return phone ? `+${phone}` : peer;
 }
 
+// The H.264 profile, frame size and audio format come from wa_ui::calls.
+let callVideoConfig = {
+  codec: "avc1.42E01F",
+  width: 640,
+  height: 480,
+  bitrate: 700000,
+  framerate: 15,
+  avc_format: "annexb",
+  keyframe_interval: 30,
+};
+let callAudioFormat = { sample_rate: 16000, frame_samples: 960 };
+invoke("ui_video_config")
+  .then((config) => {
+    callVideoConfig = config;
+  })
+  .catch(() => {});
+invoke("ui_audio_format")
+  .then((format) => {
+    callAudioFormat = format;
+  })
+  .catch(() => {});
+
+function videoEncoderConfig() {
+  return {
+    codec: callVideoConfig.codec,
+    width: callVideoConfig.width,
+    height: callVideoConfig.height,
+    bitrate: callVideoConfig.bitrate,
+    framerate: callVideoConfig.framerate,
+    avc: { format: callVideoConfig.avc_format },
+  };
+}
+
 function setCallStatus(text) {
   $("call-status").textContent = text;
 }
@@ -110,14 +143,7 @@ async function hasVideoInputs() {
     if (typeof VideoEncoder !== "function") return false;
     const devices = await navigator.mediaDevices.enumerateDevices();
     if (!devices.some((device) => device.kind === "videoinput")) return false;
-    const support = await VideoEncoder.isConfigSupported({
-      codec: "avc1.42E01F",
-      width: 640,
-      height: 480,
-      bitrate: 700000,
-      framerate: 15,
-      avc: { format: "annexb" },
-    });
+    const support = await VideoEncoder.isConfigSupported(videoEncoderConfig());
     return Boolean(support.supported);
   } catch {
     return false;
@@ -308,14 +334,8 @@ async function startVideoEncode(track) {
     $("call-local-video").hidden = true;
     return;
   }
-  const config = {
-    codec: "avc1.42E01F",
-    width: 640,
-    height: 480,
-    bitrate: 700000,
-    framerate: 15,
-    avc: { format: "annexb" },
-  };
+  // The codec, frame size, bitrate and keyframe interval come from Rust.
+  const config = videoEncoderConfig();
   const support = await VideoEncoder.isConfigSupported(config);
   if (!support.supported || !callMedia) return;
   const encoder = new VideoEncoder({
@@ -338,7 +358,7 @@ async function startVideoEncode(track) {
         const { value: frame, done } = await reader.read();
         if (done) break;
         try {
-          encoder.encode(frame, { keyFrame: frameNumber++ % 30 === 0 });
+          encoder.encode(frame, { keyFrame: isKeyframe(frameNumber++) });
         } finally {
           frame.close();
         }
@@ -347,6 +367,12 @@ async function startVideoEncode(track) {
       /* camera stopped */
     }
   })();
+}
+
+// The encoder emits a keyframe every N frames; N comes from wa_ui::calls.
+// N comes from wa_ui::calls::video_config (30 frames by default).
+function isKeyframe(frameNumber) {
+  return frameNumber % (callVideoConfig.keyframe_interval || 30) === 0;
 }
 
 function startVideoDecode() {
@@ -380,28 +406,34 @@ function startVideoDecode() {
     },
     error: () => {},
   });
-  decoder.configure({ codec: "avc1.42E01F", avc: { format: "annexb" } });
+  decoder.configure({
+    codec: callVideoConfig.codec,
+    avc: { format: callVideoConfig.avc_format },
+  });
   if (callMedia) {
     callMedia.decoder = decoder;
     callMedia.decoderKeySeen = false;
   }
 }
 
-function playCallAudio(samples) {
+async function playCallAudio(samples) {
   const media = callMedia;
   if (!media?.context || !samples?.length) return;
-  const buffer = media.context.createBuffer(1, samples.length, 16000);
+  const buffer = media.context.createBuffer(1, samples.length, callAudioFormat.sample_rate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < samples.length; i += 1) data[i] = samples[i] / 32768;
   const source = media.context.createBufferSource();
   source.buffer = buffer;
   source.connect(media.context.destination);
+  // The jitter-buffer window is wa_ui::calls::next_play_time.
   const now = media.context.currentTime;
-  if (!media.nextPlay || media.nextPlay < now + 0.02 || media.nextPlay > now + 0.6) {
-    media.nextPlay = now + 0.06;
-  }
-  source.start(media.nextPlay);
-  media.nextPlay += buffer.duration;
+  const [startAt, next] = await invoke("ui_audio_schedule", {
+    nextPlay: media.nextPlay || 0,
+    now,
+    duration: buffer.duration,
+  }).catch(() => [now + 0.06, now + 0.06 + buffer.duration]);
+  media.nextPlay = next;
+  source.start(startAt);
 }
 
 function playCallVideo(data, keyframe) {

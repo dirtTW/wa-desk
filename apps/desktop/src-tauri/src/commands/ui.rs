@@ -151,6 +151,69 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// The H.264 encoder/decoder configuration for calls.
+#[tauri::command]
+pub fn ui_video_config() -> wa_ui::calls::VideoConfig {
+    wa_ui::calls::video_config()
+}
+
+/// Whether a frame index must be encoded as a keyframe.
+#[tauri::command]
+pub fn ui_is_keyframe(frame_number: u32, interval: Option<u32>) -> bool {
+    wa_ui::calls::is_keyframe(
+        frame_number,
+        interval.unwrap_or(wa_ui::calls::VIDEO_KEYFRAME_INTERVAL),
+    )
+}
+
+/// The call audio format (16 kHz mono, 960 samples per frame).
+#[tauri::command]
+pub fn ui_audio_format() -> wa_ui::calls::AudioFormat {
+    wa_ui::calls::audio_format()
+}
+
+/// The jitter-buffer decision for the next remote audio buffer.
+#[tauri::command]
+pub fn ui_audio_schedule(next_play: f64, now: f64, duration: f64) -> (f64, f64) {
+    wa_ui::calls::next_play_time(next_play, now, duration)
+}
+
+/// Float sample to signed 16-bit, one value per call (the worklet batches).
+#[tauri::command]
+pub fn ui_pcm_sample(sample: f64) -> i16 {
+    wa_ui::calls::pcm_i16(sample as f32)
+}
+
+/// The chat scroll metrics: distance from the bottom.
+#[tauri::command]
+pub fn ui_scroll_distance(scroll_height: f64, scroll_top: f64, client_height: f64) -> f64 {
+    wa_ui::scroll::distance_from_bottom(scroll_height, scroll_top, client_height)
+}
+
+/// The scroll thresholds the webview's synchronous handler mirrors.
+#[tauri::command]
+pub fn ui_scroll_constants() -> wa_ui::scroll::ScrollConstants {
+    wa_ui::scroll::constants()
+}
+
+/// Whether a repaint should stick to the newest message.
+#[tauri::command]
+pub fn ui_scroll_following(distance: f64) -> bool {
+    wa_ui::scroll::is_following(distance)
+}
+
+/// Whether the floating "jump to latest" disc shows.
+#[tauri::command]
+pub fn ui_scroll_latest_visible(child_count: usize, distance: f64) -> bool {
+    wa_ui::scroll::show_latest_button(child_count, distance)
+}
+
+/// Where to scroll to keep an anchored bubble in place after a repaint.
+#[tauri::command]
+pub fn ui_scroll_anchor(node_offset: f64, anchor_offset: f64, fallback: f64) -> f64 {
+    wa_ui::scroll::anchor_scroll_top(node_offset, anchor_offset, fallback)
+}
+
 /// Which caption each file of a media draft sends with.
 #[tauri::command]
 pub fn ui_draft_send_plan(count: usize, caption: String) -> Vec<wa_ui::actions::SendItem> {

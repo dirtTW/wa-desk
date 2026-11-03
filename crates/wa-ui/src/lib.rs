@@ -26,6 +26,7 @@ pub mod media;
 pub mod menus;
 pub mod picker;
 pub mod screens;
+pub mod scroll;
 pub mod search;
 pub mod settings;
 pub mod sidebar;
@@ -59,6 +60,7 @@ pub use menus::{
 };
 pub use picker::{PickerChat, PickerOutput, PickerRequest};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
+pub use scroll::{anchor_scroll_top, distance_from_bottom, is_following, show_latest_button};
 pub use search::{SearchLabel, count_label, matched_indices};
 pub use settings::{SettingsOutput, SettingsRequest};
 pub use sidebar::{SidebarChat, SidebarOutput, SidebarRequest};

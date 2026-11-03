@@ -1,5 +1,6 @@
 // Captures microphone PCM as 960-sample (60 ms) mono frames at the context's
-// sample rate. The main thread creates the context at 16 kHz.
+// sample rate. The main thread creates the context at 16 kHz
+// (wa_ui::calls::AUDIO_FRAME_SAMPLES / AUDIO_SAMPLE_RATE).
 class CallMicProcessor extends AudioWorkletProcessor {
   constructor() {
     super();

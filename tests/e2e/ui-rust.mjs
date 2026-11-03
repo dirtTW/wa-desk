@@ -460,6 +460,96 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# call codec + scroll maths (rust)");
+const codec = await page.evaluate(async () => {
+  const video = await invoke("ui_video_config");
+  const keyframe = {
+    zero: await invoke("ui_is_keyframe", { frameNumber: 0 }),
+    mid: await invoke("ui_is_keyframe", { frameNumber: 29 }),
+    every30: await invoke("ui_is_keyframe", { frameNumber: 30 }),
+  };
+  const audio = await invoke("ui_audio_format");
+  const schedule = {
+    first: await invoke("ui_audio_schedule", { nextPlay: 0, now: 10, duration: 0.06 }),
+    behind: await invoke("ui_audio_schedule", { nextPlay: 10.005, now: 10, duration: 0.06 }),
+    ahead: await invoke("ui_audio_schedule", { nextPlay: 10.7, now: 10, duration: 0.06 }),
+    inWindow: await invoke("ui_audio_schedule", { nextPlay: 10.2, now: 10, duration: 0.06 }),
+  };
+  const pcm = [
+    await invoke("ui_pcm_sample", { sample: 1 }),
+    await invoke("ui_pcm_sample", { sample: -1 }),
+    await invoke("ui_pcm_sample", { sample: 0 }),
+  ];
+  const scroll = {
+    distance: await invoke("ui_scroll_distance", { scrollHeight: 2000, scrollTop: 1400, clientHeight: 600 }),
+    following: await invoke("ui_scroll_following", { distance: 120 }),
+    notFollowing: await invoke("ui_scroll_following", { distance: 121 }),
+    latest: await invoke("ui_scroll_latest_visible", { childCount: 3, distance: 50 }),
+    noLatest: await invoke("ui_scroll_latest_visible", { childCount: 0, distance: 50 }),
+    anchor: await invoke("ui_scroll_anchor", { nodeOffset: 900, anchorOffset: 40, fallback: 0 }),
+    constants: await invoke("ui_scroll_constants"),
+  };
+
+  // Live: a chat still opens and sticks to the bottom through the async anchor.
+  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 5);
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 1400));
+    live = {
+      bubbles: document.querySelectorAll("#messages .bubble").length,
+      stick: document.getElementById("messages").dataset.stickBottom,
+      scrollTop: document.getElementById("messages").scrollTop,
+    };
+  }
+  return { video, keyframe, audio, schedule, pcm, scroll, live };
+});
+check(
+  "the call video config renders",
+  codec.video.codec === "avc1.42E01F" &&
+    codec.video.width === 640 &&
+    codec.video.bitrate === 700000 &&
+    codec.video.keyframe_interval === 30,
+  JSON.stringify(codec.video),
+);
+check(
+  "keyframes every 30 frames",
+  codec.keyframe.zero && !codec.keyframe.mid && codec.keyframe.every30,
+  JSON.stringify(codec.keyframe),
+);
+check(
+  "the audio format matches the wire",
+  codec.audio.sample_rate === 16000 && codec.audio.frame_samples === 960,
+  JSON.stringify(codec.audio),
+);
+check(
+  "the jitter buffer resets out of window",
+  codec.schedule.first[0] === 10.06 &&
+    codec.schedule.behind[0] === 10.06 &&
+    codec.schedule.ahead[0] === 10.06 &&
+    codec.schedule.inWindow[0] === 10.2,
+  JSON.stringify(codec.schedule),
+);
+check("pcm conversion is symmetric", codec.pcm.join(",") === "32767,-32768,0", codec.pcm.join(","));
+check(
+  "the scroll maths render",
+  codec.scroll.distance === 0 &&
+    codec.scroll.following &&
+    !codec.scroll.notFollowing &&
+    codec.scroll.latest &&
+    !codec.scroll.noLatest &&
+    codec.scroll.anchor === 860 &&
+    codec.scroll.constants.follow_threshold_px === 120,
+  JSON.stringify(codec.scroll.constants),
+);
+if (codec.live) {
+  check(
+    "the chat still sticks to the newest message",
+    codec.live.bubbles > 0 && codec.live.stick === "1" && codec.live.scrollTop > 0,
+    JSON.stringify(codec.live),
+  );
+}
+
 console.log("\n# composer send plan (rust)");
 const sendPlan = await page.evaluate(async () => {
   const plan = await invoke("ui_draft_send_plan", { count: 3, caption: "  hello  " });
