@@ -16,6 +16,8 @@ pub struct NativeApp {
     pub events: UnboundedReceiver<UiEvent>,
     pub commands: Sender<Command>,
     pub runtime: tokio::runtime::Handle,
+    /// Results of media downloads, (message id, cached path or error).
+    pub media: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
 }
 
 impl NativeApp {
@@ -23,11 +25,13 @@ impl NativeApp {
         events: UnboundedReceiver<UiEvent>,
         commands: Sender<Command>,
         runtime: tokio::runtime::Handle,
+        media: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
     ) -> Self {
         Self {
             events,
             commands,
             runtime,
+            media,
         }
     }
 }
@@ -41,6 +45,10 @@ pub struct WaDesk {
     /// Rasterised QR code, keyed by the SVG it came from so a rotating code
     /// is decoded once per rotation.
     qr: Option<(String, egui::TextureHandle)>,
+    /// Media download results, drained every frame.
+    media_rx: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
+    /// Decoded media textures, keyed by message id.
+    textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
 }
 
 impl WaDesk {
@@ -52,6 +60,8 @@ impl WaDesk {
             runtime: native.runtime,
             typing_sent: false,
             qr: None,
+            media_rx: native.media,
+            textures: std::collections::HashMap::new(),
         }
     }
 
@@ -59,6 +69,13 @@ impl WaDesk {
         let mut changed = false;
         while let Ok(event) = self.events.try_recv() {
             self.model.apply(&event);
+            changed = true;
+        }
+        while let Ok((id, reply)) = self.media_rx.try_recv() {
+            match reply {
+                Ok(path) => self.model.media_ready(&id, &path),
+                Err(_) => self.model.media_failed(&id),
+            }
             changed = true;
         }
         if changed {
@@ -161,13 +178,27 @@ impl WaDesk {
             });
             ui.separator();
 
+            // Ask for photos that are not on disk yet (one request each).
+            let wanted: Vec<String> = row
+                .messages
+                .iter()
+                .filter(|message| message.kind == "image")
+                .map(|message| message.id.clone())
+                .collect();
+            for id in wanted {
+                if self.model.request_media(&id) {
+                    self.send(Command::FetchMedia { id });
+                }
+            }
+
             let height = ui.available_height() - 54.0;
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
                 .max_height(height.max(120.0))
                 .show(ui, |ui| {
+                    let ctx = ui.ctx().clone();
                     for message in &row.messages {
-                        bubble(ui, &self.model, message);
+                        bubble(ui, &self.model, message, &mut self.textures, &ctx);
                     }
                 });
 
@@ -214,7 +245,13 @@ impl WaDesk {
     }
 }
 
-fn bubble(ui: &mut egui::Ui, model: &Model, message: &MessageView) {
+fn bubble(
+    ui: &mut egui::Ui,
+    model: &Model,
+    message: &MessageView,
+    textures: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    ctx: &egui::Context,
+) {
     let align = if message.from_me {
         egui::Align::Max
     } else {
@@ -229,11 +266,27 @@ fn bubble(ui: &mut egui::Ui, model: &Model, message: &MessageView) {
         header.push_str(&model.bubble_stamp(message));
         ui.label(egui::RichText::new(header).small().weak());
 
-        let body = if message.text.is_empty() {
-            format!("[{}]", message.kind)
-        } else {
-            message.text.clone()
-        };
+        // A photo paints its bytes once wa-core has the file; anything else
+        // falls back to the caption or the kind's word from wa-ui.
+        if message.kind == "image" {
+            if !textures.contains_key(&message.id) {
+                textures.insert(message.id.clone(), decode(ctx, model, message));
+            }
+            if let Some(Some(texture)) = textures.get(&message.id) {
+                let size = texture.size_vec2();
+                let scale = (240.0 / size.x).min(1.0);
+                ui.image((texture.id(), size * scale));
+                if !message.text.trim().is_empty() {
+                    ui.label(
+                        egui::RichText::new(&message.text).color(egui::Color32::from_gray(235)),
+                    );
+                }
+                ui.add_space(3.0);
+                return;
+            }
+        }
+
+        let body = model.bubble_body(message);
         let fill = if message.from_me {
             egui::Color32::from_rgb(20, 77, 55)
         } else {
@@ -366,4 +419,26 @@ impl eframe::App for WaDesk {
         }
         let _ = &self.runtime;
     }
+}
+
+/// Decode a cached media file into a texture: absent while downloading, and
+/// absent when the file is not a readable image.
+fn decode(
+    ctx: &egui::Context,
+    model: &Model,
+    message: &MessageView,
+) -> Option<egui::TextureHandle> {
+    let path = match model.media.get(&message.id) {
+        Some(crate::model::MediaState::Path(path)) => path,
+        _ => return None,
+    };
+    let bytes = std::fs::read(path).ok()?;
+    let image = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+    Some(ctx.load_texture(
+        format!("media-{}", message.id),
+        color,
+        egui::TextureOptions::LINEAR,
+    ))
 }

@@ -43,6 +43,7 @@ fn main() {
 
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<wa_types::UiEvent>();
     let (command_tx, command_rx) = std::sync::mpsc::channel::<model::Command>();
+    let (media_tx, media_rx) = std::sync::mpsc::channel::<(String, Result<String, String>)>();
 
     let store = model::store_path();
     let media = model::media_dir();
@@ -86,6 +87,10 @@ fn main() {
                         Err(err) => tracing::warn!(%err, "pairing code failed"),
                     }
                 }
+                model::Command::FetchMedia { id } => {
+                    let reply = session.fetch_media(&id).await;
+                    let _ = media_tx.send((id, reply));
+                }
                 model::Command::Restart => {
                     // The session reconnects itself; a reconnect is what asks
                     // WhatsApp for a fresh QR.
@@ -105,7 +110,7 @@ fn main() {
         ..Default::default()
     };
 
-    let app = app::NativeApp::new(event_rx, command_tx, handle);
+    let app = app::NativeApp::new(event_rx, command_tx, handle, media_rx);
     if let Err(err) = eframe::run_native(
         "WA Desk",
         options,

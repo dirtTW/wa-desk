@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.53] — 2026-11-03
+
+- **The native window shows media.** A photo bubble decodes the file `wa-core`
+  caches (via the `image` crate) into an `egui` texture, scaled to 240 px with
+  its caption underneath; `video`, `audio`, `document` and `sticker` fall back to
+  a placeholder word. The conversation asks the session for each photo **once**
+  (`Command::FetchMedia` → `Session::fetch_media`), and the result returns on a
+  media channel into `Model::media` as `Loading` / `Path` / `Failed`.
+- `wa_ui::chat::media_placeholder(kind)` is the shared word source ("Photo",
+  "Video", "Document", "Sticker", "Media" fallback), so the two front ends use
+  the same labels.
+- `--selftest` also checks a photo: it labels itself `Photo`, the download is
+  requested exactly once and the cached path lands in the model; the report now
+  carries `"photo_body":"Photo"`.
+- 8 native tests (the new one covers the media lifecycle), 232 `wa-ui` tests,
+  clippy clean, window starts and stays up.
+
 ## [0.2.0-rc.52] — 2026-11-03
 
 - **The native window links an account: QR, pairing code and status.**

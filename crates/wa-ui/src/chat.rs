@@ -779,6 +779,11 @@ impl Ctx<'_> {
 
 /* --------------------------------------------------------------- metadata */
 
+/// The word a placeholder card shows for a media kind (always a word).
+pub fn media_placeholder(kind: &str) -> &'static str {
+    media_label(kind).unwrap_or("Media")
+}
+
 fn media_label(kind: &str) -> Option<&'static str> {
     match kind {
         "image" => Some("Photo"),
@@ -1786,6 +1791,15 @@ mod tests {
         other.kind = "other".into();
         let out = render(&make_request(vec![other]));
         assert!(out.html.contains("Unsupported message"));
+    }
+
+    #[test]
+    fn media_placeholders_always_have_a_word() {
+        assert_eq!(media_placeholder("image"), "Photo");
+        assert_eq!(media_placeholder("video"), "Video");
+        assert_eq!(media_placeholder("document"), "Document");
+        assert_eq!(media_placeholder("sticker"), "Sticker");
+        assert_eq!(media_placeholder("something-new"), "Media");
     }
 
     #[test]

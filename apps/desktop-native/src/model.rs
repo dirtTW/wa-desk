@@ -4,7 +4,7 @@
 //! native window and the WebView cannot disagree about a timestamp, a preview or
 //! a delivery tick.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use wa_types::{MessageView, UiEvent};
 
@@ -32,6 +32,19 @@ pub enum Command {
     },
     /// Restart the pairing session for a fresh QR.
     Restart,
+    /// Download (or find) one message's media.
+    FetchMedia {
+        id: String,
+    },
+}
+
+/// Where a message's media is in the download lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MediaState {
+    Loading,
+    /// The cached file `wa-core` handed back.
+    Path(String),
+    Failed,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -49,6 +62,8 @@ pub struct Model {
     pub active: Option<String>,
     /// The connection line under the title.
     pub status: String,
+    /// Downloaded media per message id: the file `wa-core` cached.
+    pub media: HashMap<String, MediaState>,
     /// Before the account is linked the window shows the gate instead of chats.
     pub login: LoginState,
     /// The phone number typed into the pairing-code form.
@@ -188,6 +203,40 @@ impl Model {
     pub fn login_restarted(&mut self) {
         self.login = LoginState::Waiting;
         self.status = "Requesting a new code…".to_string();
+    }
+
+    /// Ask for a message's media exactly once; the window calls this while
+    /// painting a bubble whose bytes are not on disk yet.
+    pub fn request_media(&mut self, id: &str) -> bool {
+        if id.is_empty() || self.media.contains_key(id) {
+            return false;
+        }
+        self.media.insert(id.to_string(), MediaState::Loading);
+        true
+    }
+
+    pub fn media_ready(&mut self, id: &str, path: &str) {
+        self.media
+            .insert(id.to_string(), MediaState::Path(path.to_string()));
+    }
+
+    pub fn media_failed(&mut self, id: &str) {
+        self.media.insert(id.to_string(), MediaState::Failed);
+    }
+
+    /// What a bubble shows when the media itself is not painted: the caption
+    /// when there is one, otherwise the kind's word from `wa-ui`.
+    pub fn bubble_body(&self, message: &MessageView) -> String {
+        if !message.text.trim().is_empty() {
+            return message.text.clone();
+        }
+        if matches!(
+            message.kind.as_str(),
+            "image" | "video" | "audio" | "document" | "sticker"
+        ) {
+            return wa_ui::chat::media_placeholder(&message.kind).to_string();
+        }
+        format!("[{}]", message.kind)
     }
 
     /// Open a chat: it becomes active and its badge clears.
@@ -378,6 +427,28 @@ pub fn selftest() -> Result<String, String> {
     }
     model.search.clear();
 
+    // Media: a photo without bytes shows its kind's word, and the download
+    // is requested exactly once.
+    let mut photo = view("1@s.whatsapp.net", "Ada", "img1", "", now + 4_000, false);
+    photo.kind = "image".to_string();
+    model.apply(&UiEvent::Message(photo.clone()));
+    if model.bubble_body(&photo) != "Photo" {
+        return Err(format!(
+            "a photo should label itself, got {:?}",
+            model.bubble_body(&photo)
+        ));
+    }
+    if !model.request_media(&photo.id) {
+        return Err("the first request must start a download".to_string());
+    }
+    if model.request_media(&photo.id) {
+        return Err("a second request must not duplicate the download".to_string());
+    }
+    model.media_ready(&photo.id, "C:/media/img1.jpg");
+    if !matches!(model.media.get(&photo.id), Some(MediaState::Path(_))) {
+        return Err("the cached path should land in the model".to_string());
+    }
+
     Ok(serde_json::json!({
         "chats": model.chats.len(),
         "first": first,
@@ -385,6 +456,7 @@ pub fn selftest() -> Result<String, String> {
         "stamp": stamp,
         "status": model.status,
         "linked": model.login.is_linked(),
+        "photo_body": model.bubble_body(&photo),
     })
     .to_string())
 }
@@ -456,6 +528,30 @@ mod tests {
             false,
         )));
         assert_eq!(model.active_row().unwrap().unread, 0);
+    }
+
+    #[test]
+    fn photos_are_requested_once_and_labelled() {
+        let mut model = Model::new();
+        let mut photo = view("1@s.whatsapp.net", "Ada", "img", "", 1, false);
+        photo.kind = "image".to_string();
+        assert_eq!(model.bubble_body(&photo), "Photo");
+        assert!(model.request_media("img"));
+        assert!(!model.request_media("img"), "one download per message");
+        model.media_ready("img", "/tmp/x.jpg");
+        assert_eq!(
+            model.media.get("img"),
+            Some(&MediaState::Path("/tmp/x.jpg".into()))
+        );
+        model.media_failed("img");
+        assert_eq!(model.media.get("img"), Some(&MediaState::Failed));
+        let mut clip = photo.clone();
+        clip.kind = "video".to_string();
+        assert_eq!(model.bubble_body(&clip), "Video");
+        let mut doc = photo.clone();
+        doc.kind = "document".to_string();
+        doc.text = "report.pdf".to_string();
+        assert_eq!(model.bubble_body(&doc), "report.pdf", "a caption wins");
     }
 
     #[test]
