@@ -134,6 +134,59 @@ if (chatCheck.skipped) {
   check("media blocks render", chatCheck.media >= 0, `${chatCheck.media} media, ${chatCheck.images} ready`);
 }
 
+console.log("\n# media viewer (rust)");
+const viewer = await page.evaluate(async () => {
+  const chat = [...state.chats.values()].find((entry) =>
+    entry.messages.some((m) => m.kind === "image" || m.kind === "video"),
+  );
+  if (!chat) return { skipped: true };
+  await openChat(chat.jid);
+  await new Promise((r) => setTimeout(r, 1200));
+  const media = chat.messages.find((m) => m.kind === "image" || m.kind === "video");
+  openMediaViewer(media.id);
+  await new Promise((r) => setTimeout(r, 2500));
+  const out = {
+    hidden: document.getElementById("media-viewer").hidden,
+    chat: document.getElementById("media-viewer-chat").textContent,
+    time: document.getElementById("media-viewer-time").textContent,
+    stage: document.getElementById("media-viewer-stage").innerHTML.length,
+    strip: document.querySelectorAll("#media-viewer-strip .media-strip-thumb").length,
+    active: document.querySelectorAll("#media-viewer-strip .active").length,
+    kind: media.kind,
+  };
+  closeMediaViewer();
+  return out;
+});
+if (viewer.skipped) {
+  console.log("  ok  media viewer skipped (no media)");
+} else {
+  check("the viewer opens", !viewer.hidden && viewer.stage > 0, `${viewer.kind}, ${viewer.stage} bytes`);
+  check("the viewer header renders", viewer.chat.length > 0 && viewer.time.includes(" at "), `${viewer.chat} · ${viewer.time}`);
+  check("the filmstrip renders", viewer.strip > 0 && viewer.active === 1, `${viewer.strip} thumbs`);
+}
+
+console.log("\n# sticker picker (rust)");
+const sticker = await page.evaluate(async () => {
+  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 0);
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  document.getElementById("emoji-panel").hidden = false;
+  setStickerTab("recent");
+  await new Promise((r) => setTimeout(r, 2500));
+  const out = {
+    create: document.querySelectorAll("#sticker-grid .sticker-create").length,
+    cells: document.querySelectorAll("#sticker-grid .sticker-cell").length,
+    images: document.querySelectorAll("#sticker-grid img").length,
+    count: document.getElementById("sticker-count").textContent,
+  };
+  document.getElementById("emoji-panel").hidden = true;
+  return out;
+});
+check("the sticker grid renders", sticker.create === 1 && sticker.cells > 0, `${sticker.cells} cells, ${sticker.images} images`);
+check("the sticker count renders", sticker.count.startsWith("("), sticker.count);
+
 console.log("\n# context menus (rust)");
 const menus = await page.evaluate(async () => {
   const out = {};

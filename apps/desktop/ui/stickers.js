@@ -119,28 +119,33 @@ async function stickerUrl(message) {
 
 let stickerTab = "recent";
 
-function stickerCreateCell() {
-  return `<button type="button" class="sticker-cell sticker-create" data-sticker-create="1">
-    <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>
-    <span>Create</span>
-  </button>`;
+/* ------------------------------------------------- Rust-rendered sticker grid */
+
+// The Create tile, cells, loading placeholders and empty states are built by
+// wa-ui::stickers; this file keeps the downloads and the send actions.
+let stickerCells = [];
+
+async function renderStickerGrid(empty = "") {
+  let out;
+  try {
+    out = await invoke("ui_sticker_grid", {
+      request: {
+        cells: stickerCells,
+        query: $("sticker-search")?.value || "",
+        empty,
+      },
+    });
+  } catch (err) {
+    console.warn("sticker grid render failed", err);
+    return null;
+  }
+  $("sticker-grid").innerHTML = out.html;
+  $("sticker-count").textContent = out.loaded ? `(${out.loaded})` : "";
+  return out;
 }
 
-function filterStickerGrid(query) {
-  const needle = String(query || "").trim().toLowerCase();
-  for (const cell of $("sticker-grid").querySelectorAll(".sticker-cell")) {
-    if (cell.dataset.stickerCreate) {
-      cell.hidden = Boolean(needle);
-      continue;
-    }
-    const haystack = (
-      cell.dataset.search ||
-      cell.dataset.favoriteId ||
-      cell.dataset.stickerId ||
-      ""
-    ).toLowerCase();
-    cell.hidden = Boolean(needle) && !haystack.includes(needle);
-  }
+async function filterStickerGrid() {
+  await renderStickerGrid();
 }
 
 function reloadStickerView(force = true) {
@@ -167,29 +172,26 @@ function setStickerTab(tab) {
 
 // Loads in parallel and skips work when nothing changed since the last open.
 async function loadFavoriteStickers() {
-  const grid = $("sticker-grid");
-  grid.innerHTML = stickerCreateCell() + '<p class="empty">Loading favorite stickers from the linked session...</p>';
-  $("sticker-count").textContent = "";
+  stickerCells = [];
+  await renderStickerGrid("Loading favorite stickers from the linked session...");
   try {
     const favorites = await invoke("fetch_favorite_stickers");
     if (!favorites.length) {
-      grid.innerHTML =
-        stickerCreateCell() +
-        '<p class="empty">No favorite stickers found. Star stickers on your phone, then try again.</p>';
+      await renderStickerGrid(
+        "No favorite stickers found. Star stickers on your phone, then try again.",
+      );
       return;
     }
-    grid.innerHTML =
-      stickerCreateCell() +
-      favorites
-        .map((favorite) => {
-          const url = convertFileSrc ? convertFileSrc(favorite.path) : favorite.path;
-          return `<div class="sticker-cell" data-favorite-id="${escapeHtml(favorite.id)}" data-search="favorite sticker"><img src="${escapeHtml(url)}" alt="Favorite sticker" loading="lazy" /></div>`;
-        })
-        .join("");
-    $("sticker-count").textContent = `(${favorites.length})`;
-    filterStickerGrid($("sticker-search")?.value || "");
+    stickerCells = favorites.map((favorite) => ({
+      id: favorite.id,
+      url: convertFileSrc ? convertFileSrc(favorite.path) : favorite.path,
+      kind: "favorite",
+      search: "favorite sticker",
+    }));
+    await renderStickerGrid();
   } catch (err) {
-    grid.innerHTML = `<p class="empty">Could not load favorites: ${escapeHtml(String(err))}</p>`;
+    stickerCells = [];
+    await renderStickerGrid(`Could not load favorites: ${String(err)}`);
   }
 }
 
@@ -252,56 +254,42 @@ async function sendFavoriteSticker(id, sourceUrl) {
 }
 
 async function loadRecentStickers(force = false) {
-  const grid = $("sticker-grid");
-  if (!force && !stickerDirty && grid.childElementCount > 0) return;
+  if (!force && !stickerDirty && $("sticker-grid").childElementCount > 0) return;
 
   const token = ++stickerLoadToken;
   const messages = recentStickerMessages();
   stickerDirty = false;
-  $("sticker-count").textContent = messages.length ? `(${messages.length})` : "";
 
   if (messages.length === 0) {
-    grid.innerHTML =
-      stickerCreateCell() +
-      '<p class="empty">No stickers yet. Received stickers appear here, or add a .webp file.</p>';
-    filterStickerGrid($("sticker-search")?.value || "");
+    stickerCells = [];
+    await renderStickerGrid(
+      "No stickers yet. Received stickers appear here, or add a .webp file.",
+    );
     return;
   }
 
-  grid.innerHTML =
-    stickerCreateCell() +
-    messages
-      .map(
-        (message) =>
-          `<div class="sticker-cell loading" data-sticker-id="${escapeHtml(message.id)}" data-search="recent sticker"></div>`,
-      )
-      .join("");
+  stickerCells = messages.map((message) => ({
+    id: message.id,
+    url: state.media.get(message.id)?.url || null,
+    kind: "recent",
+    search: "recent sticker",
+  }));
+  await renderStickerGrid();
 
   await mapLimit(messages, STICKER_LOAD_CONCURRENCY, async (message) => {
     const url = await stickerUrl(message);
     if (token !== stickerLoadToken) return;
-    const cell = grid.querySelector(
-      `[data-sticker-id="${CSS.escape(message.id)}"]`,
-    );
-    if (!url) {
-      if (cell) cell.remove();
-      return;
-    }
-    if (cell) {
-      cell.outerHTML = `<div class="sticker-cell" data-sticker-id="${escapeHtml(message.id)}" data-search="recent sticker"><img src="${escapeHtml(url)}" alt="Sticker" loading="lazy" /></div>`;
-    }
+    const cell = stickerCells.find((entry) => entry.id === message.id);
+    if (cell && url) cell.url = url;
   });
 
   if (token !== stickerLoadToken) return; // another load superseded this one
-  const loaded = grid.querySelectorAll(".sticker-cell img").length;
-  $("sticker-count").textContent = loaded ? `(${loaded})` : "";
+  const out = await renderStickerGrid("Stickers could not be loaded right now.");
   syncAiStickers(true);
-  if (loaded === 0) {
-    grid.innerHTML =
-      stickerCreateCell() +
-      '<p class="empty">Stickers could not be loaded right now.</p>';
+  if (out && !out.loaded) {
+    stickerCells = [];
+    await renderStickerGrid("Stickers could not be loaded right now.");
   }
-  filterStickerGrid($("sticker-search")?.value || "");
 }
 
 async function sendStickerFile(file) {

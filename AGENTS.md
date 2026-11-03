@@ -83,6 +83,8 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/picker.rs                new-chat / forward picker rows and sections
   src/settings.rs              every Settings page, update row, AI form, credits
   src/menus.rs                 chat/message menu rows, mute submenu, delete dialog
+  src/viewer.rs                media viewer chrome, video player, filmstrip
+  src/stickers.rs              sticker picker grid, cells and empty states
   src/sidebar.rs               chat list: filters, pin order, communities, search
 crates/wa-core/                protocol session layer (no Tauri dependency)
   src/lib.rs                   Session struct + module wiring

@@ -19,7 +19,9 @@ pub mod screens;
 pub mod settings;
 pub mod sidebar;
 pub mod status;
+pub mod stickers;
 pub mod text;
+pub mod viewer;
 
 mod emoji_data;
 
@@ -37,7 +39,9 @@ pub use status::{
     StatusEntryView, StatusFrameOutput, StatusFrameRequest, StatusListOutput, StatusRequest,
     StatusUpdateView, StatusViewsOutput,
 };
+pub use stickers::{StickerCell, StickerGridOutput, StickerGridRequest};
 pub use text::{MentionResolver, MessageRow, format_phone, preview_of};
+pub use viewer::{ViewerItem, ViewerOutput, ViewerRequest};
 
 /// Everything the webview needs to boot in one round-trip: the icon set, the
 /// emoji catalogue and the picker markup.

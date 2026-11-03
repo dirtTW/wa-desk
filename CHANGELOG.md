@@ -4,6 +4,25 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.5] — 2026-11-03
+
+- **The media viewer is rendered by Rust.** `wa_ui::viewer` builds the header
+  label and `Yesterday at 11:49 am`, the mention-coloured caption, the stage
+  (zoom layer or the custom player with play/seek/time/speed/mute/fullscreen)
+  and the filmstrip window (15 before + current + 16 after, active thumb,
+  video badges and loading tiles). `ui_media_viewer`, `ui_viewer_stage`,
+  `ui_viewer_strip_thumb` and `ui_viewer_placeholder` expose it;
+  `media-viewer.js` fell from 421 to 365 lines and lost its icon table and
+  three markup builders (the runtime play/mute swap now uses `waIcon`).
+- **The sticker picker grid is rendered by Rust.** `wa_ui::stickers` builds the
+  Create tile, favourite/recent cells with their loading placeholders, the
+  search filter, the empty states and the `(31)` count; `ui_sticker_grid` is
+  the only path, and a finished download re-renders the grid instead of
+  patching cells. `stickers.js` is down to 357 lines.
+- 10 new `wa-ui` unit tests (79 total) and two new CDP e2e sections: the viewer
+  opens on an image with a 6-thumbnail filmstrip and the picker renders 32
+  cells / 31 images with the count badge, no JavaScript errors.
+
 ## [0.2.0-rc.4] — 2026-11-03
 
 - **The Settings screen is rendered by Rust.** `wa_ui::settings` builds all

@@ -141,36 +141,6 @@ async function viewerMediaUrl(item) {
 
 /* ------------------------------------------------------ custom video player */
 
-const VIDEO_ICONS = {
-  play: '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z"/></svg>',
-  pause:
-    '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M520-200v-560h240v560H520Zm-320 0v-560h240v560H200Zm400-80h80v-400h-80v400Zm-320 0h80v-400h-80v400Zm0-400v400-400Zm320 0v400-400Z"/></svg>',
-  volume:
-    '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M560-131v-82q90-26 145-100t55-168q0-94-55-168T560-749v-82q124 28 202 125.5T840-481q0 127-78 224.5T560-131ZM120-360v-240h160l200-200v640L280-360H120Zm440 40v-322q47 22 73.5 66t26.5 96q0 51-26.5 94.5T560-320ZM400-606l-86 86H200v80h114l86 86v-252ZM300-480Z"/></svg>',
-  muted:
-    '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M792-56 671-177q-25 16-53 27.5T560-131v-82q14-5 27.5-10t25.5-12L480-368v208L280-360H120v-240h128L56-792l56-56 736 736-56 56Zm-8-232-58-58q17-31 25.5-65t8.5-70q0-94-55-168T560-749v-82q124 28 202 125.5T840-481q0 53-14.5 102T784-288ZM650-422l-90-90v-130q47 22 73.5 66t26.5 96q0 15-2.5 29.5T650-422ZM480-592 376-696l104-104v208Zm-80 238v-94l-72-72H200v80h114l86 86Zm-36-130Z"/></svg>',
-  fullscreen:
-    '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M120-120v-200h80v120h120v80H120Zm520 0v-80h120v-120h80v200H640ZM120-640v-200h200v80H200v120h-80Zm640 0v-120H640v-80h200v200h-80Z"/></svg>',
-  exitFullscreen:
-    '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M240-120v-120H120v-80h200v200h-80Zm400 0v-200h200v80H720v120h-80ZM120-640v-80h120v-120h80v200H120Zm520 0v-200h80v120h120v80H640Z"/></svg>',
-};
-
-function videoPlayerHtml(url, poster) {
-  return `<div class="viewer-video" data-viewer-video>
-      <video class="viewer-video-el" src="${escapeHtml(url)}"${
-        poster ? ` poster="${poster}"` : ""
-      } playsinline autoplay preload="metadata"></video>
-      <button type="button" class="viewer-big-play" data-video-toggle aria-label="Play video">${VIDEO_ICONS.play}</button>
-      <div class="viewer-video-controls">
-        <button type="button" class="vv-btn" data-video-toggle aria-label="Play">${VIDEO_ICONS.play}</button>
-        <input class="vv-seek" data-video-seek type="range" min="0" max="1000" step="1" value="0" aria-label="Seek" />
-        <span class="vv-time"><span data-video-current>0:00</span> / <span data-video-duration>0:00</span></span>
-        <button type="button" class="vv-btn vv-speed" data-video-speed aria-label="Playback speed">1.0x</button>
-        <button type="button" class="vv-btn" data-video-mute aria-label="Mute">${VIDEO_ICONS.volume}</button>
-        <button type="button" class="vv-btn" data-video-fullscreen aria-label="Fullscreen">${VIDEO_ICONS.fullscreen}</button>
-      </div>
-    </div>`;
-}
 
 function setupViewerVideo(container) {
   const video = container.querySelector(".viewer-video-el");
@@ -210,7 +180,7 @@ function setupViewerVideo(container) {
   setTimeout(fitControls, 60);
 
   const syncToggle = () => {
-    const icon = video.paused ? VIDEO_ICONS.play : VIDEO_ICONS.pause;
+    const icon = video.paused ? waIcon("play_arrow") : waIcon("pause");
     toggles.forEach((button) => {
       button.innerHTML = icon;
       button.setAttribute("aria-label", video.paused ? "Play" : "Pause");
@@ -235,7 +205,7 @@ function setupViewerVideo(container) {
 
   const syncMute = () => {
     const muted = video.muted || video.volume === 0;
-    mute.innerHTML = muted ? VIDEO_ICONS.muted : VIDEO_ICONS.volume;
+    mute.innerHTML = muted ? waIcon("volume_off") : waIcon("volume_up");
     mute.setAttribute("aria-label", muted ? "Unmute" : "Mute");
   };
 
@@ -299,6 +269,48 @@ function setupViewerVideo(container) {
   syncMute();
 }
 
+
+// The viewer chrome (header labels, caption, stage, filmstrip) is built by
+// wa-ui::viewer; this keeps the media download, zoom/pan and the player wiring.
+let viewerRenderSeq = 0;
+
+function viewerRequest() {
+  const media = {};
+  for (const [id, entry] of state.media) {
+    if (entry?.url) media[id] = entry.url;
+  }
+  const chat = state.chats.get(state.active);
+  return {
+    items: mediaViewerItems.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      text: item.text || "",
+      timestamp: item.timestamp || 0,
+      mentions: Array.isArray(item.mentions) ? item.mentions : [],
+    })),
+    index: mediaViewerIndex,
+    chat_name: chat ? chat.name : "Media",
+    media,
+    thumbs: Object.fromEntries(state.thumbs),
+    durations: Object.fromEntries(state.durations),
+    contacts: Object.fromEntries(state.contacts),
+    phones: Object.fromEntries(state.phones),
+    sender_names: activeSenderNames(),
+    me: state.me || "",
+    me_jid: state.meJid || "",
+    me_lid: state.meLid || "",
+    self_handle: (state.chats.get(state.meJid) || state.chats.get(state.meLid) || {}).name || "",
+    now: Date.now(),
+  };
+}
+
+function paintViewerStrip(html) {
+  const strip = $("media-viewer-strip");
+  strip.innerHTML = html;
+  const active = strip.querySelector(".active");
+  if (active) active.scrollIntoView({ inline: "center", block: "nearest" });
+}
+
 async function renderMediaViewer() {
   const item = mediaViewerItems[mediaViewerIndex];
   if (!item) {
@@ -306,29 +318,30 @@ async function renderMediaViewer() {
     return;
   }
 
-  const chat = state.chats.get(state.active);
   const token = ++mediaViewerToken;
-  $("media-viewer-chat").textContent = chat ? chat.name : "Media";
-  $("media-viewer-time").textContent = `${dayOf(item.timestamp)} at ${timeOf(item.timestamp)}`;
-  // The official viewer shows the caption under the media, mentions coloured.
-  const cap = $("media-viewer-cap");
-  const captionText = String(item.text || "").trim();
-  if (captionText) {
-    cap.hidden = false;
-    cap.innerHTML = bodyHtml(captionText, item.mentions);
-  } else {
-    cap.hidden = true;
-    cap.innerHTML = "";
+  const seq = ++viewerRenderSeq;
+  let shell;
+  try {
+    shell = await invoke("ui_media_viewer", { request: viewerRequest() });
+  } catch (err) {
+    console.warn("media viewer render failed", err);
+    return;
   }
+  if (!shell || token !== mediaViewerToken || seq !== viewerRenderSeq) return;
+
+  $("media-viewer-chat").textContent = shell.chat_label;
+  $("media-viewer-time").textContent = shell.time_label;
+  const cap = $("media-viewer-cap");
+  cap.hidden = !shell.has_caption;
+  cap.innerHTML = shell.caption_html;
   $("media-viewer-reactbar").hidden = true;
-  $("media-viewer-prev").disabled = mediaViewerIndex <= 0;
-  $("media-viewer-next").disabled = mediaViewerIndex >= mediaViewerItems.length - 1;
+  $("media-viewer-prev").disabled = shell.prev_disabled;
+  $("media-viewer-next").disabled = shell.next_disabled;
   $("media-viewer-download").disabled = true;
 
   const stage = $("media-viewer-stage");
-  if (!state.media.get(item.id)?.url) {
-    stage.innerHTML = '<div class="viewer-loading">Loading media...</div>';
-  }
+  stage.innerHTML = shell.stage_html;
+  paintViewerStrip(shell.strip_html);
 
   try {
     const url = await viewerMediaUrl(item);
@@ -343,12 +356,21 @@ async function renderMediaViewer() {
       viewerPanX = 0;
       viewerPanY = 0;
       $("media-viewer").classList.remove("zoomed");
-      stage.innerHTML = videoPlayerHtml(url, thumbOf(item.id));
+      stage.innerHTML = await invoke("ui_viewer_stage", {
+        url,
+        kind: "video",
+        text: item.text || "",
+        poster: thumbOf(item.id) || null,
+      });
       setupViewerVideo(stage.querySelector(".viewer-video"));
       $("media-viewer-zoom-in").disabled = true;
       $("media-viewer-zoom-out").disabled = true;
     } else {
-      stage.innerHTML = `<div class="viewer-zoom-layer"><img src="${escapeHtml(url)}" alt="${escapeHtml(item.text || "Photo")}" /></div>`;
+      stage.innerHTML = await invoke("ui_viewer_stage", {
+        url,
+        kind: "image",
+        text: item.text || "",
+      });
       viewerZoom = 1;
       viewerPanX = 0;
       viewerPanY = 0;
@@ -357,59 +379,22 @@ async function renderMediaViewer() {
       applyViewerZoom();
     }
     $("media-viewer-download").disabled = false;
+    // Repaint the strip so the active thumb shows its image now that the
+    // media cache has the URL.
+    if (token === mediaViewerToken) {
+      const fresh = await invoke("ui_media_viewer", { request: viewerRequest() }).catch(
+        () => null,
+      );
+      if (fresh && token === mediaViewerToken) paintViewerStrip(fresh.strip_html);
+    }
   } catch {
     if (token === mediaViewerToken) {
-      stage.innerHTML = '<div class="viewer-loading">Media unavailable</div>';
+      stage.innerHTML = await invoke("ui_viewer_placeholder", { kind: "unavailable" });
     }
     $("media-viewer-download").disabled = true;
   }
 
-  renderMediaStrip();
   preloadViewerImages();
-}
-
-function stripThumbInner(item) {
-  const cached = state.media.get(item.id);
-  if (item.kind === "video") {
-    ensureThumb(item.id);
-    ensureVideoPoster(item.id);
-    ensureDuration(item.id);
-    captureVideoPoster(item.id);
-    const poster = thumbOf(item.id);
-    const seconds = state.durations.get(item.id);
-    const badge = `<span class="strip-duration" data-duration-id="${escapeHtml(
-      item.id,
-    )}">${seconds ? formatDuration(seconds) : ""}</span>`;
-    const art = poster
-      ? `<img src="${poster}" alt="" /><span class="strip-play">${waIcon("play_arrow")}</span>`
-      : `<span class="strip-play big">${waIcon("play_arrow")}</span>`;
-    return `${art}${badge}`;
-  }
-  if (cached?.status === "ready" && cached.url) {
-    return `<img src="${escapeHtml(cached.url)}" alt="" />`;
-  }
-  return '<span class="strip-loading"></span>';
-}
-
-function renderMediaStrip() {
-  const strip = $("media-viewer-strip");
-  const start = Math.max(0, mediaViewerIndex - 15);
-  const end = Math.min(mediaViewerItems.length, mediaViewerIndex + 16);
-
-  strip.innerHTML = mediaViewerItems
-    .slice(start, end)
-    .map((item, offset) => {
-      const index = start + offset;
-      return `<button type="button" class="media-strip-thumb ${
-        index === mediaViewerIndex ? "active" : ""
-      }" data-index="${index}" data-media-id="${escapeHtml(item.id)}" data-thumb-id="${escapeHtml(
-        item.id,
-      )}" title="${item.kind === "video" ? "Video" : "Photo"}">${stripThumbInner(item)}</button>`;
-    })
-    .join("");
-
-  const active = strip.querySelector(".active");
-  if (active) active.scrollIntoView({ inline: "center", block: "nearest" });
 }
 
 function stepMediaViewer(delta) {
@@ -418,4 +403,3 @@ function stepMediaViewer(delta) {
   mediaViewerIndex = next;
   renderMediaViewer();
 }
-

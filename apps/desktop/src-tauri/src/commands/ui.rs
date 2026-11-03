@@ -37,6 +37,46 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// The full-screen media viewer chrome (header, caption, stage, filmstrip).
+#[tauri::command]
+pub fn ui_media_viewer(request: wa_ui::ViewerRequest) -> Option<wa_ui::ViewerOutput> {
+    wa_ui::viewer::render(&request)
+}
+
+/// The viewer stage for a resolved media URL.
+#[tauri::command]
+pub fn ui_viewer_stage(url: String, kind: String, text: String, poster: Option<String>) -> String {
+    wa_ui::viewer::stage_html(&url, &kind, &text, poster.as_deref())
+}
+
+/// One refreshed filmstrip thumbnail.
+#[tauri::command]
+pub fn ui_viewer_strip_thumb(
+    id: String,
+    kind: String,
+    url: String,
+    poster: Option<String>,
+    duration: i64,
+) -> String {
+    wa_ui::viewer::strip_thumb_html(&id, &kind, &url, poster.as_deref(), duration)
+}
+
+/// The viewer placeholders.
+#[tauri::command]
+pub fn ui_viewer_placeholder(kind: String) -> String {
+    if kind == "unavailable" {
+        wa_ui::viewer::unavailable_html().to_string()
+    } else {
+        wa_ui::viewer::loading_html().to_string()
+    }
+}
+
+/// The sticker picker grid.
+#[tauri::command]
+pub fn ui_sticker_grid(request: wa_ui::StickerGridRequest) -> wa_ui::StickerGridOutput {
+    wa_ui::stickers::grid(&request)
+}
+
 /// Which rows the chat context menu shows.
 #[tauri::command]
 pub fn ui_chat_menu(input: wa_ui::ChatMenuInput) -> wa_ui::ChatMenuOutput {
