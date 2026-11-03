@@ -117,33 +117,44 @@ let lastSavedFingerprint = null;
 // Rendering calls `scheduleSave()` even when nothing changed, and the payload
 // is ~1.8 MB of JSON. A cheap fingerprint of everything persisted lets a no-op
 // save return immediately instead of re-serialising and rewriting the cache.
-function stateFingerprint() {
-  let hash = 0;
-  let messageCount = 0;
+// The fingerprint/hash itself is computed by wa_ui::cache; this only exports
+// the compact per-message summaries it hashes.
+function fingerprintChats() {
+  const chats = [];
   for (const chat of state.chats.values()) {
-    let acc = 0;
+    const messages = [];
     for (const message of chat.messages) {
-      acc =
-        (acc * 31 +
-          (message.timestamp || 0) +
-          (message.text ? message.text.length : 0) +
-          (message.status ? message.status.charCodeAt(0) : 0) +
-          (message.edited ? 1 : 0) +
-          (message.deleted ? 1 : 0) +
-          (message.reactions ? message.reactions.length : 0)) |
-        0;
+      messages.push({
+        timestamp: message.timestamp || 0,
+        text_len: message.text ? message.text.length : 0,
+        status: message.status || "",
+        edited: Boolean(message.edited),
+        deleted: Boolean(message.deleted),
+        reactions: message.reactions ? message.reactions.length : 0,
+      });
     }
-    messageCount += chat.messages.length;
-    hash =
-      (hash * 31 +
-        acc +
-        (chat.unread || 0) +
-        (chat.name ? chat.name.length : 0) +
-        (chat.deleted ? 1 : 0) +
-        (chat.cleared ? 1 : 0)) |
-      0;
+    chats.push({
+      name: chat.name || "",
+      unread: chat.unread || 0,
+      deleted: Boolean(chat.deleted),
+      cleared: Boolean(chat.cleared),
+      messages,
+    });
   }
-  return `${state.chats.size}:${messageCount}:${state.active || ""}:${state.photos.size}:${state.starred.size}:${hash}`;
+  return chats;
+}
+
+async function stateFingerprint() {
+  try {
+    return await invoke("ui_cache_fingerprint", {
+      chats: fingerprintChats(),
+      active: state.active || "",
+      photos: state.photos.size,
+      starred: state.starred.size,
+    });
+  } catch {
+    return "";
+  }
 }
 
 function scheduleSave() {
@@ -151,99 +162,95 @@ function scheduleSave() {
   saveTimer = setTimeout(saveNow, 1200);
 }
 
-function saveNow() {
-  const fingerprint = stateFingerprint();
-  if (fingerprint === lastSavedFingerprint) return;
+let saveInFlight = false;
+
+async function saveNow() {
+  if (saveInFlight) return;
+  saveInFlight = true;
   try {
-    const chats = [...state.chats.values()]
-      .sort((a, b) => (b.last?.timestamp || b.lastTs || 0) - (a.last?.timestamp || a.lastTs || 0))
-      .slice(0, MAX_CHATS)
-      .map((chat) => ({
-        jid: chat.jid,
-        name: chat.name,
-        isGroup: chat.isGroup,
-        lastTs: chat.last?.timestamp || chat.lastTs || 0,
-        unread: chat.unread,
-        deleted: Boolean(chat.deleted),
-        cleared: Boolean(chat.cleared),
-        messages: chat.messages.slice(-MAX_MESSAGES_PER_CHAT).map((message) =>
-          message.link?.thumb
-            ? { ...message, link: { ...message.link, thumb: null } }
-            : message,
-        ),
-      }));
-    localStorage.setItem(
-      STORE_KEY,
-      JSON.stringify({
-        v: 1,
-        chats,
-        active: state.active,
-        groupMeta: state.groupMeta || {},
+    const fingerprint = await stateFingerprint();
+    if (fingerprint && fingerprint === lastSavedFingerprint) return;
+    // wa_ui::cache shapes the payload: newest chats first, the last N messages
+    // per chat, link thumbnails stripped, only http photos persisted.
+    const payload = await invoke("ui_cache_payload", {
+      input: {
+        chats: [...state.chats.values()].map((chat) => ({
+          jid: chat.jid,
+          name: chat.name,
+          is_group: Boolean(chat.isGroup),
+          last_ts: chat.last?.timestamp || chat.lastTs || 0,
+          unread: chat.unread || 0,
+          deleted: Boolean(chat.deleted),
+          cleared: Boolean(chat.cleared),
+          messages: chat.messages,
+        })),
+        active: state.active || "",
+        group_meta: state.groupMeta || {},
         starred: [...state.starred],
-        photos: Object.fromEntries(
-          [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
-        ),
-      }),
-    );
+        photos: [...state.photos],
+        max_chats: MAX_CHATS,
+        max_messages_per_chat: MAX_MESSAGES_PER_CHAT,
+      },
+    });
+    localStorage.setItem(STORE_KEY, payload);
     // Mirror the metadata to disk; the webview store can be cleared or hit its
     // quota, and then the sidebar would otherwise lose every chat.
     persistChatCache();
     lastSavedFingerprint = fingerprint;
   } catch {
     /* quota exceeded: the cache is a convenience, not the source of truth */
+  } finally {
+    saveInFlight = false;
   }
 }
 
-function restoreCache() {
-  let parsed = null;
+async function restoreCache() {
+  let raw = null;
   try {
-    parsed = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    raw = localStorage.getItem(STORE_KEY);
   } catch {
-    parsed = null;
+    raw = null;
   }
-  if (parsed && Array.isArray(parsed.chats)) {
-    for (const chat of parsed.chats) {
+  let restored = null;
+  if (raw) {
+    try {
+      // wa_ui::cache filters broadcast rows, message stubs and stale photos.
+      restored = await invoke("ui_cache_restore", { raw });
+    } catch {
+      restored = null;
+    }
+  }
+  if (restored && Array.isArray(restored.chats) && restored.chats.length) {
+    for (const chat of restored.chats) {
       if (!chat || !chat.jid) continue;
-      // Status/broadcast conversations are not chats; channels are kept and
-      // shown in their own panel.
-      if (chat.jid.endsWith("@broadcast")) continue;
-      const messages = (Array.isArray(chat.messages) ? chat.messages : [])
-        // Drop protocol/notification stubs written by older builds: they have no
-        // text and no media type, and would render as empty bubbles.
-        .filter((m) => m && (m.text || (m.kind && m.kind !== "other")))
-        .map((m) => ({ ...m, pending: false }));
+      const messages = Array.isArray(chat.messages) ? chat.messages : [];
       state.chats.set(chat.jid, {
         jid: chat.jid,
         name: chat.name || chat.jid.replace(/@.*/, ""),
-        isGroup: Boolean(chat.isGroup),
+        isGroup: Boolean(chat.is_group),
         messages,
         last: messages.length ? messages[messages.length - 1] : null,
-        lastTs: chat.lastTs || 0,
+        lastTs: chat.last_ts || 0,
         unread: chat.unread || 0,
         deleted: Boolean(chat.deleted),
         cleared: Boolean(chat.cleared),
       });
     }
-
-    // Never restore the "open" chat: after a restart the user is not looking
-    // at it, and a restored active chat made incoming messages silently
-    // auto-read (unread cleared, read receipts sent) plus suppressed their
-    // notifications. The user picks a chat; the list starts clean.
-    state.active = null;
-    if (parsed.groupMeta && typeof parsed.groupMeta === "object") {
-      state.groupMeta = parsed.groupMeta;
+    if (restored.group_meta && typeof restored.group_meta === "object") {
+      state.groupMeta = restored.group_meta;
     }
-    if (Array.isArray(parsed.starred)) {
-      for (const id of parsed.starred) {
-        if (typeof id === "string" && id) state.starred.add(id);
-      }
+    for (const id of restored.starred || []) {
+      if (typeof id === "string" && id) state.starred.add(id);
     }
-    if (parsed.photos && typeof parsed.photos === "object") {
-      for (const [jid, url] of Object.entries(parsed.photos)) {
-        if (typeof url === "string" && url.startsWith("http")) state.photos.set(jid, url);
-      }
+    for (const [jid, url] of restored.photos || []) {
+      if (typeof url === "string" && url.startsWith("http")) state.photos.set(jid, url);
     }
   }
+
+  // Never restore the "open" chat: after a restart the user is not looking at
+  // it, and a restored active chat made incoming messages silently auto-read
+  // (unread cleared, read receipts sent) plus suppressed their notifications.
+  state.active = null;
 
   mergeDuplicateChats();
   renderChatList();
@@ -454,6 +461,25 @@ const PHOTO_CONCURRENCY = 3;
 // A failed profile photo (expired CDN token, flaky link) is retried instead of
 // being hidden for the rest of the session.
 const PHOTO_RETRY_MS = 120_000;
+
+// Ask Rust which of these candidates are worth a photo request, then queue
+// them through the normal path (which keeps the in-flight bookkeeping).
+async function queuePhotos(jids) {
+  if (!state.connected || !jids || jids.length === 0) return;
+  let allowed = [];
+  try {
+    allowed = await invoke("ui_photo_queue", {
+      candidates: jids.filter(Boolean),
+      connected: Boolean(state.connected),
+      have: [...state.photos.keys()],
+      failed: [...state.photoFailed],
+      queued: state.photoQueue,
+    });
+  } catch {
+    allowed = [];
+  }
+  for (const jid of allowed) queuePhoto(jid);
+}
 
 function queuePhoto(jid) {
   if (!jid || !state.connected) return;

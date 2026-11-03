@@ -59,7 +59,7 @@ async function renderGroupContacts() {
     return;
   }
   $("group-contacts").innerHTML = out.html;
-  for (const jid of out.queue || []) queuePhoto(jid);
+  queuePhotos(out.queue || []);
 }
 
 async function createGroup() {

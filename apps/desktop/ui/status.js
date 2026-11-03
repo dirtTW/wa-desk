@@ -281,7 +281,7 @@ async function renderStatusList() {
   $("status-mine").querySelector(".status-meta span").textContent = out.mine_label;
 
   if (state.connected) {
-    for (const jid of out.queue || []) queuePhoto(jid);
+    queuePhotos(out.queue || []);
   }
   if (typeof setRailStatusUnseen === "function") setRailStatusUnseen(out.unseen);
 
@@ -459,7 +459,7 @@ async function renderStatusViews() {
   $("status-views-title").textContent = out.title;
   $("status-view-count-label").textContent = out.title.replace("Viewed by ", "");
   $("status-views-list").innerHTML = out.html;
-  for (const jid of out.queue || []) queuePhoto(jid);
+  queuePhotos(out.queue || []);
 }
 
 function openStatusViews() {

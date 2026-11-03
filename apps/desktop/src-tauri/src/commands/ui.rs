@@ -37,6 +37,41 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// The cache change fingerprint (see `wa_ui::cache`).
+#[tauri::command]
+pub fn ui_cache_fingerprint(
+    chats: Vec<wa_ui::cache::FingerChat>,
+    active: String,
+    photos: usize,
+    starred: usize,
+) -> String {
+    wa_ui::cache::fingerprint(&chats, &active, photos, starred)
+}
+
+/// The JSON text stored under the webview's cache key.
+#[tauri::command]
+pub fn ui_cache_payload(input: wa_ui::cache::CachePayloadInput) -> String {
+    wa_ui::cache::payload(&input)
+}
+
+/// Parse a stored cache payload into the restore shape.
+#[tauri::command]
+pub fn ui_cache_restore(raw: String) -> wa_ui::cache::RestoreOutput {
+    wa_ui::cache::restore(&raw)
+}
+
+/// The profile-photo candidates worth requesting, deduped and filtered.
+#[tauri::command]
+pub fn ui_photo_queue(
+    candidates: Vec<String>,
+    connected: bool,
+    have: Vec<String>,
+    failed: Vec<String>,
+    queued: Vec<String>,
+) -> Vec<String> {
+    wa_ui::cache::photo_queue(&candidates, connected, &have, &failed, &queued)
+}
+
 /// How duplicate conversations should be folded (the webview applies it).
 #[tauri::command]
 pub fn ui_merge_chats(chats: Vec<wa_ui::state::MergeChatView>) -> wa_ui::state::MergePlan {

@@ -8,7 +8,7 @@ async function main() {
 
   wire();
   await loadUiAssets();
-  restoreCache();
+  await restoreCache();
   loadStatuses();
   // Cached status replies/reactions stored before the "· Status" card existed
   // heal once both the chats and the statuses are loaded.

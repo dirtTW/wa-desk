@@ -173,6 +173,35 @@ check(
 );
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
 
+console.log("\n# cache layer (rust)");
+const cache = await page.evaluate(async () => {
+  const fingerprint = await stateFingerprint();
+  const same = await stateFingerprint();
+  await saveNow();
+  const raw = localStorage.getItem("wadesk.state.v1") || "";
+  const restored = raw ? await invoke("ui_cache_restore", { raw }) : { chats: [] };
+  const photoQueue = await invoke("ui_photo_queue", {
+    candidates: ["6285@s.whatsapp.net", "6285@s.whatsapp.net", "0@s.whatsapp.net", "status@broadcast"],
+    connected: true,
+    have: [],
+    failed: [],
+    queued: [],
+  });
+  return {
+    fingerprint,
+    same,
+    bytes: raw.length,
+    chats: restored.chats.length,
+    stripped: raw.includes('"thumb":null'),
+    photoQueue,
+  };
+});
+check("the cache fingerprint is stable", cache.fingerprint.length > 0 && cache.fingerprint === cache.same, cache.fingerprint);
+check("the cache payload is written", cache.bytes > 1000, `${cache.bytes} bytes`);
+check("the payload restores", cache.chats > 0, `${cache.chats} chats`);
+check("link thumbnails are stripped", cache.stripped);
+check("the photo queue filters and dedupes", cache.photoQueue.length === 1, cache.photoQueue.join(","));
+
 console.log("\n# chat store plans (rust)");
 const storePlans = await page.evaluate(async () => {
   const a = "999000111@lid";

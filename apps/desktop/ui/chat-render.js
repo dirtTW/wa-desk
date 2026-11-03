@@ -375,7 +375,7 @@ async function renderChat() {
   hydrateLinkThumbs(box);
   hydratePhones(box);
   watchMessageMedia();
-  for (const jid of out.queue || []) queuePhoto(jid);
+  queuePhotos(out.queue || []);
   // A chat switch (or a reply while already at the bottom) should land on the
   // newest message. While reading older messages in the same chat, anchor the
   // top visible bubble so new messages/media do not move the viewport.

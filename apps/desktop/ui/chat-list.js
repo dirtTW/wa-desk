@@ -148,7 +148,7 @@ function renderChatList() {
       list.innerHTML = out.html;
       $("empty-chats").textContent = out.empty_text;
       $("empty-chats").hidden = out.empty_hidden;
-      for (const jid of out.queue || []) queuePhoto(jid);
+      queuePhotos(out.queue || []);
       scheduleSave();
       if (!$("channels-screen").hidden) renderChannels();
       updateRailBadges();
@@ -345,7 +345,7 @@ function renderChannels() {
     .then((out) => {
       list.innerHTML = out.html;
       $("channels-empty").hidden = out.empty_hidden;
-      for (const jid of out.queue || []) queuePhoto(jid);
+      queuePhotos(out.queue || []);
     })
     .catch((err) => console.warn("channels render failed", err));
 }

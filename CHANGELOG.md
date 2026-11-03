@@ -4,6 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.9] — 2026-11-03
+
+- **The webview cache layer moved to Rust.** `wa_ui::cache` owns the change
+  fingerprint (the same 31-hash format, over compact per-message summaries), the
+  persisted payload (newest chats first, `MAX_CHATS`, the last N messages per
+  chat, `link.thumb` stripped to `null`, only `http` photos kept) and the
+  restore shape (drops `@broadcast` rows and empty protocol stubs, resets
+  `pending`, falls back to the JID user part for a missing name, filters stale
+  photo URLs). Messages are carried as opaque JSON, so fields a later build adds
+  survive the round-trip.
+- **The profile-photo queue is batched in Rust.** `ui_photo_queue` filters a
+  render's candidate list (connected, never `0@`/`@broadcast`, skips cached/
+  failed/queued) and de-duplicates it; `core.js` gained `queuePhotos()` and the
+  sidebar/chat/channels/status/picker call sites use it.
+- Commands: `ui_cache_fingerprint`, `ui_cache_payload`, `ui_cache_restore`,
+  `ui_photo_queue`. `core.js` is now async in `saveNow`/`restoreCache`
+  (fingerprint first, so the ~0.5 MB payload is only shaped when something
+  changed).
+- 6 new `wa-ui` unit tests (98 total, plus 3 contract) and a CDP e2e section:
+  stable fingerprint, a 507 KB payload, 198 restored chats, stripped
+  thumbnails and a deduped photo queue.
+
 ## [0.2.0-rc.8] — 2026-11-03
 
 - **Chat-store housekeeping moved to Rust.** `wa_ui::state` decides which
