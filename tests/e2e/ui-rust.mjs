@@ -745,6 +745,9 @@ const clock = await page.evaluate(async () => {
   const entry = [...state.statuses.values()].find((e) => e.updates.length > 0);
   let viewer = null;
   if (entry) {
+    // Do not send real "status viewed" receipts from the test run.
+    const realMark = markStatusViewed;
+    markStatusViewed = () => {};
     openStatus();
     await new Promise((r) => setTimeout(r, 800));
     openStatusViewer(entry.jid);
@@ -757,6 +760,7 @@ const clock = await page.evaluate(async () => {
     viewer = { before, pausedState, resumedState };
     closeStatusViewer();
     closeStatus();
+    markStatusViewed = realMark;
   }
   return { timing, text, long, image, video, anchor, elapsed, paused, resumed, progress, thumb, seek, viewer };
 });
@@ -1005,6 +1009,10 @@ check("a typed number gets its own row", picker.numberRow);
 
 console.log("\n# status screen (rust)");
 const statusScreen = await page.evaluate(async () => {
+  // Opening a viewer would send real "status viewed" receipts and permanently
+  // mark the account's stories read, so stub the marker for this check.
+  const realMark = markStatusViewed;
+  markStatusViewed = () => {};
   openStatus();
   await new Promise((r) => setTimeout(r, 1200));
   const rows = document.querySelectorAll("#status-list .status-item").length;
@@ -1028,6 +1036,7 @@ const statusScreen = await page.evaluate(async () => {
     };
   }
   closeStatusViewer();
+  markStatusViewed = realMark;
   document.getElementById("rail-chats").click();
   return { rows, viewed, mineLabel, viewer };
 });

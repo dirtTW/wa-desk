@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.21] — 2026-11-03
+
+- **The status viewer's group queue is planned in Rust.**
+  `wa_ui::status::viewer_groups` applies the 24-hour expiry, orders the groups by
+  their newest activity and returns each group's update ids oldest first (the
+  play order), so `openStatusViewer` only maps ids back to the local updates it
+  already holds. `own_update_ids` lists our own stories, which replaces the
+  hand-rolled scan in `syncOwnStatusIds`.
+  Commands: `ui_status_groups`, `ui_status_own_ids`.
+- **Popover clamping moved to Rust.** `wa_ui::menus::clamp_popover(x, y, width,
+  height, viewport, margin)` keeps the chat menu, its mute submenu and the
+  message menu 8–10 px inside the window (taller menus are still pushed negative
+  so they scroll instead of overflowing). `ui_clamp_popover` is shared by
+  `clampMenu` and `clampMessageMenu`, replacing three copies of the min/max
+  maths.
+- 3 new `wa-ui` unit tests (156 total, plus 3 contract) and the existing
+  status/context-menu CDP e2e sections still pass with the new code paths.
+
 ## [0.2.0-rc.20] — 2026-11-03
 
 - **The call overlay is driven by Rust.** `wa_ui::calls` decides which controls

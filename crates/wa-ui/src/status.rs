@@ -260,6 +260,43 @@ pub fn list(req: &StatusRequest) -> StatusListOutput {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ViewerGroup {
+    pub jid: String,
+    pub name: String,
+    /// Live update ids, oldest first (the viewer's play order).
+    pub update_ids: Vec<String>,
+}
+
+/// The groups the viewer can step through: entries with a live story, newest
+/// activity first, each group's updates oldest first.
+pub fn viewer_groups(req: &StatusRequest) -> Vec<ViewerGroup> {
+    let mut entries = live_entries(req);
+    entries.sort_by_key(|entry| std::cmp::Reverse(latest(entry)));
+    entries
+        .into_iter()
+        .map(|entry| {
+            let mut updates = entry.updates.clone();
+            updates.sort_by_key(|update| update.timestamp);
+            ViewerGroup {
+                jid: entry.jid.clone(),
+                name: entry.name.clone(),
+                update_ids: updates.into_iter().map(|update| update.id).collect(),
+            }
+        })
+        .collect()
+}
+
+/// Ids of our own stories, so a view receipt can be attributed to one of them.
+pub fn own_update_ids(req: &StatusRequest) -> Vec<String> {
+    req.entries
+        .iter()
+        .flat_map(|entry| entry.updates.iter())
+        .filter(|update| update.from_me && !update.id.is_empty())
+        .map(|update| update.id.clone())
+        .collect()
+}
+
 /* ------------------------------------------------------------------- viewer */
 
 #[derive(Debug, Clone, Deserialize)]
@@ -684,6 +721,53 @@ mod tests {
             me_lid: String::new(),
             now: 1_770_000_000_000,
         }
+    }
+
+    #[test]
+    fn viewer_groups_order_newest_first_oldest_updates_first() {
+        let fresh = 1_770_000_000_000;
+        let entries = vec![
+            StatusEntryView {
+                jid: "older@s.whatsapp.net".into(),
+                name: "Older".into(),
+                updates: vec![
+                    update("o2", "text", fresh - 10_000, false),
+                    update("o1", "text", fresh - 60_000, false),
+                ],
+            },
+            StatusEntryView {
+                jid: "newer@s.whatsapp.net".into(),
+                name: "Newer".into(),
+                updates: vec![update("n1", "image", fresh - 1_000, false)],
+            },
+            StatusEntryView {
+                jid: "stale@s.whatsapp.net".into(),
+                name: "Stale".into(),
+                updates: vec![update("s1", "text", fresh - STATUS_TTL_MS - 1, false)],
+            },
+        ];
+        let groups = viewer_groups(&request(entries));
+        assert_eq!(groups.len(), 2, "expired entries are dropped");
+        assert_eq!(groups[0].jid, "newer@s.whatsapp.net");
+        assert_eq!(groups[1].jid, "older@s.whatsapp.net");
+        assert_eq!(
+            groups[1].update_ids,
+            vec!["o1".to_string(), "o2".to_string()]
+        );
+    }
+
+    #[test]
+    fn own_update_ids_only_lists_our_stories() {
+        let fresh = 1_770_000_000_000;
+        let mut mine = update("mine", "text", fresh, true);
+        mine.from_me = true;
+        let theirs = update("theirs", "text", fresh, false);
+        let ids = own_update_ids(&request(vec![StatusEntryView {
+            jid: "me@s.whatsapp.net".into(),
+            name: "Me".into(),
+            updates: vec![mine, theirs],
+        }]));
+        assert_eq!(ids, vec!["mine".to_string()]);
     }
 
     #[test]

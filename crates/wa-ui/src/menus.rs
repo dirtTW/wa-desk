@@ -183,9 +183,67 @@ pub fn delete_confirm(items: &[DeleteItem], self_chat: bool) -> DeleteConfirmOut
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+pub struct ClampedPosition {
+    pub left: f64,
+    pub top: f64,
+}
+
+/// Keep a popover inside the window: 8 px from every edge, scrolling menus may
+/// be taller than the viewport (they scroll internally).
+pub fn clamp_popover(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    viewport_w: f64,
+    viewport_h: f64,
+    margin: f64,
+) -> ClampedPosition {
+    let left = x.max(margin).min(viewport_w - width - margin);
+    let top = y.max(margin).min(viewport_h - height - margin);
+    ClampedPosition { left, top }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn popovers_clamp_inside_the_window() {
+        // Fits as asked.
+        let pos = clamp_popover(100.0, 120.0, 200.0, 150.0, 1000.0, 800.0, 8.0);
+        assert_eq!(
+            pos,
+            ClampedPosition {
+                left: 100.0,
+                top: 120.0
+            }
+        );
+        // Past the right/bottom edge.
+        let pos = clamp_popover(950.0, 780.0, 200.0, 150.0, 1000.0, 800.0, 8.0);
+        assert_eq!(
+            pos,
+            ClampedPosition {
+                left: 792.0,
+                top: 642.0
+            }
+        );
+        // Negative coordinates and an oversized menu still keep the margin.
+        let pos = clamp_popover(-50.0, -20.0, 200.0, 150.0, 1000.0, 800.0, 8.0);
+        assert_eq!(
+            pos,
+            ClampedPosition {
+                left: 8.0,
+                top: 8.0
+            }
+        );
+        let tall = clamp_popover(10.0, 10.0, 300.0, 2000.0, 1000.0, 800.0, 8.0);
+        assert_eq!(
+            tall.top, -1208.0,
+            "taller menus scroll instead of overflowing"
+        );
+    }
 
     #[test]
     fn chat_menu_rows_follow_the_chat_state() {

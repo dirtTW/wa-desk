@@ -51,14 +51,21 @@ function initChatMenu() {
 
   // Unhide first so the metrics are real, then clamp inside the window like
   // the message menu does.
-  function clampMenu(menu, clientX, clientY) {
+  async function clampMenu(menu, clientX, clientY) {
     menu.style.left = "8px";
     menu.style.top = "8px";
     const rect = menu.getBoundingClientRect();
-    const left = Math.max(8, Math.min(clientX, window.innerWidth - rect.width - 8));
-    const top = Math.max(8, Math.min(clientY, window.innerHeight - rect.height - 8));
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
+    // The edge maths live in wa_ui::menus::clamp_popover.
+    const pos = await invoke("ui_clamp_popover", {
+      x: clientX,
+      y: clientY,
+      width: rect.width,
+      height: rect.height,
+      viewportW: window.innerWidth,
+      viewportH: window.innerHeight,
+    }).catch(() => ({ left: clientX, top: clientY }));
+    menu.style.left = `${pos.left}px`;
+    menu.style.top = `${pos.top}px`;
   }
 
   async function openChatMenu(chatJid, clientX, clientY) {
@@ -67,7 +74,7 @@ function initChatMenu() {
     const menu = $("chat-list-menu");
     menu.hidden = false;
     await applyLocalChatMenuState();
-    clampMenu(menu, clientX, clientY);
+    await clampMenu(menu, clientX, clientY);
   }
 
   chatListEl.addEventListener("contextmenu", (event) => {
@@ -102,7 +109,7 @@ function initChatMenu() {
       const rect = button.getBoundingClientRect();
       submenu.hidden = false;
       await applyMuteSubmenu(chatJid);
-      clampMenu(submenu, rect.right + 4, rect.top);
+      await clampMenu(submenu, rect.right + 4, rect.top);
       return;
     }
     closeChatMenu();

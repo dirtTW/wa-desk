@@ -71,13 +71,12 @@ function loadStatuses() {
 /// attributed to one of them (the session cannot know them otherwise).
 let syncedStatusIds = new Set();
 
-function syncOwnStatusIds() {
-  const ids = [];
-  for (const entry of state.statuses.values()) {
-    for (const update of entry.updates) {
-      if (update.from_me && update.id && !syncedStatusIds.has(update.id)) ids.push(update.id);
-    }
-  }
+async function syncOwnStatusIds() {
+  // Which updates are ours is decided by wa_ui::status::own_update_ids.
+  const own = await invoke("ui_status_own_ids", { request: statusRequest() }).catch(
+    () => [],
+  );
+  const ids = own.filter((id) => !syncedStatusIds.has(id));
   if (!ids.length) return;
   for (const id of ids) syncedStatusIds.add(id);
   invoke("watch_status_ids", { ids }).catch(() => {
@@ -157,14 +156,22 @@ function setStatusTab(tab) {
   $("status-viewed-section").hidden = tab !== "viewed";
 }
 
-function statusEntries() {
-  return [...state.statuses.values()]
-    .map((entry) => ({
-      ...entry,
-      updates: entry.updates.filter((update) => Date.now() - update.timestamp < STATUS_TTL_MS),
-    }))
-    .filter((entry) => entry.updates.length > 0)
-    .sort((a, b) => latestStatus(b) - latestStatus(a));
+// The 24 h filter, the group order and the per-group play order are decided
+// by wa_ui::status::viewer_groups; this maps the ids back to local updates.
+async function statusGroupsPlan() {
+  const groups = await invoke("ui_status_groups", { request: statusRequest() }).catch(
+    () => [],
+  );
+  return groups
+    .map((group) => {
+      const entry = state.statuses.get(group.jid);
+      if (!entry) return null;
+      const byId = new Map(entry.updates.map((update) => [update.id, update]));
+      const updates = group.update_ids.map((id) => byId.get(id)).filter(Boolean);
+      if (!updates.length) return null;
+      return { ...entry, name: group.name || entry.name, updates };
+    })
+    .filter(Boolean);
 }
 
 function openStatus() {
@@ -323,15 +330,13 @@ function addStatusUpdate(update) {
   if (!$("status-screen").hidden) renderStatusList();
 }
 
-function openStatusViewer(jid) {
-  statusGroups = statusEntries().filter((entry) => entry.updates.length);
+async function openStatusViewer(jid) {
+  statusGroups = await statusGroupsPlan();
   const index = statusGroups.findIndex((entry) => entry.jid === jid);
   if (index < 0) return;
 
   statusGroupIndex = index;
-  statusQueue = statusGroups[index].updates
-    .filter((update) => Date.now() - update.timestamp < STATUS_TTL_MS)
-    .sort((a, b) => a.timestamp - b.timestamp);
+  statusQueue = statusGroups[index].updates;
   if (statusQueue.length === 0) return;
 
   statusIndex = statusQueue.findIndex((update) => !update.viewed);

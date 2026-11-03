@@ -151,6 +151,40 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// The viewer's group queue (newest activity first, updates oldest first).
+#[tauri::command]
+pub fn ui_status_groups(request: wa_ui::StatusRequest) -> Vec<wa_ui::status::ViewerGroup> {
+    wa_ui::status::viewer_groups(&request)
+}
+
+/// Ids of our own stories, for view-receipt attribution.
+#[tauri::command]
+pub fn ui_status_own_ids(request: wa_ui::StatusRequest) -> Vec<String> {
+    wa_ui::status::own_update_ids(&request)
+}
+
+/// Keep a popover inside the window.
+#[tauri::command]
+pub fn ui_clamp_popover(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    viewport_w: f64,
+    viewport_h: f64,
+    margin: Option<f64>,
+) -> wa_ui::menus::ClampedPosition {
+    wa_ui::menus::clamp_popover(
+        x,
+        y,
+        width,
+        height,
+        viewport_w,
+        viewport_h,
+        margin.unwrap_or(8.0),
+    )
+}
+
 /// Which call-overlay controls show, plus the status line.
 #[tauri::command]
 pub fn ui_call_overlay(input: wa_ui::calls::CallOverlayInput) -> CallOverlayOutput {
