@@ -20,6 +20,16 @@ and the roadmap live in [`AGENTS.md`](AGENTS.md).
 - The release job signs the installer (`bundle.createUpdaterArtifacts: true`),
   writes `latest.json` for the updater and uploads it alongside the other
   assets, so a tag push now produces a working update channel.
+- **Security hardening before the repository went public.** `security.csp` was
+  `null` — no Content Security Policy at all. It now denies `object`/`frame`,
+  pins `connect-src` to the Tauri IPC, and allows only the image/media sources
+  the UI actually uses; verified with **0 violations** in the webview console
+  after a reload. The audit that produced this is written up in
+  [`SECURITY.md`](SECURITY.md) — no secrets in the tree or the history, all
+  commit emails are noreply, message text is escaped before `innerHTML`,
+  `open_link` only accepts http(s), and the only `unsafe` is Win32/COM interop.
+  CI now runs `cargo audit` on every push, with the accepted advisories and
+  their rationale in [`.cargo/audit.toml`](.cargo/audit.toml).
 
 ## [0.1.0-rc.4] — 2026-11-03
 
