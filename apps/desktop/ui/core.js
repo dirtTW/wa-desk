@@ -268,12 +268,6 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function linkify(escaped) {
-  return escaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => {
-    return `<a href="${url}" target="_blank" rel="noreferrer noopener">${url}</a>`;
-  });
-}
-
 function displayNameFromHandle(name) {
   const clean = String(name || "")
     .replace(/^@/, "")
@@ -303,166 +297,6 @@ function applyOwnIdentity(status) {
   for (const chat of state.chats.values()) {
     if (isSelfChat(chat.jid)) chat.unread = 0;
   }
-}
-
-function mentionName(raw) {
-  const user = String(raw).split(":")[0];
-  const self = [state.meJid, state.meLid]
-    .filter(Boolean)
-    .map((jid) => WAChatUtils.phoneFromJid(jid));
-  if (self.includes(user)) {
-    if (state.me) return state.me;
-    const own = [...state.chats.values()].find(
-      (chat) => chat.jid === state.meJid || chat.jid === state.meLid,
-    );
-    return displayNameFromHandle(own?.name);
-  }
-  // Mentions can arrive as LID user parts. Resolve the LID to a phone number
-  // before looking in the saved-contact map, which is keyed by phone.
-  const lid = state.phones.get(`${user}@lid`);
-  const pn = state.phones.get(`${user}@s.whatsapp.net`);
-  const phone =
-    [lid, pn].find((value) => value && value !== "missing" && value !== "loading") ||
-    user;
-  const contact = state.contacts.get(phone) || state.contacts.get(user);
-  if (contact) return contact;
-  // Fall back to a sender name already known from this chat's messages.
-  const active = state.chats.get(state.active);
-  const sender = active?.messages.find(
-    (message) =>
-      message.sender &&
-      WAChatUtils.phoneFromJid(message.sender) === user &&
-      message.sender_name,
-  );
-  return sender?.sender_name || "";
-}
-
-// Mentions are plain `@2678...` tokens in the protocol. Render them like
-// WhatsApp Web: the contact name in green when known, otherwise the number.
-/// WhatsApp inline markup: *bold*, _italic_, ~strike~, ```monospace```.
-/// Applied to already-escaped text so the generated tags are the only HTML.
-function applyWhatsAppFormatting(escaped) {
-  return escaped
-    .replace(/```([^`\n]+)```/g, "<code>$1</code>")
-    .replace(/\*([^*\n]+)\*/g, "<b>$1</b>")
-    .replace(/_([^_\n]+)_/g, "<i>$1</i>")
-    .replace(/~([^~\n]+)~/g, "<s>$1</s>");
-}
-
-function bodyHtml(text, mentions) {
-  const escaped = escapeHtml(text);
-  // URL query strings break under WhatsApp's `_text_`/`*text*` formatting
-  // (`utm_source=ig_web_...`), which split the anchor and left the tail grey.
-  // Shield every URL behind a placeholder through the formatting/mention
-  // passes, then restore each one as a single clickable anchor.
-  const urls = [];
-  const masked = escaped.replace(/https?:\/\/\S+/g, (url) => {
-    // Captions often quote the URL (`...IZA=="`); a trailing `&quot;` inside
-    // the href attribute would terminate it early and leak the markup as
-    // plain text, so the anchor only covers the URL itself and the quote is
-    // re-appended as text after it.
-    const trimmed = url.replace(/(?:&quot;)+$/, "");
-    urls.push(trimmed);
-    const leftover = "&quot;".repeat((url.length - trimmed.length) / 6);
-    return `\u0000${urls.length - 1}\u0000${leftover}`;
-  });
-  const formatted = applyWhatsAppFormatting(masked);
-  const jidForDigits = (digits) =>
-    (mentions || []).find(
-      (jid) => String(jid).split("@")[0].split(":")[0] === digits,
-    ) || "";
-  let html = formatted.replace(/@(\d{5,})(?::\d+)?/g, (_whole, digits) => {
-    const name = mentionName(digits);
-    const jid = jidForDigits(digits);
-    return `<span class="mention"${
-      jid ? ` data-mention-jid="${escapeHtml(jid)}"` : ""
-    }>@${escapeHtml(name || digits)}</span>`;
-  });
-  // Forwarded posts often carry the push name as plain text plus the
-  // `mentionedJid` list; colour and link those names too, like WhatsApp Web.
-  if (Array.isArray(mentions) && mentions.length) {
-    for (const jid of mentions) {
-      const user = String(jid).split("@")[0].split(":")[0];
-      const name = mentionName(user);
-      if (!name) continue;
-      const token = `@${escapeHtml(name)}`;
-      if (token.length <= 1 || !html.includes(token)) continue;
-      html = html
-        .split(token)
-        .join(
-          `<span class="mention" data-mention-jid="${escapeHtml(jid)}">${token}</span>`,
-        );
-    }
-  }
-  html = html.replace(/\u0000(\d+)\u0000/g, (_whole, index) => {
-    const url = urls[Number(index)];
-    if (url === undefined) return _whole;
-    return `<a href="${url}" target="_blank" rel="noreferrer noopener">${url}</a>`;
-  });
-  // No `linkify()` here: the mask above already captured every URL, and a
-  // second pass would re-match the `https://…` inside the just-created href
-  // attributes and corrupt the markup (that was the visible leak).
-  return html;
-}
-
-// A reply or reaction sent against a status update. WhatsApp does not print a
-// plain reply quote for these: it shows the status author with a "· Status"
-// tag, the media kind as a chip and the status thumbnail on the right.
-function statusQuoteHtml(reply) {
-  if (!reply) return "";
-  const name =
-    reply.sender_name ||
-    (reply.sender ? WAChatUtils.phoneFromJid(reply.sender) : "") ||
-    "Status";
-  const label = MEDIA_LABELS[reply.kind];
-  const icon = label
-    ? waIcon(
-        reply.kind === "video"
-          ? "videocam"
-          : reply.kind === "audio"
-            ? "mic"
-            : reply.kind === "document"
-              ? "description"
-              : reply.kind === "sticker"
-                ? "sticker"
-                : "image",
-      )
-    : "";
-  const body = label
-    ? `<div class="status-quote-kind">${icon}${escapeHtml(label)}</div>`
-    : reply.text
-      ? `<div class="status-quote-text">${bodyHtml(reply.text)}</div>`
-      : "";
-  const thumb = reply.thumb
-    ? `<img class="status-quote-thumb" src="${escapeHtml(reply.thumb)}" alt="" />`
-    : "";
-  return `<div class="quote status-quote"${
-    reply.id ? ` data-quote-id="${escapeHtml(reply.id)}"` : ""
-  } role="${reply.id ? "button" : "presentation"}"${
-    reply.id ? ' tabindex="0" title="Go to the status"' : ""
-  }>${thumb}<div class="status-quote-name">${escapeHtml(name)}<span> · Status</span></div>${body}</div>`;
-}
-
-function replyQuoteHtml(reply) {
-  if (!reply) return "";
-  const name =
-    reply.sender_name ||
-    (reply.sender ? WAChatUtils.phoneFromJid(reply.sender) : "") ||
-    "Message";
-  const kindLabel = MEDIA_LABELS[reply.kind] || "";
-  const text = reply.text
-    ? bodyHtml(reply.text)
-    : kindLabel
-      ? `<span class="quote-kind">${escapeHtml(kindLabel)}</span>`
-      : "";
-  const thumb = reply.thumb
-    ? `<img class="quote-thumb" src="${escapeHtml(reply.thumb)}" alt="" />`
-    : "";
-  return `<div class="quote"${
-    reply.id ? ` data-quote-id="${escapeHtml(reply.id)}"` : ""
-  } role="${reply.id ? "button" : "presentation"}"${
-    reply.id ? ' tabindex="0" title="Go to the quoted message"' : ""
-  }>${thumb}<div class="quote-main"><div class="quote-sender">${escapeHtml(name)}</div><div class="quote-text">${text}</div></div></div>`;
 }
 
 /* -------------------------------------------------------------- date labels */
@@ -508,60 +342,6 @@ function clockLabel(ms) {
     .toLowerCase();
 }
 
-function timeOf(ms) {
-  if (!ms) return clockLabel(Date.now());
-  const hit = TIME_LABELS.get(ms);
-  if (hit !== undefined) return hit;
-  const label = clockLabel(ms);
-  if (TIME_LABELS.size >= MAX_TIME_LABELS) TIME_LABELS.clear();
-  TIME_LABELS.set(ms, label);
-  return label;
-}
-
-// Chat-list stamp: time for today, short date for anything older.
-function stampOf(ms) {
-  if (!ms) return "";
-  ensureDayLabels();
-  const hit = STAMP_LABELS.get(ms);
-  if (hit !== undefined) return hit;
-  const date = new Date(ms);
-  const now = new Date();
-  const label =
-    dayKey(date) === dayKey(now)
-      ? timeOf(ms)
-      : date.toLocaleDateString(
-          [],
-          date.getFullYear() === now.getFullYear()
-            ? { month: "short", day: "numeric" }
-            : { year: "2-digit", month: "short", day: "numeric" },
-        );
-  if (STAMP_LABELS.size >= MAX_STAMP_LABELS) STAMP_LABELS.clear();
-  STAMP_LABELS.set(ms, label);
-  return label;
-}
-
-function dayOf(ms) {
-  ensureDayLabels();
-  const date = new Date(ms || Date.now());
-  const key = dayKey(date);
-  const hit = DAY_LABELS.get(key);
-  if (hit !== undefined) return hit;
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const label =
-    key === dayKey(today)
-      ? "Today"
-      : key === dayKey(yesterday)
-        ? "Yesterday"
-        : today.getTime() - date.getTime() < 7 * 86_400_000
-          ? date.toLocaleDateString([], { weekday: "long" })
-          : date.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
-  if (DAY_LABELS.size >= MAX_DAY_LABELS) DAY_LABELS.clear();
-  DAY_LABELS.set(key, label);
-  return label;
-}
-
 function initials(name) {
   const clean = String(name || "?").trim();
   const parts = clean.split(/[\s._-]+/).filter(Boolean);
@@ -575,13 +355,6 @@ function isSelfChat(jid) {
   return [state.meJid, state.meLid]
     .filter(Boolean)
     .some((self) => String(self).split("@")[0].split(":")[0] === user);
-}
-
-function chatDisplayName(chat) {
-  if (!chat) return "";
-  const name = chat.name || String(chat.jid || "").split("@")[0];
-  if (isSelfChat(chat.jid) && !/\(you\)$/i.test(name)) return `${name} (You)`;
-  return name;
 }
 
 // Deterministic colour per contact, like WhatsApp's default avatar palette.
@@ -615,18 +388,6 @@ const GROUP_AVATAR_ICON =
 
 function isGroupJid(jid) {
   return typeof jid === "string" && jid.endsWith("@g.us");
-}
-
-function avatarHtml(name, jid, extraClass = "avatar") {
-  const url = jid ? state.photos.get(jid) : null;
-  const letters = escapeHtml(initials(name));
-  if (url) {
-    return `<div class="${extraClass}" data-jid="${escapeHtml(jid)}" data-initials="${letters}"><img class="avatar-img" src="${escapeHtml(url)}" alt="" loading="lazy" onerror="window.__waAvatarError(this)"></div>`;
-  }
-  if (isGroupJid(jid)) {
-    return `<div class="${extraClass} group-avatar" data-jid="${escapeHtml(jid)}" data-initials="${letters}">${GROUP_AVATAR_ICON}</div>`;
-  }
-  return `<div class="${extraClass}" style="${avatarStyle(name)}">${letters}</div>`;
 }
 
 function setAvatar(node, name, jid) {
@@ -747,16 +508,6 @@ function mediaIcon(kind) {
       '<svg viewBox="0 -960 960 960"><path d="M460-360q69 0 120-45t60-113l-320 90q26 32 62 50t78 18ZM294-510l106-30q4-28-14-49t-46-21q-25 0-42.5 17.5T280-550q0 11 4 21t10 19Zm240-70 106-30q5-28-13.5-49T580-680q-25 0-42.5 17.5T520-620q0 11 4 21t10 19Zm106 460H200q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v440L640-120Zm-40-80v-80q0-33 23.5-56.5T680-360h80v-400H200v560h400Zm0 0Zm-400 0v-560 560Z"/></svg>',
   };
   return icons[kind] || icons.document;
-}
-
-function previewOf(message, isGroup, chatName, showDeleted) {
-  const text = WAChatUtils.previewOf(message, isGroup, chatName, showDeleted);
-  // WhatsApp shows the mention's display name in the sidebar; the raw text
-  // carries the user id ("@123456789012345"), which looked like a glitch.
-  return String(text).replace(/@(\d{5,})(?::\d+)?/g, (whole, digits) => {
-    const name = mentionName(digits);
-    return name ? `@${name}` : whole;
-  });
 }
 
 function toast(message) {

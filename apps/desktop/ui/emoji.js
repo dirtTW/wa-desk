@@ -37,9 +37,12 @@ function rememberEmoji(char) {
 function renderRecentEmojis() {
   const node = $("emoji-recents");
   if (!node) return;
-  node.innerHTML = recentEmojis()
-    .map((char) => `<button type="button" class="emoji" data-char="${char}">${char}</button>`)
-    .join("");
+  // The row markup comes from wa-ui::emoji; the list itself is local storage.
+  invoke("ui_emoji_recents", { chars: recentEmojis() })
+    .then((html) => {
+      node.innerHTML = html;
+    })
+    .catch(() => {});
 }
 
 // "full" emoji support: every Unicode group, searchable, plus recents.

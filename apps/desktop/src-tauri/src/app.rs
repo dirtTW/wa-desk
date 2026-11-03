@@ -178,6 +178,7 @@ pub fn run() {
             crate::commands::ui::ui_chat,
             crate::commands::ui::ui_emoji_search,
             crate::commands::ui::ui_emoji_groups,
+            crate::commands::ui::ui_emoji_recents,
             crate::commands::ui::ui_labels,
             crate::commands::ui::ui_chat_subtitle,
             crate::commands::ui::ui_settings,

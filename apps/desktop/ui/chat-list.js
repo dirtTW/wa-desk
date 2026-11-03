@@ -322,15 +322,6 @@ function isChannelJid(jid) {
   return typeof jid === "string" && jid.endsWith("@newsletter");
 }
 
-// 7_100_000 -> "7.1m followers", 84_300 -> "84.3k followers".
-function formatFollowers(count) {
-  const n = Number(count) || 0;
-  if (n <= 0) return "Channel";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}m followers`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k followers`;
-  return `${n} follower${n === 1 ? "" : "s"}`;
-}
-
 let channelsSyncing = false;
 
 async function syncChannelMetadata() {

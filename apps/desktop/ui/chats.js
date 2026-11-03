@@ -44,7 +44,7 @@ function foldChat(from, to, name) {
   const source = state.chats.get(from);
   const target = state.chats.get(to);
   if (!source) {
-    if (target && name && isPlaceholderName(target.jid, target.name)) {
+    if (target && name && WAChatUtils.isPlaceholderName(target.jid, target.name)) {
       target.name = name;
       return true;
     }
@@ -89,7 +89,7 @@ async function resolvePeers(chats) {
       chat.jid !== state.meJid &&
       chat.jid !== state.meLid &&
       !peerLookups.has(chat.jid) &&
-      (String(chat.jid).endsWith("@lid") || isPlaceholderName(chat.jid, chat.name)),
+      (String(chat.jid).endsWith("@lid") || WAChatUtils.isPlaceholderName(chat.jid, chat.name)),
   );
   if (!pending.length) return;
 
@@ -121,7 +121,7 @@ async function resolvePeers(chats) {
     }
 
     const entry = state.chats.get(target);
-    if (entry && info.name && isPlaceholderName(entry.jid, entry.name)) {
+    if (entry && info.name && WAChatUtils.isPlaceholderName(entry.jid, entry.name)) {
       entry.name = info.name;
       changed = true;
     }

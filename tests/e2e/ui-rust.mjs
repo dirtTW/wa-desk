@@ -134,6 +134,43 @@ if (chatCheck.skipped) {
   check("media blocks render", chatCheck.media >= 0, `${chatCheck.media} media, ${chatCheck.images} ready`);
 }
 
+console.log("\n# chat header (rust)");
+const header = await page.evaluate(async () => {
+  const groups = [];
+  for (const chat of [...state.chats.values()].filter((c) => c.isGroup).slice(0, 1)) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    groups.push({
+      name: document.getElementById("chat-name").textContent,
+      sub: document.getElementById("chat-sub").textContent,
+    });
+  }
+  const dm = [...state.chats.values()].find(
+    (c) => !c.isGroup && !c.jid.endsWith("@newsletter"),
+  );
+  const dms = [];
+  if (dm) {
+    await openChat(dm.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    dms.push({
+      name: document.getElementById("chat-name").textContent,
+      sub: document.getElementById("chat-sub").textContent,
+    });
+  }
+  localStorage.setItem("wadesk.emoji.recents", JSON.stringify(["😀", "❤️", "👍"]));
+  renderRecentEmojis();
+  await new Promise((r) => setTimeout(r, 400));
+  return { groups, dms, recents: document.querySelectorAll("#emoji-recents .emoji").length };
+});
+check("the chat name renders", (header.groups[0]?.name || "").length > 0, header.groups[0]?.name);
+check("the group subtitle renders", header.groups[0]?.sub === "Group chat", header.groups[0]?.sub);
+check(
+  "the direct-chat subtitle renders",
+  (header.dms[0]?.sub || "").length > 0,
+  `${header.dms[0]?.name} · ${header.dms[0]?.sub}`,
+);
+check("emoji recents render", header.recents === 3, `${header.recents} recents`);
+
 console.log("\n# media viewer (rust)");
 const viewer = await page.evaluate(async () => {
   const chat = [...state.chats.values()].find((entry) =>

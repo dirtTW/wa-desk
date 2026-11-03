@@ -37,6 +37,12 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// The recent-emoji row for the picker.
+#[tauri::command]
+pub fn ui_emoji_recents(chars: Vec<String>) -> String {
+    wa_ui::emoji::recents_html(&chars)
+}
+
 /// The full-screen media viewer chrome (header, caption, stage, filmstrip).
 #[tauri::command]
 pub fn ui_media_viewer(request: wa_ui::ViewerRequest) -> Option<wa_ui::ViewerOutput> {

@@ -301,19 +301,9 @@ async function renderChat() {
   panel.hidden = false;
   placeholder.hidden = true;
   const channel = isChannelJid(chat.jid);
-  $("chat-name").textContent = chatDisplayName(chat);
   const cachedPhone = state.phones.get(chat.jid);
   const knownPhone =
     cachedPhone && cachedPhone !== "loading" && cachedPhone !== "missing" ? cachedPhone : "";
-  $("chat-sub").textContent = channel
-    ? formatFollowers(chat.subscribers)
-    : WAChatUtils.chatSubtitle(
-        chat.jid,
-        chat.isGroup,
-        state.meJid,
-        state.meLid,
-        knownPhone,
-      );
   // Channels are broadcast-only: no composer, calls, or per-chat menu. The
   // import button stays: it is the way to backfill posts the phone never synced.
   $("composer").hidden = channel;
@@ -332,13 +322,9 @@ async function renderChat() {
   ) {
     resolvePhone(chat.jid).then((phone) => {
       if (phone && state.active === chat.jid && !$("chat-panel").hidden) {
-        $("chat-sub").textContent = WAChatUtils.chatSubtitle(
-          chat.jid,
-          chat.isGroup,
-          state.meJid,
-          state.meLid,
-          phone,
-        );
+        // The header subtitle comes from the renderer: repaint so the resolved
+        // number appears.
+        scheduleChatRender();
       }
     });
   }
@@ -370,6 +356,8 @@ async function renderChat() {
   if (seq !== chatRenderSeq || state.active !== chat.jid) return;
 
   if (out.empty_html) {
+    $("chat-name").textContent = out.name;
+    $("chat-sub").textContent = out.subtitle;
     box.innerHTML = out.empty_html;
     box.dataset.stickBottom = "1";
     lastMessageScrollTop = 0;
@@ -378,6 +366,8 @@ async function renderChat() {
     return;
   }
 
+  $("chat-name").textContent = out.name;
+  $("chat-sub").textContent = out.subtitle;
   box.innerHTML = out.html;
   hydrateMedia(box);
   hydrateDocumentCards(box);

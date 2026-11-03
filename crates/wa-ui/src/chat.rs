@@ -94,6 +94,8 @@ pub struct ChatOutput {
     /// Full `<div class="bubble">` list, day dividers included.
     pub html: String,
     pub empty_html: String,
+    /// Header title, with (You) on the self chat.
+    pub name: String,
     /// Header subtitle ("Group chat", "+62 …", "Message yourself", followers).
     pub subtitle: String,
     /// Sender JIDs whose profile photo is worth fetching.
@@ -1069,6 +1071,18 @@ fn bubble_classes(
     classes.join(" ")
 }
 
+fn display_name(name: &str, jid: &str, req: &ChatRequest) -> String {
+    let name = if name.is_empty() {
+        jid.split('@').next().unwrap_or("").to_string()
+    } else {
+        name.to_string()
+    };
+    if is_self_jid(jid, &req.me_jid, &req.me_lid) && !name.to_lowercase().ends_with("(you)") {
+        return format!("{name} (You)");
+    }
+    name
+}
+
 pub fn render(req: &ChatRequest) -> ChatOutput {
     let self_chat = is_self_jid(&req.chat.jid, &req.me_jid, &req.me_lid);
     let starred: HashSet<String> = req.starred.iter().cloned().collect();
@@ -1108,6 +1122,7 @@ pub fn render(req: &ChatRequest) -> ChatOutput {
         return ChatOutput {
             html: String::new(),
             empty_html,
+            name: display_name(&req.chat.name, &req.chat.jid, req),
             subtitle,
             queue: Vec::new(),
             count: 0,
@@ -1384,6 +1399,7 @@ pub fn render(req: &ChatRequest) -> ChatOutput {
     ChatOutput {
         html,
         empty_html: String::new(),
+        name: display_name(&req.chat.name, &req.chat.jid, req),
         subtitle,
         queue,
         count: visible.len(),

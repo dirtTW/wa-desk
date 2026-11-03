@@ -4,11 +4,6 @@
     return name === jid.split("@")[0];
   }
 
-  // A deleted chat stays in memory; the eye toggle decides whether it shows.
-  function isChatVisible(chat, showDeleted) {
-    return Boolean(showDeleted) || !chat.deleted;
-  }
-
   // Cleared history and "delete for me" messages are kept but hidden until the
   // eye toggle is on.
   function isMessageVisible(message, showDeleted) {
@@ -16,13 +11,6 @@
     if (message.cleared) return false;
     if (message.deletedForMe) return false;
     return true;
-  }
-
-  // `null` when the message was not deleted at all, `""` when deleted but
-  // hidden, or the original text when the eye toggle reveals it.
-  function deletedMessageText(message, showDeleted) {
-    if (!message.deleted) return null;
-    return showDeleted && message.text ? message.text : "";
   }
 
   const PREVIEW_LABELS = {
@@ -33,59 +21,6 @@
     sticker: "Sticker",
     view_once: "View once message",
   };
-
-  function previewOf(message, isGroup, chatName, showDeleted) {
-    let text;
-    if (message.deleted) {
-      text = showDeleted && message.text ? message.text : "This message was deleted";
-    } else if (message.kind === "document") {
-      // WhatsApp lists the file name, not a generic "Document".
-      text = message.document?.name || message.text || "Document";
-    } else if (message.kind !== "text" && PREVIEW_LABELS[message.kind]) {
-      text = message.text
-        ? `${PREVIEW_LABELS[message.kind]}: ${message.text}`
-        : PREVIEW_LABELS[message.kind];
-    } else {
-      text = message.text || "Unsupported message";
-    }
-
-    let who = "";
-    if (message.from_me) {
-      // Official rules for the preview text: groups credit "You:"; a direct
-      // chat shows only the message — its delivery tick is drawn separately
-      // by `previewTick` so it can pick up the read colour.
-      who = isGroup ? "You: " : "";
-    } else if (isGroup) {
-      // Unsaved members get their push name with a "~" (WhatsApp Web), and the
-      // phone number is the last resort instead of the literal "Unknown".
-      const saved =
-        typeof global.contactNameFor === "function"
-          ? global.contactNameFor(message.sender)
-          : "";
-      const push = message.sender_name || "";
-      const label =
-        saved ||
-        (push ? `~ ${push}` : "") ||
-        formatPhone(message.sender_phone || "") ||
-        "Unknown";
-      who = `${label}: `;
-    }
-
-    return `${who}${text}`;
-  }
-
-  // The sidebar's delivery marker for one of our own messages in a direct
-  // chat: grey single tick until a receipt lands, grey double tick once
-  // delivered, blue double tick when it was read ("played" counts too).
-  // Missing receipts just stay grey — WhatsApp only sends one when the other
-  // side has read confirmations enabled.
-  function previewTick(message, isGroup) {
-    if (!message || !message.from_me || isGroup) return "";
-    const read = message.status === "read" || message.status === "played";
-    const delivered = message.status === "delivered";
-    const glyph = read || delivered ? waIcon("done_all") : waIcon("check");
-    return `<span class="tick preview-tick${read ? " read" : ""}">${glyph}</span>`;
-  }
 
   // A chat's mute expiry (`muteUntil`, Unix ms; `muteForever` for "Always")
   // decides whether the row shows WhatsApp's crossed-out bell.
@@ -116,12 +51,6 @@
       }
     }
     return null;
-  }
-
-  function fileSizeLabel(bytes) {
-    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-    return `${bytes} B`;
   }
 
   // Keep memory bounded: per-chat cap plus a global budget. Chats with the
@@ -307,15 +236,6 @@
     return match[0].replace(/[),.;!?]+$/, "");
   }
 
-  // "https://www.instagram.com/p/..." -> "www.instagram.com"
-  function siteOf(url) {
-    try {
-      return new URL(String(url)).hostname;
-    } catch {
-      return "";
-    }
-  }
-
   // "/ai explain this" -> "explain this"; anything else -> null.
   function aiPrompt(text) {
     if (!text) return null;
@@ -331,12 +251,9 @@
     mergeChats,
     trimMessages,
     pickClipboardImage,
-    fileSizeLabel,
-    isChatVisible,
+
     isMessageVisible,
-    deletedMessageText,
-    previewOf,
-    previewTick,
+
     chatIsMuted,
     lastVisibleMessage,
     phoneFromJid,
@@ -344,7 +261,7 @@
     formatPhone,
     senderColor,
     firstUrl,
-    siteOf,
+
     aiPrompt,
   };
 

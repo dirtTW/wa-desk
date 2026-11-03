@@ -4,6 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.6] — 2026-11-03
+
+- **The chat header comes from the renderer.** `ui_chat` now also returns the
+  display name (`(You)` on the self chat) and the subtitle (`Group chat`, the
+  formatted phone, `Message yourself`, or the channel follower count), so
+  `chat-render.js` no longer computes either and a late LID→PN resolution just
+  repaints.
+- **Emoji recents are rendered by Rust.** `wa_ui::emoji::recents_html` +
+  `ui_emoji_recents` build the row; `emoji.js` keeps only the localStorage
+  list.
+- **Dead JavaScript markup/formatting helpers removed.** `core.js` lost
+  `avatarHtml`, `bodyHtml`, `replyQuoteHtml`, `statusQuoteHtml`, `linkify`,
+  `applyWhatsAppFormatting`, `mentionName`, `previewOf`, `timeOf`, `stampOf`,
+  `dayOf` and `chatDisplayName` (794 → 557 lines); `chat-list.js` lost
+  `formatFollowers`; `chat-utils.js` lost `isChatVisible`,
+  `deletedMessageText`, `previewOf`, `previewTick`, `fileSizeLabel` and
+  `siteOf` (315 → 237 lines) because their Rust counterparts own those rules.
+  `chat-utils.js` was also calling `isPlaceholderName` from four modules
+  without the `WAChatUtils.` prefix — a latent ReferenceError — now fixed.
+- Verified by 80 `wa-ui` tests and the CDP e2e (header for group/DM/channel,
+  three emoji recents, no JavaScript errors).
+
 ## [0.2.0-rc.5] — 2026-11-03
 
 - **The media viewer is rendered by Rust.** `wa_ui::viewer` builds the header

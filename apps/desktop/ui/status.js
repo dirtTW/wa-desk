@@ -296,7 +296,7 @@ function addStatusUpdate(update) {
     entry = { jid, name: update.name || jid, updates: [] };
     state.statuses.set(jid, entry);
   }
-  if (update.name && !isPlaceholderName(jid, update.name)) entry.name = update.name;
+  if (update.name && !WAChatUtils.isPlaceholderName(jid, update.name)) entry.name = update.name;
 
   const normalized = {
     ...update,

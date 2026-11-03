@@ -109,6 +109,20 @@ pub fn categories_html() -> String {
     html
 }
 
+/// The recent-emoji row above the grids.
+pub fn recents_html(chars: &[String]) -> String {
+    chars
+        .iter()
+        .map(|value| {
+            format!(
+                r#"<button type="button" class="emoji" data-char="{}">{}</button>"#,
+                escape(value),
+                escape(value)
+            )
+        })
+        .collect()
+}
+
 /// Search results as one grid (empty when the query has no matches).
 pub fn search_html(query: &str, limit: usize) -> String {
     let matches = search(query, limit);
@@ -152,6 +166,13 @@ mod tests {
         let cats = categories_html();
         assert!(cats.contains(r#"class="emoji-cat active" data-group="0""#));
         assert!(cats.contains(r#"data-group="8""#));
+    }
+
+    #[test]
+    fn recent_row() {
+        let html = recents_html(&["😀".to_string(), "\"".to_string()]);
+        assert!(html.contains(r#"data-char="😀""#));
+        assert!(html.contains("&quot;"), "values are escaped: {html}");
     }
 
     #[test]

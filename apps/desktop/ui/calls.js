@@ -682,7 +682,7 @@ function handleEvent(event) {
 
     case "chat_name": {
       const chat = state.chats.get(event.jid);
-      if (chat && event.name && !isPlaceholderName(event.jid, event.name)) {
+      if (chat && event.name && !WAChatUtils.isPlaceholderName(event.jid, event.name)) {
         chat.name = event.name;
         renderChatList();
         if (state.active === event.jid) renderChat();
