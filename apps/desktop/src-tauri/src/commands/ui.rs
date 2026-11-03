@@ -396,6 +396,28 @@ pub fn ui_status_own_ids(request: wa_ui::StatusRequest) -> Vec<String> {
     wa_ui::status::own_update_ids(&request)
 }
 
+/// Place a menu under its anchor button, inside the window.
+#[tauri::command]
+pub fn ui_menu_anchor(
+    anchor: wa_ui::menus::AnchorBox,
+    menu_w: f64,
+    menu_h: f64,
+    viewport_w: f64,
+    viewport_h: f64,
+    margin: Option<f64>,
+    gap: Option<f64>,
+) -> wa_ui::menus::ClampedPosition {
+    wa_ui::menus::anchor_menu(
+        anchor,
+        menu_w,
+        menu_h,
+        viewport_w,
+        viewport_h,
+        margin.unwrap_or(8.0),
+        gap.unwrap_or(6.0),
+    )
+}
+
 /// Keep a popover inside the window.
 #[tauri::command]
 pub fn ui_clamp_popover(

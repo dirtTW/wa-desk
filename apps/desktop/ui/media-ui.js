@@ -53,8 +53,23 @@ function applyThumb(id) {
       node.classList.add("has-thumb");
       node.style.backgroundImage = `url("${poster}")`;
     } else if (node.classList.contains("media-strip-thumb")) {
+      // stripThumbInner no longer exists in JS: the filmstrip cell is rendered
+      // by wa_ui::viewer::strip_thumb_html.
       const item = mediaViewerItems.find((entry) => entry.id === id);
-      if (item) node.innerHTML = stripThumbInner(item);
+      const media = state.media.get(id);
+      if (item && media?.url) {
+        invoke("ui_viewer_strip_thumb", {
+          id: item.id,
+          kind: item.kind,
+          url: media.url,
+          poster: thumbOf(item.id) || null,
+          duration: state.durations.get(item.id) || 0,
+        })
+          .then((html) => {
+            node.innerHTML = html;
+          })
+          .catch(() => {});
+      }
     }
   }
 }

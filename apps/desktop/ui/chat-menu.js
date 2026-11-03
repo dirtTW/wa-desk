@@ -244,3 +244,43 @@ function initChatMenu() {
     }
   });
 }
+
+/* ------------------------------------------------------------ sidebar kebab */
+
+// The sidebar ⋮ menu. Its handlers were referenced by wiring.js but never
+// defined, so opening it threw a ReferenceError.
+async function openSideMenu() {
+  const menu = $("side-menu");
+  if (!menu) return;
+  // Unhide first so the menu has real metrics, then place it under the kebab.
+  menu.hidden = false;
+  const anchor = $("chat-side-menu");
+  const anchorRect = anchor ? anchor.getBoundingClientRect() : { left: 8, top: 8, width: 40, height: 40 };
+  const rect = menu.getBoundingClientRect();
+  const pos = await invoke("ui_menu_anchor", {
+    anchor: {
+      x: anchorRect.left,
+      y: anchorRect.top,
+      width: anchorRect.width,
+      height: anchorRect.height,
+    },
+    menuW: rect.width || 220,
+    menuH: rect.height || 260,
+    viewportW: window.innerWidth,
+    viewportH: window.innerHeight,
+  }).catch(() => ({ left: anchorRect.left, top: anchorRect.bottom }));
+  menu.style.left = `${pos.left}px`;
+  menu.style.top = `${pos.top}px`;
+}
+
+function closeSideMenu() {
+  const menu = $("side-menu");
+  if (menu) menu.hidden = true;
+}
+
+function toggleSideMenu() {
+  const menu = $("side-menu");
+  if (!menu) return;
+  if (menu.hidden) openSideMenu();
+  else closeSideMenu();
+}

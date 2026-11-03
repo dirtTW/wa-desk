@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.28] — 2026-11-03
+
+- **Three more undefined-handler crashes fixed.** A new audit script
+  (`scripts/check-undefined.mjs`) scans every call site against the definitions
+  and found: `toggleSideMenu` / `closeSideMenu` (the sidebar kebab threw, so the
+  ⋮ menu never opened), `statusCaptureLimits` (posting any status photo/video
+  threw) and `stripThumbInner` (refreshing a video poster threw, because that
+  helper moved to `wa_ui::viewer`). All three are now implemented:
+  - the kebab opens/closes and is positioned by the new
+    `wa_ui::menus::anchor_menu` (right-aligned under the button, flipped up when
+    the button is near the bottom, never outside the margin) via
+    `ui_menu_anchor`;
+  - `statusImageThumb` uses `ui_status_capture` + `ui_status_thumb_scale` for its
+    box and JPEG quality;
+  - `applyThumb` renders filmstrip cells through `ui_viewer_strip_thumb`.
+- The e2e suite now asserts that nine previously-missing handlers are defined, so
+  this class of regression fails the run instead of only breaking at runtime.
+- 1 new `wa-ui` unit test (181 total, plus 3 contract) and a
+  menus/missing-handler CDP e2e section: the anchor maths (including the flip-up
+  case), the live kebab (6 items, positioned, closes) and the capture limits.
+
 ## [0.2.0-rc.27] — 2026-11-03
 
 - **Fixed: "Select chats" threw a `ReferenceError`.** The sidebar menu and the

@@ -1091,15 +1091,30 @@ async function postTextStatus() {
   }
 }
 
+// The thumbnail box and JPEG quality come from wa_ui::status::capture_limits.
+async function statusCaptureLimits() {
+  return invoke("ui_status_capture")
+    .then((limits) => limits)
+    .catch(() => ({ thumb_max_px: 320, jpeg_quality: 0.72 }));
+}
+
 function statusImageThumb(file) {
-  return new Promise(async (resolve) => {
+  return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = async () => {
-      const scale = Math.min(1, 320 / img.width, 320 / img.height);
+      const limits = await statusCaptureLimits();
+      const size = await invoke("ui_status_thumb_scale", {
+        width: img.width,
+        height: img.height,
+        max: limits.thumb_max_px,
+      }).catch(() => ({
+        width: Math.max(1, img.width),
+        height: Math.max(1, img.height),
+      }));
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.width = size.width;
+      canvas.height = size.height;
       canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
       resolve(canvas.toDataURL("image/jpeg", limits.jpeg_quality).split(",")[1] || "");

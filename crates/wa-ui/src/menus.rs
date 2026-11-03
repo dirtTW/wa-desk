@@ -205,9 +205,67 @@ pub fn clamp_popover(
     ClampedPosition { left, top }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct AnchorBox {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Place a menu under an anchor element (right-aligned to it), keeping it inside
+/// the window. Used by the sidebar kebab and the status add menu.
+pub fn anchor_menu(
+    anchor: AnchorBox,
+    menu_w: f64,
+    menu_h: f64,
+    viewport_w: f64,
+    viewport_h: f64,
+    margin: f64,
+    gap: f64,
+) -> ClampedPosition {
+    let x = (anchor.x + anchor.width - menu_w).max(margin);
+    let y = anchor.y + anchor.height + gap;
+    clamp_popover(x, y, menu_w, menu_h, viewport_w, viewport_h, margin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menus_anchor_below_their_button() {
+        let anchor = AnchorBox {
+            x: 900.0,
+            y: 40.0,
+            width: 40.0,
+            height: 40.0,
+        };
+        // Right-aligned to the button, 6 px below it.
+        let pos = anchor_menu(anchor, 220.0, 260.0, 1200.0, 900.0, 8.0, 6.0);
+        assert_eq!(
+            pos,
+            ClampedPosition {
+                left: 720.0,
+                top: 86.0
+            }
+        );
+
+        // A button near the bottom pushes the menu up instead of off-screen.
+        let low = AnchorBox {
+            x: 10.0,
+            y: 860.0,
+            width: 30.0,
+            height: 30.0,
+        };
+        let pos = anchor_menu(low, 220.0, 260.0, 1200.0, 900.0, 8.0, 6.0);
+        assert_eq!(pos.top, 632.0, "clamped to viewport_h - menu_h - margin");
+        assert_eq!(pos.left, 8.0, "never left of the margin");
+
+        // A narrow window still keeps the margin.
+        let pos = anchor_menu(anchor, 1180.0, 100.0, 1200.0, 900.0, 8.0, 6.0);
+        assert_eq!(pos.left, 8.0, "the margin wins over the right alignment");
+    }
 
     #[test]
     fn popovers_clamp_inside_the_window() {

@@ -460,6 +460,80 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# menus + missing-handler guards (rust)");
+const menuCheck = await page.evaluate(async () => {
+  const anchor = await invoke("ui_menu_anchor", {
+    anchor: { x: 900, y: 40, width: 40, height: 40 },
+    menuW: 220,
+    menuH: 260,
+    viewportW: 1200,
+    viewportH: 900,
+  });
+  const anchorLow = await invoke("ui_menu_anchor", {
+    anchor: { x: 10, y: 860, width: 30, height: 30 },
+    menuW: 220,
+    menuH: 260,
+    viewportW: 1200,
+    viewportH: 900,
+  });
+
+  // Regression guard: these handlers were referenced but never defined, which
+  // made the sidebar kebab, "Select chats" and status posting throw.
+  const names = [
+    "toggleSideMenu",
+    "openSideMenu",
+    "closeSideMenu",
+    "statusCaptureLimits",
+    "startChatSelection",
+    "exitChatSelection",
+    "toggleChatSelection",
+    "applyChatSelection",
+    "markAllChatsRead",
+  ];
+  const defined = {};
+  for (const name of names) defined[name] = typeof window[name];
+
+  $("chat-side-menu").click();
+  await new Promise((r) => setTimeout(r, 500));
+  const menu = $("side-menu");
+  const live = {
+    open: !menu.hidden,
+    items: menu.querySelectorAll("[data-side-action]").length,
+    placed: menu.style.left !== "" && menu.style.top !== "",
+  };
+  closeSideMenu();
+  await new Promise((r) => setTimeout(r, 200));
+  live.closed = menu.hidden;
+
+  const capture = await statusCaptureLimits();
+  return { anchor, anchorLow, defined, live, capture };
+});
+check(
+  "menus anchor under their button",
+  menuCheck.anchor.left === 720 && menuCheck.anchor.top === 86,
+  JSON.stringify(menuCheck.anchor),
+);
+check(
+  "a low anchor flips the menu up inside the window",
+  menuCheck.anchorLow.top === 632 && menuCheck.anchorLow.left === 8,
+  JSON.stringify(menuCheck.anchorLow),
+);
+check(
+  "every referenced handler is defined",
+  Object.values(menuCheck.defined).every((type) => type === "function"),
+  JSON.stringify(menuCheck.defined),
+);
+check(
+  "the sidebar kebab opens, positions and closes",
+  menuCheck.live.open && menuCheck.live.items >= 6 && menuCheck.live.placed && menuCheck.live.closed,
+  JSON.stringify(menuCheck.live),
+);
+check(
+  "the status capture limits resolve",
+  menuCheck.capture.thumb_max_px === 320 && menuCheck.capture.jpeg_quality === 0.72,
+  JSON.stringify(menuCheck.capture),
+);
+
 console.log("\n# sidebar select chats (rust)");
 const selectChats = await page.evaluate(async () => {
   const chats = [

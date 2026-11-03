@@ -56,7 +56,8 @@ pub use incoming::{Decision, DuplicatePlan, IncomingView, UnreadRule};
 pub use labels::{clock_label, day_of, format_followers, stamp_of};
 pub use media::{DownloadAction, HydrateAction, HydrateInput};
 pub use menus::{
-    ChatMenuInput, ChatMenuOutput, DeleteConfirmOutput, MessageMenuInput, MessageMenuOutput,
+    AnchorBox, ChatMenuInput, ChatMenuOutput, ClampedPosition, DeleteConfirmOutput,
+    MessageMenuInput, MessageMenuOutput,
 };
 pub use picker::{PickerChat, PickerOutput, PickerRequest};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
