@@ -11,6 +11,66 @@ use wa_core::{Session, UiEvent};
 use crate::ai;
 use crate::state::{AppState, show_main};
 
+/// Windows adds a DWM frame and drop shadow outside the size Tauri reports as
+/// `outer_size`, so a window clamped exactly to the work area still overhangs
+/// it (measured: ~16px wider, ~39px taller). Leave that much headroom.
+const FRAME_INSET_X: u32 = 16;
+const FRAME_INSET_Y: u32 = 48;
+
+/// The largest window size that fits the work area.
+fn max_window_size(work_area: (u32, u32)) -> (u32, u32) {
+    (
+        work_area.0.saturating_sub(FRAME_INSET_X),
+        work_area.1.saturating_sub(FRAME_INSET_Y),
+    )
+}
+
+/// The window size to use, given the configured size and the largest size that
+/// fits. `None` when the configured size already fits.
+fn shrink_to_fit(size: (u32, u32), max: (u32, u32)) -> Option<(u32, u32)> {
+    let width = size.0.min(max.0);
+    let height = size.1.min(max.1);
+    (width != size.0 || height != size.1).then_some((width, height))
+}
+
+/// Shrink the window when the configured default is larger than the monitor's
+/// work area. The default is 1120x780, which is taller than a 1366x768 laptop
+/// once the taskbar is accounted for, so the composer ended up off-screen and
+/// the window had to be resized on every launch.
+fn fit_window_to_work_area(window: &tauri::WebviewWindow) {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let area = monitor.work_area();
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let max = max_window_size((area.size.width, area.size.height));
+    let fitted = shrink_to_fit((size.width, size.height), max);
+    tracing::info!(
+        "window {}x{} against a {}x{} work area (max {}x{}) -> {:?}",
+        size.width,
+        size.height,
+        area.size.width,
+        area.size.height,
+        max.0,
+        max.1,
+        fitted
+    );
+    if let Some((width, height)) = fitted
+        && window
+            .set_size(tauri::PhysicalSize::new(width, height))
+            .is_ok()
+    {
+        let _ = window.center();
+    }
+}
+
 pub fn run() {
     init_tracing();
     if !claim_single_instance() {
@@ -125,6 +185,11 @@ pub fn run() {
             // the tray; Quit is on the tray menu.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_zoom(1.0);
+                // Created hidden so the work-area fit is applied before the
+                // first paint — otherwise a small screen sees the default
+                // window, then a jump as it is shrunk.
+                fit_window_to_work_area(&window);
+                let _ = window.show();
                 let hide_window = window.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -379,5 +444,27 @@ fn on_run_event(handle: &tauri::AppHandle, event: tauri::RunEvent) {
                 handle.exit(0);
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{max_window_size, shrink_to_fit};
+
+    #[test]
+    fn window_is_shrunk_only_when_it_does_not_fit() {
+        // 1366x768 laptop: the taskbar leaves a 1366x728 work area, and the
+        // 1120x780 default is taller than the room left for the window frame —
+        // that is what cut the composer off.
+        let small = max_window_size((1366, 728));
+        assert_eq!(small, (1350, 680));
+        assert_eq!(shrink_to_fit((1120, 780), small), Some((1120, 680)));
+        // 1920x1080: the configured default already fits, so nothing changes.
+        assert_eq!(
+            shrink_to_fit((1120, 780), max_window_size((1920, 1032))),
+            None
+        );
+        // A window wider than the screen is narrowed as well.
+        assert_eq!(shrink_to_fit((2000, 900), small), Some((1350, 680)));
     }
 }

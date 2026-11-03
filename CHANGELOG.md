@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.1.0-rc.4] — 2026-11-03
+
+- **The window now opens at a size that fits the screen.** The configured
+  default is 1120x780, which is taller than a 1366x768 laptop once the taskbar
+  is accounted for, so the composer was off-screen and the window had to be
+  resized on every launch. `fit_window_to_work_area()` (`app.rs`) clamps the
+  window to the monitor's work area — minus a 16x48 px allowance for the DWM
+  frame and drop shadow, which Windows adds outside `outer_size` — and
+  re-centres it. The window is created `"visible": false` and shown after the
+  fit, so there is no resize flash. Locked by
+  `app::tests::window_is_shrunk_only_when_it_does_not_fit`.
+  - Verified live by temporarily configuring a 1100 px tall default:
+    `window 1136x1100 against a 1920x1032 work area (max 1904x984) -> Some((1136, 984))`,
+    with the real window rect `1152x1023 at (384,8)` — bottom 1031 against the
+    work area's 1032.
+
 ## [0.1.0-rc.3] — 2026-11-02
 
 - **The Account screen shows the real app version.** The `Build` row used to
@@ -622,6 +638,7 @@ Everything below is part of this release.
 
 <!-- Version comparison links. The earlier pre-release tags were removed, so the
      diffs are anchored on their release commits. -->
+[0.1.0-rc.4]: https://github.com/dirtTW/wa-desk/compare/v0.1.0-rc.3...v0.1.0-rc.4
 [0.1.0-rc.3]: https://github.com/dirtTW/wa-desk/compare/68a19c0...v0.1.0-rc.3
 [0.1.0-rc.2]: https://github.com/dirtTW/wa-desk/compare/ab8027f...68a19c0
 [0.1.0-rc.1]: https://github.com/dirtTW/wa-desk/compare/83c1dc2...ab8027f
