@@ -44,6 +44,8 @@ pub struct WaDesk {
     typing_sent: bool,
     /// The status panel is showing instead of a conversation.
     show_status: bool,
+    /// The channels panel is showing instead of a conversation.
+    show_channels: bool,
     /// Rasterised QR code, keyed by the SVG it came from so a rotating code
     /// is decoded once per rotation.
     qr: Option<(String, egui::TextureHandle)>,
@@ -62,6 +64,7 @@ impl WaDesk {
             runtime: native.runtime,
             typing_sent: false,
             show_status: false,
+            show_channels: false,
             qr: None,
             media_rx: native.media,
             textures: std::collections::HashMap::new(),
@@ -101,6 +104,12 @@ impl WaDesk {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Status").clicked() {
                             self.show_status = !self.show_status;
+                            self.show_channels = false;
+                            self.model.close_status();
+                        }
+                        if ui.button("Channels").clicked() {
+                            self.show_channels = !self.show_channels;
+                            self.show_status = false;
                             self.model.close_status();
                         }
                         ui.label(egui::RichText::new(&self.model.status).small().weak());
@@ -602,6 +611,95 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+impl WaDesk {
+    /// Channels: followed newsletters and their read-only posts.
+    fn channels_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Channels");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Back to chats").clicked() {
+                        self.show_channels = false;
+                    }
+                });
+            });
+            ui.separator();
+
+            let rows = self.model.channel_rows();
+            if rows.is_empty() {
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new("No followed channels").weak());
+                return;
+            }
+
+            ui.horizontal_top(|ui| {
+                // The channel rail.
+                ui.vertical(|ui| {
+                    ui.set_width(220.0);
+                    for (row, followers) in &rows {
+                        let selected = self.model.active.as_deref() == Some(row.jid.as_str());
+                        let label = format!("{}\n{}", row.name, followers);
+                        if ui
+                            .add_sized(
+                                [ui.available_width(), 44.0],
+                                egui::Button::new(label).selected(selected),
+                            )
+                            .clicked()
+                        {
+                            self.model.active = Some(row.jid.clone());
+                        }
+                    }
+                });
+                ui.separator();
+
+                // Posts, read-only: no composer for a channel.
+                ui.vertical(|ui| {
+                    let Some(jid) = self.model.active.clone() else {
+                        ui.label(egui::RichText::new("Pick a channel").weak());
+                        return;
+                    };
+                    let posts = self.model.channel_posts(&jid);
+                    egui::ScrollArea::vertical()
+                        .stick_to_bottom(true)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            for post in &posts {
+                                let header = format!(
+                                    "{}  ·  {}",
+                                    self.model.title(
+                                        &self.model.chats.get(&jid).cloned().unwrap_or_default()
+                                    ),
+                                    self.model.bubble_stamp(post)
+                                );
+                                ui.label(egui::RichText::new(header).small().weak());
+                                let body = self.model.bubble_body(post);
+                                egui::Frame::new()
+                                    .fill(egui::Color32::from_rgb(36, 38, 38))
+                                    .inner_margin(egui::Margin::symmetric(10, 7))
+                                    .corner_radius(egui::CornerRadius::same(8))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            egui::RichText::new(body)
+                                                .color(egui::Color32::from_gray(240)),
+                                        );
+                                    });
+                                ui.add_space(6.0);
+                            }
+                        });
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(
+                            "Read-only: following a channel does not allow posting",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                });
+            });
+        });
+    }
+}
+
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.model.now = std::time::SystemTime::now()
@@ -614,7 +712,9 @@ impl eframe::App for WaDesk {
             self.gate(ctx);
         } else {
             self.sidebar(ctx);
-            if self.show_status {
+            if self.show_channels {
+                self.channels_panel(ctx);
+            } else if self.show_status {
                 self.status_panel(ctx);
             } else {
                 self.conversation(ctx);

@@ -13,7 +13,7 @@ use wa_ui::status::{
 };
 
 use crate::login::{LoginEvent, LoginState, fold};
-use wa_ui::labels::stamp_of;
+use wa_ui::labels::{format_followers, stamp_of};
 use wa_ui::text::{MessageRow, preview_of};
 
 /// Work the UI asks the session to do.
@@ -40,6 +40,14 @@ pub enum Command {
     FetchMedia {
         id: String,
     },
+}
+
+/// A followed channel and its (read-only) posts.
+#[derive(Debug, Default, Clone)]
+pub struct ChannelRow {
+    pub jid: String,
+    pub name: String,
+    pub subscribers: u64,
 }
 
 /// One author's stories.
@@ -84,6 +92,8 @@ pub struct Model {
     pub active: Option<String>,
     /// The connection line under the title.
     pub status: String,
+    /// Followed channels (`@newsletter`), newest post first when listed.
+    pub channels: BTreeMap<String, ChannelRow>,
     /// Stories by author JID.
     pub statuses: BTreeMap<String, StatusRow>,
     /// The viewer's position: `(group, frame)` while a story is open.
@@ -157,6 +167,24 @@ impl Model {
                     }
                 }
             }
+            UiEvent::ChannelInfo {
+                jid,
+                name,
+                subscribers,
+                ..
+            } => {
+                let row = self
+                    .channels
+                    .entry(jid.clone())
+                    .or_insert_with(|| ChannelRow {
+                        jid: jid.clone(),
+                        ..Default::default()
+                    });
+                if !name.is_empty() {
+                    row.name = name.clone();
+                }
+                row.subscribers = *subscribers;
+            }
             UiEvent::Chat {
                 jid: chat, name, ..
             } => {
@@ -206,6 +234,31 @@ impl Model {
         }
     }
 
+    /// Channels, newest activity first, with their follower line.
+    pub fn channel_rows(&self) -> Vec<(ChannelRow, String)> {
+        let mut rows: Vec<ChannelRow> = self.channels.values().cloned().collect();
+        rows.sort_by_key(|row| {
+            std::cmp::Reverse(self.chats.get(&row.jid).map(|c| c.last_ts).unwrap_or(0))
+        });
+        rows.into_iter()
+            .map(|row| {
+                let label = format_followers(row.subscribers as i64);
+                (row, label)
+            })
+            .collect()
+    }
+
+    /// Posts of a channel, oldest first (the view scrolls to the newest).
+    pub fn channel_posts(&self, jid: &str) -> Vec<MessageView> {
+        let mut posts = self
+            .chats
+            .get(jid)
+            .map(|row| row.messages.clone())
+            .unwrap_or_default();
+        posts.sort_by_key(|message| message.timestamp);
+        posts
+    }
+
     fn upsert(&mut self, message: MessageView) {
         let chat = message.chat.clone();
         let name = message.chat_name.clone();
@@ -237,6 +290,7 @@ impl Model {
         let mut rows: Vec<&ChatRow> = self
             .chats
             .values()
+            .filter(|row| !row.jid.ends_with("@newsletter"))
             .filter(|row| !row.messages.is_empty() || !row.name.is_empty())
             .filter(|row| {
                 needle.is_empty()
@@ -677,6 +731,42 @@ pub fn selftest() -> Result<String, String> {
         timestamp: now - 1_000,
         from_me: false,
     }));
+    // Channels: followed, listed with their follower line, posts read-only.
+    model.apply(&UiEvent::ChannelInfo {
+        jid: "1203@newsletter".into(),
+        name: "BMKG".into(),
+        subscribers: 84_300,
+        picture: None,
+    });
+    let mut post = view(
+        "1203@newsletter",
+        "BMKG",
+        "c1",
+        "cuaca hari ini",
+        now + 5_000,
+        false,
+    );
+    post.chat_name = "BMKG".into();
+    model.apply(&UiEvent::Message(post));
+    let channels = model.channel_rows();
+    if channels.len() != 1 || channels[0].0.name != "BMKG" {
+        return Err(format!("one channel expected, got {channels:?}"));
+    }
+    if channels[0].1 != "84.3k followers" {
+        return Err(format!("follower line wrong: {}", channels[0].1));
+    }
+    let posts = model.channel_posts("1203@newsletter");
+    if posts.len() != 1 || posts[0].text != "cuaca hari ini" {
+        return Err("the channel post should be listed".to_string());
+    }
+    // Channels never appear in the chat sidebar.
+    if model
+        .visible_chats()
+        .iter()
+        .any(|row| row.jid == "1203@newsletter")
+    {
+        return Err("a channel must not be listed as a chat".to_string());
+    }
     let groups = model.status_groups();
     if groups.len() != 2 || groups[0].name != "Newer" {
         return Err(format!(
@@ -726,7 +816,7 @@ pub fn selftest() -> Result<String, String> {
         return Err("closing clears the viewer".to_string());
     }
     Ok(serde_json::json!({
-        "chats": model.chats.len(),
+        "chats": model.visible_chats().len(),
         "first": first,
         "preview": preview,
         "stamp": stamp,
@@ -734,6 +824,7 @@ pub fn selftest() -> Result<String, String> {
         "linked": model.login.is_linked(),
         "photo_body": model.bubble_body(&photo),
         "status_groups": model.status_groups().len(),
+        "channels": model.channel_rows().len(),
     })
     .to_string())
 }

@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.55] — 2026-11-03
+
+- **The native window lists followed channels.** `Model` folds `ChannelInfo`
+  into `ChannelRow` (jid, name, subscribers) and keeps a channel's posts in the
+  chat store, so `channel_posts()` hands them back oldest-first while
+  `channel_rows()` orders channels by newest activity and labels each with
+  `wa_ui::labels::format_followers`. Channels are excluded from
+  `visible_chats()`, so they never show up as chats in the sidebar.
+- `app.rs`: a **Channels** button beside Status opens a rail of followed
+  channels (name + follower line, selected state) with the posts beside it,
+  painted without a composer and captioned read-only.
+- `--selftest` adds a channel with 84,300 subscribers and one post: it lists
+  under Channels as `84.3k followers`, its post body comes back, and the
+  channel is absent from the chat rows. Report gains `"channels":1`.
+- 8 native tests, clippy clean across the workspace, window starts and stays up.
+
 ## [0.2.0-rc.54] — 2026-11-03
 
 - **The native window shows status/stories.** `Model` folds `Status` and
