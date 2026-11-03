@@ -824,18 +824,16 @@ async function handleEvent(event) {
       const by = event.from_me
       ? "me"
       : await invoke("ui_phone_from_jid", { jid: event.sender || "" }).catch(() => "");
-      const existing = (message.reactions || []).find((r) => r.by === by);
-      // Ignore a delayed echo of an older reaction (changing reactions quickly
-      // otherwise flips the pill back).
-      if (event.timestamp && existing?.ts && event.timestamp < existing.ts) break;
-      message.reactions = (message.reactions || []).filter((r) => r.by !== by);
-      if (event.emoji) {
-        message.reactions.push({
-          by,
-          emoji: event.emoji,
-          ts: event.timestamp || Date.now(),
-        });
-      }
+      // The delayed-echo guard and the replace-by-author fold live in
+      // wa_ui::reactions::apply_event.
+      const plan = await invoke("ui_reaction_event", {
+        rows: message.reactions || [],
+        by,
+        emoji: event.emoji || "",
+        ts: event.timestamp || Date.now(),
+      }).catch(() => null);
+      if (!plan || !plan.apply) break;
+      message.reactions = plan.rows;
       if (state.active === event.chat) renderChat();
       scheduleSave();
       break;
@@ -860,20 +858,21 @@ async function handleEvent(event) {
         }
       }
       if (!entry) break;
-      let changed = false;
-      const applied = new Set();
-      for (const message of entry.messages) {
-        if (ids.has(message.id) && message.status !== event.status) {
-          const apply = await invoke("ui_receipt_status", {
-            current: message.status || "sent",
-            incoming: event.status || "",
-          }).catch(() => false);
-          if (!apply) continue;
-          message.status = event.status;
-          changed = true;
+      // Which bubbles advance is answered once per chat by
+      // wa_ui::incoming::receipt_plan (a receipt never rolls a state back).
+      const applicable = await invoke("ui_receipt_plan", {
+        ids: [...ids],
+        incoming: event.status || "",
+        messages: entry.messages.map((message) => ({
+          id: message.id || "",
+          status: message.status || "",
+        })),
+      }).catch(() => []);
+      if (applicable.length) {
+        const wanted = new Set(applicable);
+        for (const message of entry.messages) {
+          if (wanted.has(message.id)) message.status = event.status;
         }
-      }
-      if (changed) {
         renderChatList();
         if (state.active === entry.jid) renderChat();
       }

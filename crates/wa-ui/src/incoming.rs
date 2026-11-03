@@ -163,6 +163,33 @@ pub fn receipt_should_apply(current: &str, incoming: &str) -> bool {
     status_rank(incoming) > status_rank(current)
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ReceiptMessage {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub status: String,
+}
+
+/// Which messages a receipt batch advances. One answer for the whole chat
+/// instead of a round trip per message.
+pub fn receipt_plan(ids: &[String], incoming: &str, messages: &[ReceiptMessage]) -> Vec<String> {
+    let wanted: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+    messages
+        .iter()
+        .filter(|message| wanted.contains(message.id.as_str()))
+        .filter(|message| {
+            let current = if message.status.is_empty() {
+                "sent"
+            } else {
+                message.status.as_str()
+            };
+            receipt_should_apply(current, incoming)
+        })
+        .map(|message| message.id.clone())
+        .collect()
+}
+
 /// Everything we send in "Message yourself" is delivered immediately (the phone
 /// owns that chat), so the bubble starts on the grey double tick.
 pub fn self_chat_status(is_self_chat: bool) -> &'static str {
@@ -296,6 +323,53 @@ mod tests {
         assert!(!receipt_should_apply("delivered", "sent"));
         assert_eq!(self_chat_status(true), "delivered");
         assert_eq!(self_chat_status(false), "sent");
+    }
+
+    #[test]
+    fn receipt_batches_only_advance_the_named_messages() {
+        let messages = vec![
+            ReceiptMessage {
+                id: "a".into(),
+                status: "sent".into(),
+            },
+            ReceiptMessage {
+                id: "b".into(),
+                status: "read".into(),
+            },
+            ReceiptMessage {
+                id: "c".into(),
+                status: String::new(),
+            },
+            ReceiptMessage {
+                id: "d".into(),
+                status: "delivered".into(),
+            },
+        ];
+        // Delivered: `a`, `c` (empty means "sent") and `d` is already delivered.
+        let ids = vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+        ];
+        assert_eq!(
+            receipt_plan(&ids, "delivered", &messages),
+            vec!["a".to_string(), "c".to_string()]
+        );
+        // Read advances everything that is not already read.
+        let ids = vec!["a".to_string(), "b".to_string(), "d".to_string()];
+        assert_eq!(
+            receipt_plan(&ids, "read", &messages),
+            vec!["a".to_string(), "d".to_string()],
+            "b is already read"
+        );
+        // Ids outside the batch are ignored, and a stale `sent` changes nothing.
+        assert_eq!(
+            receipt_plan(&["a".to_string()], "read", &messages),
+            vec!["a".to_string()]
+        );
+        assert!(receipt_plan(&ids, "sent", &messages).is_empty());
+        assert!(receipt_plan(&[], "read", &messages).is_empty());
     }
 
     #[test]

@@ -109,12 +109,6 @@ pub fn ui_unread_rule(active: bool, from_me: bool) -> wa_ui::incoming::UnreadRul
     wa_ui::incoming::unread_rule(active, from_me)
 }
 
-/// Whether a receipt may advance a message's status.
-#[tauri::command]
-pub fn ui_receipt_status(current: String, incoming: String) -> bool {
-    wa_ui::incoming::receipt_should_apply(&current, &incoming)
-}
-
 /// The delivery status a sent message starts with.
 #[tauri::command]
 pub fn ui_self_chat_status(is_self_chat: bool) -> String {
@@ -301,6 +295,47 @@ pub fn ui_audio_schedule(next_play: f64, now: f64, duration: f64) -> (f64, f64) 
 #[tauri::command]
 pub fn ui_pcm_sample(sample: f64) -> i16 {
     wa_ui::calls::pcm_i16(sample as f32)
+}
+
+/// Tapping a reaction emoji: the value to send, whether to revoke first, and
+/// what our pill shows afterwards.
+#[tauri::command]
+pub fn ui_reaction_toggle(
+    mine: Option<wa_ui::reactions::ReactionRow>,
+    tapped: String,
+) -> wa_ui::reactions::ReactionToggle {
+    wa_ui::reactions::toggle(mine.as_ref(), &tapped)
+}
+
+/// The rows after our reaction send resolves.
+#[tauri::command]
+pub fn ui_reaction_after_send(
+    rows: Vec<wa_ui::reactions::ReactionRow>,
+    value: String,
+    now: i64,
+) -> Vec<wa_ui::reactions::ReactionRow> {
+    wa_ui::reactions::after_send(&rows, &value, now)
+}
+
+/// Fold a live reaction event for one author (delayed echoes are ignored).
+#[tauri::command]
+pub fn ui_reaction_event(
+    rows: Vec<wa_ui::reactions::ReactionRow>,
+    by: String,
+    emoji: String,
+    ts: i64,
+) -> wa_ui::reactions::ReactionEventPlan {
+    wa_ui::reactions::apply_event(&rows, &by, &emoji, ts)
+}
+
+/// Which messages a receipt batch advances (one answer per chat).
+#[tauri::command]
+pub fn ui_receipt_plan(
+    ids: Vec<String>,
+    incoming: String,
+    messages: Vec<wa_ui::incoming::ReceiptMessage>,
+) -> Vec<String> {
+    wa_ui::incoming::receipt_plan(&ids, &incoming, &messages)
 }
 
 /// What one scroll event does to the "stick to newest" state and the unread dot.

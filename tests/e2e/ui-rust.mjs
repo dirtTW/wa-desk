@@ -181,8 +181,11 @@ check(
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
 
 console.log("\n# incoming rules (rust)");
-const incoming = await page.evaluate(async () => {
+const incomingRules = await page.evaluate(async () => {
   const jid = "999888777@s.whatsapp.net";
+  // A crashed run can leave the probe chat in the persisted store; drop it so
+  // the unread/fold expectations start from zero.
+  state.chats.delete(jid);
   await addIncoming({
     id: "probe-1",
     chat: jid,
@@ -238,8 +241,20 @@ const incoming = await page.evaluate(async () => {
   entry.messages.push(optimistic);
   await addSent({ chat: jid, id: "server-9", timestamp: Date.now() });
 
-  const receiptAdvance = await invoke("ui_receipt_status", { current: "sent", incoming: "delivered" });
-  const receiptRollback = await invoke("ui_receipt_status", { current: "read", incoming: "sent" });
+  // Receipts are a batch now: only what can advance is returned.
+  const receiptAdvance = await invoke("ui_receipt_plan", {
+    ids: ["m1", "m2"],
+    incoming: "delivered",
+    messages: [
+      { id: "m1", status: "sent" },
+      { id: "m2", status: "read" },
+    ],
+  });
+  const receiptRollback = await invoke("ui_receipt_plan", {
+    ids: ["m1"],
+    incoming: "sent",
+    messages: [{ id: "m1", status: "read" }],
+  });
   const aiEcho = await invoke("ui_ai_echo", {
     messages: [[true, "same", Date.now()]],
     text: "same",
@@ -258,12 +273,25 @@ const incoming = await page.evaluate(async () => {
     aiEcho,
   };
 });
-check("incoming messages bump unread", incoming.unreadAfterFirst === 1);
-check("duplicates fold instead of appending", incoming.messagesAfterDuplicate === 1 && incoming.folded.forwarded && incoming.folded.stats, JSON.stringify(incoming.folded));
-check("the open chat clears its badge", incoming.unreadWhenActive === 0);
-check("a send echo folds into the optimistic bubble", incoming.sentId === "server-9" && !incoming.sentPending);
-check("receipts only advance", incoming.receiptAdvance && !incoming.receiptRollback);
-check("the AI echo guard works", incoming.aiEcho === true);
+check("incoming messages bump unread", incomingRules.unreadAfterFirst === 1);
+check(
+  "duplicates fold instead of appending",
+  incomingRules.messagesAfterDuplicate === 1 &&
+    incomingRules.folded.forwarded &&
+    incomingRules.folded.stats,
+  JSON.stringify(incomingRules.folded),
+);
+check("the open chat clears its badge", incomingRules.unreadWhenActive === 0);
+check(
+  "a send echo folds into the optimistic bubble",
+  incomingRules.sentId === "server-9" && !incomingRules.sentPending,
+);
+check(
+  "receipt batches only advance",
+  incomingRules.receiptAdvance.join(",") === "m1" && incomingRules.receiptRollback.length === 0,
+  `${incomingRules.receiptAdvance.join(",")} / ${incomingRules.receiptRollback.length}`,
+);
+check("the AI echo guard works", incomingRules.aiEcho === true);
 
 console.log("\n# search + attachments (rust)");
 const searchAttach = await page.evaluate(async () => {
@@ -459,6 +487,133 @@ check(
   storePlans.trim.dropped > 0 && !storePlans.trim.ops.some((op) => op.jid === "keep"),
   `${storePlans.trim.dropped} dropped`,
 );
+
+console.log("\n# reaction + receipt plans (rust)");
+const reactionCheck = await page.evaluate(async () => {
+  const toggle = {
+    add: await invoke("ui_reaction_toggle", { mine: null, tapped: "👍" }),
+    remove: await invoke("ui_reaction_toggle", { mine: { by: "me", emoji: "👍", ts: 1 }, tapped: "👍" }),
+    change: await invoke("ui_reaction_toggle", { mine: { by: "me", emoji: "👍", ts: 1 }, tapped: "❤️" }),
+  };
+  const afterSend = await invoke("ui_reaction_after_send", {
+    rows: [
+      { by: "6285@s.whatsapp.net", emoji: "👍", ts: 5 },
+      { by: "me", emoji: "❤️", ts: 6 },
+    ],
+    value: "😂",
+    now: 99,
+  });
+  const afterRemove = await invoke("ui_reaction_after_send", {
+    rows: [{ by: "me", emoji: "❤️", ts: 6 }],
+    value: "",
+    now: 99,
+  });
+  const rows = [
+    { by: "111@s.whatsapp.net", emoji: "👍", ts: 50 },
+    { by: "222@s.whatsapp.net", emoji: "❤️", ts: 60 },
+  ];
+  const events = {
+    fresh: await invoke("ui_reaction_event", { rows, by: "111@s.whatsapp.net", emoji: "🔥", ts: 70 }),
+    stale: await invoke("ui_reaction_event", { rows, by: "111@s.whatsapp.net", emoji: "😂", ts: 40 }),
+    remove: await invoke("ui_reaction_event", { rows, by: "222@s.whatsapp.net", emoji: "", ts: 80 }),
+  };
+  const receipts = {
+    delivered: await invoke("ui_receipt_plan", {
+      ids: ["a", "b", "c"],
+      incoming: "delivered",
+      messages: [
+        { id: "a", status: "sent" },
+        { id: "b", status: "read" },
+        { id: "c", status: "" },
+        { id: "d", status: "sent" },
+      ],
+    }),
+    read: await invoke("ui_receipt_plan", {
+      ids: ["a", "b"],
+      incoming: "read",
+      messages: [
+        { id: "a", status: "sent" },
+        { id: "b", status: "read" },
+      ],
+    }),
+    stale: await invoke("ui_receipt_plan", {
+      ids: ["a"],
+      incoming: "sent",
+      messages: [{ id: "a", status: "read" }],
+    }),
+  };
+
+  // Live: the toggle plan runs before the network call. An unknown chat makes
+  // send_reaction fail, which must leave the pill untouched and not throw.
+  const probeChat = "000000000000000000@g.us";
+  state.chats.set(probeChat, {
+    jid: probeChat,
+    name: "Reaction Probe",
+    isGroup: true,
+    messages: [{ id: "probe-reaction", chat: probeChat, text: "probe", kind: "text", timestamp: 1, from_me: false, sender: "6285@s.whatsapp.net", reactions: [] }],
+    last: null,
+    lastTs: 0,
+    unread: 0,
+  });
+  const previousActive = state.active;
+  state.active = probeChat;
+  const message = state.chats.get(probeChat).messages[0];
+  let live = null;
+  try {
+    await applyReaction(message, "👍");
+    await new Promise((r) => setTimeout(r, 400));
+    live = { reactions: (message.reactions || []).length, threw: false };
+  } catch (err) {
+    live = { reactions: (message.reactions || []).length, threw: true, error: String(err) };
+  }
+  state.active = previousActive;
+  state.chats.delete(probeChat);
+  renderChatList();
+  return { toggle, afterSend, afterRemove, events, receipts, live };
+});
+check(
+  "the reaction toggle adds, removes and replaces",
+  reactionCheck.toggle.add.value === "👍" &&
+    !reactionCheck.toggle.add.revoke_first &&
+    reactionCheck.toggle.remove.value === "" &&
+    !reactionCheck.toggle.remove.revoke_first &&
+    reactionCheck.toggle.change.value === "❤️" &&
+    reactionCheck.toggle.change.revoke_first,
+  JSON.stringify(reactionCheck.toggle),
+);
+check(
+  "our send replaces only our own pill",
+  reactionCheck.afterSend.length === 2 &&
+    reactionCheck.afterSend[0].by === "6285@s.whatsapp.net" &&
+    reactionCheck.afterSend[1].emoji === "😂" &&
+    reactionCheck.afterSend[1].ts === 99 &&
+    reactionCheck.afterRemove.length === 0,
+  JSON.stringify(reactionCheck.afterSend),
+);
+check(
+  "live reaction events replace the author and ignore delayed echoes",
+  reactionCheck.events.fresh.apply &&
+    reactionCheck.events.fresh.rows.length === 2 &&
+    reactionCheck.events.fresh.rows[1].emoji === "🔥" &&
+    !reactionCheck.events.stale.apply &&
+    reactionCheck.events.remove.apply &&
+    reactionCheck.events.remove.rows.length === 1,
+  JSON.stringify(reactionCheck.events.stale),
+);
+check(
+  "a receipt batch only advances what it can",
+  reactionCheck.receipts.delivered.join(",") === "a,c" &&
+    reactionCheck.receipts.read.join(",") === "a" &&
+    reactionCheck.receipts.stale.length === 0,
+  JSON.stringify(reactionCheck.receipts),
+);
+if (reactionCheck.live) {
+  check(
+    "a failed reaction send leaves the pill untouched",
+    reactionCheck.live.reactions === 0 && !reactionCheck.live.threw,
+    JSON.stringify(reactionCheck.live),
+  );
+}
 
 console.log("\n# scroll event + anchor (rust)");
 const scrollEvents = await page.evaluate(async () => {

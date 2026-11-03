@@ -25,6 +25,7 @@ pub mod labels;
 pub mod media;
 pub mod menus;
 pub mod picker;
+pub mod reactions;
 pub mod screens;
 pub mod scroll;
 pub mod search;
@@ -60,6 +61,9 @@ pub use menus::{
     MessageMenuInput, MessageMenuOutput,
 };
 pub use picker::{PickerChat, PickerOutput, PickerRequest};
+pub use reactions::{
+    ReactionEventPlan, ReactionRow, ReactionToggle, after_send, apply_event, toggle,
+};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
 pub use scroll::{
     AnchorNode, ScrollAnchor, ScrollEventPlan, anchor_scroll_top, distance_from_bottom,

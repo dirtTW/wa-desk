@@ -438,10 +438,16 @@ document.addEventListener("click", (event) => {
 
 async function applyReaction(message, emoji) {
   if (!message || !state.active) return;
-  const mine = (message.reactions || []).find((reaction) => reaction.by === "me");
-  const next = mine && mine.emoji === emoji ? "" : emoji;
   const chat = state.active;
   const chatInfo = state.chats.get(chat);
+  const rows = message.reactions || [];
+  // Same emoji removes it, a different one replaces it (revoking first), and
+  // nothing yet is a plain add: wa_ui::reactions::toggle.
+  const plan = await invoke("ui_reaction_toggle", {
+    mine: rows.find((reaction) => reaction.by === "me") || null,
+    tapped: emoji,
+  }).catch(() => null);
+  if (!plan) return;
 
   const send = (value) =>
     invoke("send_reaction", {
@@ -456,16 +462,19 @@ async function applyReaction(message, emoji) {
     });
 
   try {
-    if (mine && next) {
+    if (plan.revoke_first) {
       // Changing a reaction: revoke the old one first, then send the new emoji.
       // A plain replacement is not applied consistently by the server.
       await send("");
-      await send(next);
+      await send(plan.value);
     } else {
-      await send(next);
+      await send(plan.value);
     }
-    message.reactions = (message.reactions || []).filter((reaction) => reaction.by !== "me");
-    if (next) message.reactions.push({ by: "me", emoji: next, ts: Date.now() });
+    message.reactions = await invoke("ui_reaction_after_send", {
+      rows,
+      value: plan.value,
+      now: Date.now(),
+    }).catch(() => rows);
     renderChat();
     scheduleSave();
   } catch (err) {

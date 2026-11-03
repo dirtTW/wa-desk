@@ -4,6 +4,38 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.37] — 2026-11-03
+
+- **Reactions moved to Rust (`wa_ui::reactions`).**
+  - `toggle(my, tapped)` → `{ value, revoke_first, mine }`: tapping the same emoji
+    removes our reaction, a different one replaces it *and* revokes first (the
+    server does not apply a plain replacement consistently), nothing yet is a
+    plain add. `applyReaction` only performs the sends it is told to.
+  - `after_send(rows, value, now)` replaces our own pill and leaves everyone
+    else's in place (or drops ours when the value is empty).
+  - `apply_event(rows, by, emoji, ts)` folds a live `reaction` event: an older
+    timestamp than the row we hold is a delayed echo and is ignored, an empty
+    emoji removes that author's pill, and other authors are untouched.
+  Commands `ui_reaction_toggle`, `ui_reaction_after_send`, `ui_reaction_event`;
+  the `case "reaction"` handler in `calls.js` is now three lines.
+- **Receipts are applied as one batch.** `wa_ui::incoming::receipt_plan(ids,
+  incoming, messages)` answers which bubbles may advance (a receipt never rolls
+  a state back, and a missing status counts as `sent`), so the receipt handler
+  makes **one** IPC call per receipt instead of one per matching message.
+  `ui_receipt_status` is gone with its last caller, replaced by
+  `ui_receipt_plan`.
+- 2 new `wa-ui` unit tests and one expanded test (203 total, plus 3 contract) and
+  a reaction/receipt CDP e2e section: the three toggle outcomes, our own row
+  replacement/removal, the live-event fold (fresh / stale / removal), the batch
+  receipt filtering, and a local path proving a failed send leaves the pill
+  untouched. A live probe on the real account tapped 👍 on a message and tapped
+  it again: `me:👍` → `[]`.
+- Suite robustness: the incoming-rules section now deletes its probe chat first
+  (a crashed run had persisted it, which made the unread/fold checks fail).
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.36] — 2026-11-03
 
 - **The chat scroll bookkeeping moved to Rust.** `wa_ui::scroll` now owns:

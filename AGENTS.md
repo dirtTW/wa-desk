@@ -86,7 +86,8 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/context.rs               AI context/stickers, media limits, poster sampling
   src/calls.rs                 call overlay, guard, codec/audio formats, jitter buffer
   src/search.rs                in-chat search matching and counter label
-  src/incoming.rs              message-event folding, unread/receipt rules
+  src/incoming.rs              message-event folding, unread/receipt rules, receipt batches
+  src/reactions.rs             reaction toggle, live-event fold, own-pill replace
   src/export.rs                chat-export parsing and import merge plan
   src/history.rs               on-demand history anchors and re-sync order
   src/screens.rs               channels panel, community screen, starred messages
