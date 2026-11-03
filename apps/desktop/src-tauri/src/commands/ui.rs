@@ -303,6 +303,30 @@ pub fn ui_pcm_sample(sample: f64) -> i16 {
     wa_ui::calls::pcm_i16(sample as f32)
 }
 
+/// What one scroll event does to the "stick to newest" state and the unread dot.
+#[tauri::command]
+pub fn ui_scroll_event(last_top: f64, top: f64, distance: f64) -> wa_ui::scroll::ScrollEventPlan {
+    wa_ui::scroll::scroll_event(last_top, top, distance)
+}
+
+/// The first bubble visible at the top of the scroll box (the repaint anchor).
+#[tauri::command]
+pub fn ui_scroll_visible_anchor(
+    nodes: Vec<wa_ui::scroll::AnchorNode>,
+    scroll_top: f64,
+) -> Option<wa_ui::scroll::ScrollAnchor> {
+    wa_ui::scroll::visible_anchor(&nodes, scroll_top)
+}
+
+/// Where the "jump to latest" disc sits above the visible composer cards.
+#[tauri::command]
+pub fn ui_scroll_latest_offset(visible_heights: Vec<f64>) -> f64 {
+    wa_ui::scroll::latest_button_offset(
+        &visible_heights,
+        wa_ui::scroll::LATEST_BUTTON_BOTTOM_GAP_PX,
+    )
+}
+
 /// The chat scroll metrics: distance from the bottom.
 #[tauri::command]
 pub fn ui_scroll_distance(scroll_height: f64, scroll_top: f64, client_height: f64) -> f64 {

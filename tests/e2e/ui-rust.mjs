@@ -460,6 +460,103 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# scroll event + anchor (rust)");
+const scrollEvents = await page.evaluate(async () => {
+  const events = {
+    up: await invoke("ui_scroll_event", { lastTop: 1000, top: 900, distance: 400 }),
+    back: await invoke("ui_scroll_event", { lastTop: 900, top: 1000, distance: 2 }),
+    down: await invoke("ui_scroll_event", { lastTop: 900, top: 950, distance: 300 }),
+    jitter: await invoke("ui_scroll_event", { lastTop: 1000, top: 999.5, distance: 400 }),
+  };
+  const anchor = await invoke("ui_scroll_visible_anchor", {
+    nodes: [
+      { id: "a", offset_top: 0, offset_height: 100 },
+      { id: "b", offset_top: 100, offset_height: 80 },
+      { id: "c", offset_top: 180, offset_height: 80 },
+    ],
+    scrollTop: 120,
+  });
+  const emptyAnchor = await invoke("ui_scroll_visible_anchor", { nodes: [], scrollTop: 0 });
+  const offset = await invoke("ui_scroll_latest_offset", { visibleHeights: [56, 40] });
+  const constants = await invoke("ui_scroll_constants");
+
+  // Live: the async scroll handler must detach, show the disc, and re-attach.
+  const chat = [...state.chats.values()]
+    .filter((entry) => entry.messages.length > 20)
+    .sort((a, b) => b.messages.length - a.messages.length)[0];
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    // Let the sticky pump finish, then pin the box to the bottom so the check
+    // starts from a known state regardless of what earlier sections scrolled to.
+    await new Promise((r) => setTimeout(r, 2600));
+    scrollToLatest();
+    await new Promise((r) => setTimeout(r, 500));
+    const box = document.getElementById("messages");
+    if (box.scrollHeight - box.clientHeight > 400) {
+      const atBottom = { stick: box.dataset.stickBottom };
+      box.scrollTop = box.scrollTop - 400;
+      box.dispatchEvent(new Event("scroll"));
+      await new Promise((r) => setTimeout(r, 600));
+      const scrolledUp = {
+        stick: box.dataset.stickBottom,
+        latestHidden: document.getElementById("scroll-latest").hidden,
+        dotHidden: document.getElementById("scroll-latest-dot").hidden,
+      };
+      setScrollLatestUnread(true);
+      await new Promise((r) => setTimeout(r, 200));
+      const withUnread = { dotHidden: document.getElementById("scroll-latest-dot").hidden };
+      box.scrollTop = box.scrollHeight;
+      box.dispatchEvent(new Event("scroll"));
+      await new Promise((r) => setTimeout(r, 600));
+      const returned = {
+        stick: box.dataset.stickBottom,
+        latestHidden: document.getElementById("scroll-latest").hidden,
+        dotHidden: document.getElementById("scroll-latest-dot").hidden,
+      };
+      live = { atBottom, scrolledUp, withUnread, returned };
+    }
+  }
+  return { events, anchor, emptyAnchor, offset, constants, live };
+});
+check(
+  "scrolling up detaches, the bottom re-attaches",
+  scrollEvents.events.up.stick_bottom === false &&
+    !scrollEvents.events.up.clear_unread &&
+    scrollEvents.events.back.stick_bottom === true &&
+    scrollEvents.events.back.clear_unread &&
+    scrollEvents.events.down.stick_bottom === null &&
+    !scrollEvents.events.down.moved_up &&
+    !scrollEvents.events.jitter.moved_up,
+  JSON.stringify(scrollEvents.events),
+);
+check(
+  "the repaint anchor is the first visible bubble",
+  scrollEvents.anchor.id === "b" &&
+    scrollEvents.anchor.offset === -20 &&
+    scrollEvents.emptyAnchor === null,
+  JSON.stringify(scrollEvents.anchor),
+);
+check(
+  "the latest disc lifts above the visible cards",
+  scrollEvents.offset === 115 && scrollEvents.constants.latest_button_bottom_gap_px === 19,
+  `${scrollEvents.offset}px`,
+);
+if (scrollEvents.live) {
+  check(
+    "the live scroll handler detaches, shows the disc and re-attaches",
+    scrollEvents.live.atBottom.stick === "1" &&
+      scrollEvents.live.scrolledUp.stick === "0" &&
+      !scrollEvents.live.scrolledUp.latestHidden &&
+      scrollEvents.live.scrolledUp.dotHidden &&
+      !scrollEvents.live.withUnread.dotHidden &&
+      scrollEvents.live.returned.stick === "1" &&
+      scrollEvents.live.returned.latestHidden &&
+      scrollEvents.live.returned.dotHidden,
+    JSON.stringify(scrollEvents.live),
+  );
+}
+
 console.log("\n# story viewer chrome (rust)");
 const chrome = await page.evaluate(async () => {
   const theirs = await invoke("ui_status_chrome", {

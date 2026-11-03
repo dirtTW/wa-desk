@@ -56,18 +56,25 @@ function initScrollLatestOffset() {
   const parts = ["composer", "reply-banner", "edit-banner", "draft"]
     .map((id) => $(id))
     .filter(Boolean);
+  let offsetToken = 0;
   const apply = () => {
-    let stack = 0;
+    const heights = [];
     for (const el of parts) {
       if (el.hidden) continue;
       const style = getComputedStyle(el);
-      stack +=
+      heights.push(
         el.offsetHeight +
-        parseFloat(style.marginTop || 0) +
-        parseFloat(style.marginBottom || 0);
+          parseFloat(style.marginTop || 0) +
+          parseFloat(style.marginBottom || 0),
+      );
     }
-    // 19px keeps the gap the button had above the bare composer.
-    button.style.bottom = `${Math.round(stack + 19)}px`;
+    // The stack sum and the 19px resting gap are wa_ui::scroll's rules.
+    const token = ++offsetToken;
+    invoke("ui_scroll_latest_offset", { visibleHeights: heights })
+      .then((bottom) => {
+        if (token === offsetToken) button.style.bottom = `${Math.round(bottom)}px`;
+      })
+      .catch(() => {});
   };
   // A hidden element reports a zero box, so showing or dismissing a card
   // re-runs the measurement without any scroll-time layout reads.
@@ -76,14 +83,19 @@ function initScrollLatestOffset() {
   apply();
 }
 
-function topVisibleMessage(box) {
-  const top = box.scrollTop + 1;
-  for (const node of box.querySelectorAll("[data-id]")) {
-    if (node.offsetTop + node.offsetHeight > top) {
-      return { id: node.dataset.id, offset: node.offsetTop - box.scrollTop };
-    }
-  }
-  return null;
+/// The first bubble still visible at the top (wa_ui::scroll::visible_anchor),
+/// used to keep the viewport still while older messages load.
+async function topVisibleMessage(box) {
+  const nodes = [...box.querySelectorAll("[data-id]")];
+  if (!nodes.length) return null;
+  return invoke("ui_scroll_visible_anchor", {
+    nodes: nodes.map((node) => ({
+      id: node.dataset.id || "",
+      offset_top: node.offsetTop,
+      offset_height: node.offsetHeight,
+    })),
+    scrollTop: box.scrollTop,
+  }).catch(() => null);
 }
 
 function pumpStickToBottom(duration = 1200) {
@@ -352,7 +364,7 @@ async function renderChat() {
   }
   const wasAtBottom = distanceFromBottom(box) <= SCROLL_BOTTOM_THRESHOLD;
   const previousScrollTop = box.scrollTop;
-  const anchor = sameChat ? topVisibleMessage(box) : null;
+  const anchor = sameChat ? await topVisibleMessage(box) : null;
   box.classList.toggle("channel-view", channel);
   // Group chats reserve a left gutter for the sender's profile photo.
   box.classList.toggle("group-view", chat.isGroup && !channel);

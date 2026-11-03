@@ -4,6 +4,33 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.36] — 2026-11-03
+
+- **The chat scroll bookkeeping moved to Rust.** `wa_ui::scroll` now owns:
+  - `scroll_event(last_top, top, distance)` → `{ moved_up, stick_bottom,
+    clear_unread }`: moving up detaches the chat from the newest message,
+    reaching the bottom re-attaches it and clears the disc's unread dot, and a
+    1 px jitter is not a move. `wiring.js`'s scroll handler sends the metrics it
+    already read and applies the answer under a token, so a newer scroll always
+    wins over a slower reply.
+  - `visible_anchor(nodes, scroll_top)` → the first bubble still visible at the
+    top edge (with its offset), replacing `topVisibleMessage`'s DOM loop; the
+    repaint anchor now comes from one batched call.
+  - `latest_button_offset(heights, gap)` and the new
+    `LATEST_BUTTON_BOTTOM_GAP_PX` (19) — the "jump to latest" disc lifts above
+    whatever composer cards (reply / edit / draft) are visible, with the stack
+    sum and resting gap computed in Rust.
+- **New audit: `scripts/check-state-fields.mjs`** — lists fields declared in the
+  `state` literal but never referenced. Currently **0 of 38**, so the store has
+  no leftovers from the ports.
+- 3 new `wa-ui` unit tests (199 total, plus 3 contract) and a scroll CDP e2e
+  section: the four event plans, the anchor lookup (including the 1 px edge and
+  "past everything"), the disc offset, and a live detach → disc + unread dot →
+  re-attach round trip.
+- All audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.35] — 2026-11-03
 
 - **The story viewer's chrome state moved to Rust.** `wa_ui::status::viewer_chrome`

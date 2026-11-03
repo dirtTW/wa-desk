@@ -96,7 +96,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/settings.rs              every Settings page, update row, AI form, credits
   src/menus.rs                 chat/message menu rows, mute submenu, delete dialog
   src/media.rs                 media hydration plan, download guard, evictions
-  src/scroll.rs                chat scroll metrics, follow threshold, anchoring
+  src/scroll.rs                scroll metrics, event plan, visible anchor, disc offset
   src/viewer.rs                media viewer chrome, video player, filmstrip
   src/stickers.rs              sticker picker grid, cells and empty states
   src/sidebar.rs               chat list: filters, pin order, communities, search
@@ -166,6 +166,7 @@ apps/desktop/
   scripts/check-data-attrs.mjs lists data-* reads with no matching emitter
   scripts/check-command-args.mjs flags snake_case invoke() args Tauri cannot bind
   scripts/check-dead-functions.mjs lists top-level UI functions with no caller
+  scripts/check-state-fields.mjs lists state.* fields nothing references
 vendor/whatsapp-rust/          patched protocol client (crates.io 0.7, [patch.crates-io])
 vendor/wacore-appstate/        patched app-state crate: snapshot MAC recovery (see change log);
                                excluded from the workspace (its `simd` feature needs nightly),

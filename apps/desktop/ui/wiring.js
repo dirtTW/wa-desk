@@ -625,17 +625,27 @@ function wire() {
   });
   $("status-viewer-menu").addEventListener("click", () => deleteCurrentStatus());
 
+  // Scroll events are serialised by a token: each one carries the metrics read
+  // at that moment, and only the newest answer may touch the DOM.
+  let scrollEventToken = 0;
   $("messages").addEventListener("scroll", () => {
     const box = $("messages");
     const distance = distanceFromBottom(box);
     const top = box.scrollTop;
-    const movedUp = top < lastMessageScrollTop - 1;
+    const previousTop = lastMessageScrollTop;
     lastMessageScrollTop = top;
-    if (movedUp) box.dataset.stickBottom = "0";
-    else if (distance <= 8) box.dataset.stickBottom = "1";
-    if (distance <= 8) setScrollLatestUnread(false);
-    updateScrollLatestButton();
-    if (box.scrollTop <= 8) maybePageOlderMessages();
+    // The detach/re-attach rule is wa_ui::scroll::scroll_event.
+    const token = ++scrollEventToken;
+    invoke("ui_scroll_event", { lastTop: previousTop, top, distance })
+      .then((plan) => {
+        if (token !== scrollEventToken) return;
+        if (plan.stick_bottom === true) box.dataset.stickBottom = "1";
+        else if (plan.stick_bottom === false) box.dataset.stickBottom = "0";
+        if (plan.clear_unread) setScrollLatestUnread(false);
+        updateScrollLatestButton();
+      })
+      .catch(() => {});
+    if (top <= 8) maybePageOlderMessages();
   }, { passive: true });
 
   $("scroll-latest").addEventListener("click", () => scrollToLatest());
