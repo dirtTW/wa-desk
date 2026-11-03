@@ -580,6 +580,16 @@ pub fn render(req: &SettingsRequest) -> SettingsOutput {
     }
 }
 
+/// Where the Settings screen's back button goes: a subpage returns to the
+/// home list, the home list closes Settings.
+pub fn settings_back(page: &str) -> &'static str {
+    if page == "home" || page.is_empty() {
+        "close"
+    } else {
+        "home"
+    }
+}
+
 /// The label for a stored theme preference.
 pub fn theme_label(preference: &str) -> &'static str {
     match preference {
@@ -889,6 +899,14 @@ mod tests {
             Some("Name cannot be empty.")
         );
         assert!(profile_name_error("Ada").is_none());
+    }
+
+    #[test]
+    fn the_settings_back_button_walks_home() {
+        assert_eq!(settings_back("home"), "close");
+        assert_eq!(settings_back(""), "close");
+        assert_eq!(settings_back("ai"), "home");
+        assert_eq!(settings_back("chats"), "home");
     }
 
     #[test]

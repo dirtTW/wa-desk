@@ -398,6 +398,18 @@ pub fn ui_member_menu_position(
     )
 }
 
+/// Where the Settings back button goes.
+#[tauri::command]
+pub fn ui_settings_back(page: String) -> String {
+    wa_ui::settings::settings_back(&page).to_string()
+}
+
+/// The toast after forwarding N messages.
+#[tauri::command]
+pub fn ui_forward_toast(sent: usize) -> String {
+    wa_ui::picker::forward_toast(sent)
+}
+
 /// The New group / Add members dialog labels for a mode (`create` / `add`).
 #[tauri::command]
 pub fn ui_group_modal(mode: String) -> wa_ui::picker::GroupModal {

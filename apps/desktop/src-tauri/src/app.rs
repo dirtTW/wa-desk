@@ -240,6 +240,8 @@ pub fn run() {
             crate::commands::ui::ui_history_sync_constants,
             crate::commands::ui::ui_group_member_count,
             crate::commands::ui::ui_member_menu_position,
+            crate::commands::ui::ui_settings_back,
+            crate::commands::ui::ui_forward_toast,
             crate::commands::ui::ui_group_modal,
             crate::commands::ui::ui_created_group_chat,
             crate::commands::ui::ui_leave_group_confirm,

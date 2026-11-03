@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.50] — 2026-11-03
+
+Bulk release (one cut for the whole batch).
+
+- **`new-chat.js` and `settings.js` are folded into `chat-list.js` — 15 → 13 JS
+  files**, with two more decisions in Rust:
+  - `wa_ui::settings::settings_back(page)` — a subpage returns to the home list,
+    home closes Settings (command `ui_settings_back`).
+  - `wa_ui::picker::forward_toast(sent)` — `Message forwarded` for one, `N
+    messages forwarded` otherwise (command `ui_forward_toast`).
+- 2 new `wa-ui` unit tests (231 total, plus 3 contract). The picker rows,
+  group dialog and every Settings page were already Rust; what remains in those
+  files was DOM painting, which now lives in `chat-list.js`.
+- Audits: `check-undefined` 20 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.49] — 2026-11-03
 
 Bulk release (one cut for the whole batch).

@@ -309,6 +309,15 @@ pub struct GroupModal {
     pub success_toast: &'static str,
 }
 
+/// The toast after forwarding N messages.
+pub fn forward_toast(sent: usize) -> String {
+    if sent == 1 {
+        "Message forwarded".to_string()
+    } else {
+        format!("{sent} messages forwarded")
+    }
+}
+
 /// The New group / Add members dialog in `mode` (`create` or `add`).
 pub fn group_modal(mode: &str) -> GroupModal {
     if mode == "add" {
@@ -430,6 +439,13 @@ mod tests {
             forward: false,
             forward_targets: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_forward_toast_counts_messages() {
+        assert_eq!(forward_toast(1), "Message forwarded");
+        assert_eq!(forward_toast(3), "3 messages forwarded");
+        assert_eq!(forward_toast(0), "0 messages forwarded");
     }
 
     #[test]
