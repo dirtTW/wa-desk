@@ -90,7 +90,8 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/export.rs                chat-export parsing and import merge plan
   src/history.rs               on-demand history anchors and re-sync order
   src/screens.rs               channels panel, community screen, starred messages
-  src/status.rs                status rail list, story viewer shell, views list
+  src/status.rs                status rail list, story viewer shell, views list,
+                               viewer chrome, step targets, view receipts, healing
   src/picker.rs                new-chat / forward picker rows and sections
   src/settings.rs              every Settings page, update row, AI form, credits
   src/menus.rs                 chat/message menu rows, mute submenu, delete dialog

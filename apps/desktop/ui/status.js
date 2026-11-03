@@ -388,38 +388,58 @@ function closeStatusViewer() {
 }
 
 /// WhatsApp only offers the arrow that can actually go somewhere.
-function updateStatusNav() {
-  const atStart = statusGroupIndex <= 0 && statusIndex <= 0;
-  const atEnd =
-    statusGroupIndex >= statusGroups.length - 1 && statusIndex >= statusQueue.length - 1;
-  $("status-prev").hidden = atStart;
-  $("status-next").hidden = atEnd;
+/// The viewer's chrome for the current frame (wa_ui::status::viewer_chrome).
+async function statusChrome(update) {
+  return invoke("ui_status_chrome", {
+    input: {
+      own: Boolean(update?.from_me),
+      has_frame: Boolean(update),
+      paused: statusPaused,
+      group_index: statusGroupIndex,
+      group_count: statusGroups.length,
+      frame_index: statusIndex,
+      frame_count: statusQueue.length,
+      viewers: (update?.viewers || []).length,
+    },
+  }).catch(() => null);
 }
 
-function stepStatus(delta) {
+async function updateStatusNav() {
+  // The arrow visibility is wa_ui::status::viewer_chrome.
+  const chrome = await statusChrome(statusQueue[statusIndex]);
+  if (!chrome) return;
+  $("status-prev").hidden = chrome.prev_hidden;
+  $("status-next").hidden = chrome.next_hidden;
+}
+
+async function stepStatus(delta) {
   clearTimeout(statusTimer);
   statusTimer = null;
-  if (delta > 0) {
-    if (statusIndex + 1 < statusQueue.length) {
-      statusIndex += 1;
-      renderStatusFrame();
-      return;
-    }
-    if (loadStatusGroup(statusGroupIndex + 1, false)) {
-      renderStatusFrame();
-      return;
-    }
-    closeStatusViewer();
+  if (delta === 0) return;
+  // Where the queue goes next is wa_ui::status::next_position.
+  const next = await invoke("ui_status_next_position", {
+    group: statusGroupIndex,
+    frame: statusIndex,
+    frameCount: statusQueue.length,
+    groupCount: statusGroups.length,
+    forward: delta > 0,
+  }).catch(() => null);
+
+  if (!next) {
+    if (delta > 0) closeStatusViewer();
     return;
   }
-  if (delta < 0) {
-    if (statusIndex > 0) {
-      statusIndex -= 1;
-      renderStatusFrame();
-      return;
-    }
-    if (loadStatusGroup(statusGroupIndex - 1, true)) renderStatusFrame();
+  const { group, frame } = next;
+  if (group !== statusGroupIndex) {
+    // `frame: null` means "the last frame of that group" (a backwards step).
+    const atEnd = frame === null;
+    if (!loadStatusGroup(group, atEnd)) return;
+    if (atEnd) statusIndex = statusQueue.length - 1;
+    renderStatusFrame();
+    return;
   }
+  statusIndex = frame ?? 0;
+  renderStatusFrame();
 }
 
 function markStatusViewed(update) {
@@ -429,35 +449,28 @@ function markStatusViewed(update) {
   invoke("mark_status_viewed", { sender: update.sender, id: update.id }).catch(() => {});
 }
 
-function statusReplyVisible(update) {
-  const own = Boolean(update?.from_me);
-  $("status-reply-input").hidden = own;
-  $("status-reply-send").hidden = own;
-  $("status-heart").hidden = own;
+async function statusReplyVisible(update) {
+  // Owner-dependent chrome (reply bar, add badge, view counter) is
+  // wa_ui::status::viewer_chrome.
+  const chrome = await statusChrome(update);
+  if (!chrome) return;
+  $("status-reply-input").hidden = chrome.reply_hidden;
+  $("status-reply-send").hidden = chrome.reply_hidden;
+  $("status-heart").hidden = chrome.reply_hidden;
   $("status-viewer").querySelectorAll(".status-react").forEach((node) => {
-    node.hidden = own;
+    node.hidden = chrome.reply_hidden;
   });
-  // Your own story has nothing to reply to: drop the footer bar so the colour
-  // covers the whole window like WhatsApp Web, and show the view counter.
-  $("status-viewer").classList.toggle("own-story", own);
-  // WhatsApp desktop marks your own story with the green add badge.
-  $("status-viewer-add").hidden = !own;
-  renderStatusViewCount(update);
+  $("status-viewer").classList.toggle("own-story", chrome.own_story);
+  $("status-viewer-add").hidden = !chrome.add_badge;
+  $("status-view-count").hidden = chrome.view_count_hidden;
+  if (chrome.view_count_hidden) {
+    closeStatusViews();
+  } else {
+    $("status-view-count-label").textContent = chrome.view_count_label;
+  }
 }
 
 /* ------------------------------------------- who viewed my status */
-
-function renderStatusViewCount(update) {
-  const button = $("status-view-count");
-  const own = Boolean(update?.from_me);
-  button.hidden = !own;
-  if (!own) {
-    closeStatusViews();
-    return;
-  }
-  const count = (update.viewers || []).length;
-  $("status-view-count-label").textContent = String(count);
-}
 
 function closeStatusViews() {
   $("status-views").hidden = true;
@@ -511,7 +524,7 @@ async function noteStatusView(event) {
     if (!$("status-screen").hidden) renderStatusList();
     if (update.from_me) syncOwnStatusIds();
     if (!$("status-viewer").hidden) {
-      renderStatusViewCount(update);
+      statusReplyVisible(update);
       if (!$("status-views").hidden) renderStatusViews();
     }
     return;
@@ -623,15 +636,16 @@ async function anchorStatusFrame(total, remaining, token = statusFrameToken) {
   startStatusProgress();
 }
 
-function updateStatusPauseButton() {
+async function updateStatusPauseButton() {
   const button = $("status-viewer-pause");
   if (!button) return;
-  const frame = statusQueue[statusIndex];
-  button.hidden = !frame;
+  const chrome = await statusChrome(statusQueue[statusIndex]);
+  if (!chrome) return;
+  button.hidden = chrome.pause_hidden;
   // Swap the glyph with a class: `hidden` on the SVGs was overridden by the
   // global `svg { display: block }` rule, which left both icons visible.
-  button.classList.toggle("paused", statusPaused);
-  button.title = statusPaused ? "Play" : "Pause";
+  button.classList.toggle("paused", chrome.pause_pressed);
+  button.title = chrome.pause_title;
 }
 
 async function pauseStatusFrame() {

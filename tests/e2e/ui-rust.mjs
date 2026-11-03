@@ -460,6 +460,135 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# story viewer chrome (rust)");
+const chrome = await page.evaluate(async () => {
+  const theirs = await invoke("ui_status_chrome", {
+    input: {
+      own: false,
+      has_frame: true,
+      paused: false,
+      group_index: 0,
+      group_count: 2,
+      frame_index: 0,
+      frame_count: 3,
+      viewers: 0,
+    },
+  });
+  const mine = await invoke("ui_status_chrome", {
+    input: {
+      own: true,
+      has_frame: true,
+      paused: true,
+      group_index: 1,
+      group_count: 2,
+      frame_index: 2,
+      frame_count: 3,
+      viewers: 7,
+    },
+  });
+  const empty = await invoke("ui_status_chrome", { input: {} });
+  const steps = {
+    next: await invoke("ui_status_next_position", { group: 0, frame: 0, frameCount: 3, groupCount: 2, forward: true }),
+    wrap: await invoke("ui_status_next_position", { group: 0, frame: 2, frameCount: 3, groupCount: 2, forward: true }),
+    end: await invoke("ui_status_next_position", { group: 1, frame: 2, frameCount: 3, groupCount: 2, forward: true }),
+    back: await invoke("ui_status_next_position", { group: 1, frame: 0, frameCount: 3, groupCount: 2, forward: false }),
+    start: await invoke("ui_status_next_position", { group: 0, frame: 0, frameCount: 3, groupCount: 2, forward: false }),
+  };
+
+  // Live: open a story, let the frame settle, then pause/resume and step.
+  const entry = [...state.statuses.values()].find((e) => e.updates.length > 0);
+  let live = null;
+  if (entry) {
+    const realMark = markStatusViewed;
+    markStatusViewed = () => {};
+    openStatus();
+    await new Promise((r) => setTimeout(r, 800));
+    await openStatusViewer(entry.jid);
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      if ((document.querySelector("#status-viewer-body")?.innerHTML || "").length > 0) break;
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    const button = document.getElementById("status-viewer-pause");
+    const ready = {
+      pauseHidden: button.hidden,
+      title: button.title,
+      replyHidden: document.getElementById("status-reply-input").hidden,
+    };
+    toggleStatusPause();
+    await new Promise((r) => setTimeout(r, 500));
+    const paused = { flag: statusPaused, title: button.title, pressed: button.classList.contains("paused") };
+    toggleStatusPause();
+    await new Promise((r) => setTimeout(r, 500));
+    const resumed = { flag: statusPaused, title: button.title };
+    const before = `${statusGroupIndex}:${statusIndex}`;
+    await stepStatus(1);
+    await new Promise((r) => setTimeout(r, 500));
+    live = {
+      ready,
+      paused,
+      resumed,
+      stepped: `${statusGroupIndex}:${statusIndex}` !== before,
+      frames: statusQueue.length,
+    };
+    closeStatusViewer();
+    closeStatus();
+    markStatusViewed = realMark;
+  }
+  return { theirs, mine, empty, steps, live };
+});
+check(
+  "a story you are watching offers reply and both arrows",
+  chrome.theirs.prev_hidden &&
+    !chrome.theirs.next_hidden &&
+    !chrome.theirs.reply_hidden &&
+    !chrome.theirs.own_story &&
+    !chrome.theirs.add_badge &&
+    chrome.theirs.view_count_hidden &&
+    chrome.theirs.pause_title === "Pause",
+  JSON.stringify(chrome.theirs),
+);
+check(
+  "your own story hides the reply bar and shows the view count",
+  !chrome.mine.prev_hidden &&
+    chrome.mine.next_hidden &&
+    chrome.mine.own_story &&
+    chrome.mine.reply_hidden &&
+    chrome.mine.add_badge &&
+    !chrome.mine.view_count_hidden &&
+    chrome.mine.view_count_label === "7" &&
+    chrome.mine.pause_pressed &&
+    chrome.mine.pause_title === "Play",
+  JSON.stringify(chrome.mine),
+);
+check("an empty viewer hides the pause button", chrome.empty.pause_hidden, JSON.stringify(chrome.empty));
+check(
+  "stepping walks frames, wraps into the next group and stops at the ends",
+  chrome.steps.next.group === 0 &&
+    chrome.steps.next.frame === 1 &&
+    chrome.steps.wrap.group === 1 &&
+    chrome.steps.wrap.frame === 0 &&
+    chrome.steps.end === null &&
+    chrome.steps.back.group === 0 &&
+    chrome.steps.back.frame === null &&
+    chrome.steps.start === null,
+  JSON.stringify(chrome.steps),
+);
+if (chrome.live) {
+  check(
+    "the live viewer pauses and resumes from the Rust chrome",
+    !chrome.live.ready.pauseHidden &&
+      chrome.live.ready.title === "Pause" &&
+      chrome.live.paused.flag &&
+      chrome.live.paused.pressed &&
+      chrome.live.paused.title === "Play" &&
+      !chrome.live.resumed.flag &&
+      chrome.live.resumed.title === "Pause" &&
+      chrome.live.stepped,
+    JSON.stringify(chrome.live),
+  );
+}
+
 console.log("\n# dead-code sweep + group meta (rust)");
 const sweep = await page.evaluate(async () => {
   // The swept helpers must be gone, and the two that were never wired must

@@ -192,6 +192,8 @@ pub fn run() {
             crate::commands::ui::ui_avatar_style,
             crate::commands::ui::ui_initials,
             crate::commands::ui::ui_is_self_jid,
+            crate::commands::ui::ui_status_chrome,
+            crate::commands::ui::ui_status_next_position,
             crate::commands::ui::ui_document_summary,
             crate::commands::ui::ui_friendly_media_error,
             crate::commands::ui::ui_forward_payload,

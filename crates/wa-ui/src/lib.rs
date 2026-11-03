@@ -70,7 +70,8 @@ pub use state::{
 };
 pub use status::{
     CaptureLimits, StatusEntryView, StatusFrameOutput, StatusFrameRequest, StatusListOutput,
-    StatusRequest, StatusUpdateView, StatusViewsOutput,
+    StatusRequest, StatusUpdateView, StatusViewsOutput, StepTarget, ViewerChrome,
+    ViewerChromeInput,
 };
 pub use stickers::{StickerCell, StickerGridOutput, StickerGridRequest};
 pub use text::{MentionResolver, MessageRow, format_phone, preview_of};

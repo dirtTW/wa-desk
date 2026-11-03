@@ -260,6 +260,102 @@ pub fn list(req: &StatusRequest) -> StatusListOutput {
     }
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ViewerChromeInput {
+    #[serde(default)]
+    pub own: bool,
+    #[serde(default)]
+    pub has_frame: bool,
+    #[serde(default)]
+    pub paused: bool,
+    #[serde(default)]
+    pub group_index: usize,
+    #[serde(default)]
+    pub group_count: usize,
+    #[serde(default)]
+    pub frame_index: usize,
+    #[serde(default)]
+    pub frame_count: usize,
+    #[serde(default)]
+    pub viewers: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ViewerChrome {
+    /// The "previous" arrow is useless on the very first story.
+    pub prev_hidden: bool,
+    pub next_hidden: bool,
+    /// The story's own frame: no reply bar, grey footer, add badge, view count.
+    pub own_story: bool,
+    pub reply_hidden: bool,
+    pub add_badge: bool,
+    pub view_count_hidden: bool,
+    pub view_count_label: String,
+    pub pause_hidden: bool,
+    pub pause_pressed: bool,
+    pub pause_title: &'static str,
+}
+
+/// The story viewer's chrome for one frame: which arrows, the pause glyph and
+/// whether the reply bar / view counter belong to this story.
+pub fn viewer_chrome(input: &ViewerChromeInput) -> ViewerChrome {
+    let frames_left = input.frame_count.saturating_sub(input.frame_index + 1);
+    let groups_left = input.group_count.saturating_sub(input.group_index + 1);
+    ViewerChrome {
+        prev_hidden: input.group_index == 0 && input.frame_index == 0,
+        next_hidden: frames_left == 0 && groups_left == 0,
+        own_story: input.own,
+        reply_hidden: input.own,
+        add_badge: input.own,
+        view_count_hidden: !input.own,
+        view_count_label: if input.own {
+            input.viewers.to_string()
+        } else {
+            String::new()
+        },
+        pause_hidden: !input.has_frame,
+        pause_pressed: input.paused,
+        pause_title: if input.paused { "Play" } else { "Pause" },
+    }
+}
+
+/// The next position after a step: `(group, frame)` or `None` when it runs off
+/// the end of the last group.
+/// Where a step lands. `frame: None` means "the last frame of that group" (a
+/// backwards step into the previous group cannot know its length up front).
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub struct StepTarget {
+    pub group: usize,
+    pub frame: Option<usize>,
+}
+
+pub fn next_position(
+    group: usize,
+    frame: usize,
+    frame_count: usize,
+    group_count: usize,
+    forward: bool,
+) -> Option<StepTarget> {
+    let at = |group: usize, frame: Option<usize>| Some(StepTarget { group, frame });
+    if forward {
+        if frame + 1 < frame_count {
+            return at(group, Some(frame + 1));
+        }
+        if group + 1 < group_count {
+            return at(group + 1, Some(0));
+        }
+        None
+    } else {
+        if frame > 0 {
+            return at(group, Some(frame - 1));
+        }
+        if group > 0 {
+            return at(group - 1, None);
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ViewerGroup {
     pub jid: String,
@@ -812,6 +908,61 @@ mod tests {
             me_lid: String::new(),
             now: 1_770_000_000_000,
         }
+    }
+
+    #[test]
+    fn viewer_chrome_follows_the_story_owner() {
+        let theirs = viewer_chrome(&ViewerChromeInput {
+            own: false,
+            has_frame: true,
+            paused: false,
+            group_index: 0,
+            group_count: 2,
+            frame_index: 0,
+            frame_count: 3,
+            viewers: 0,
+        });
+        assert!(theirs.prev_hidden, "first frame of the first group");
+        assert!(!theirs.next_hidden);
+        assert!(!theirs.own_story && !theirs.reply_hidden);
+        assert!(!theirs.add_badge && theirs.view_count_hidden);
+        assert!(!theirs.pause_hidden && !theirs.pause_pressed);
+        assert_eq!(theirs.pause_title, "Pause");
+
+        let mine = viewer_chrome(&ViewerChromeInput {
+            own: true,
+            has_frame: true,
+            paused: true,
+            group_index: 1,
+            group_count: 2,
+            frame_index: 2,
+            frame_count: 3,
+            viewers: 7,
+        });
+        assert!(!mine.prev_hidden);
+        assert!(mine.next_hidden, "last frame of the last group");
+        assert!(mine.own_story && mine.reply_hidden && mine.add_badge);
+        assert!(!mine.view_count_hidden);
+        assert_eq!(mine.view_count_label, "7");
+        assert!(mine.pause_pressed);
+        assert_eq!(mine.pause_title, "Play");
+
+        // No frame yet: the pause button hides.
+        let empty = viewer_chrome(&ViewerChromeInput::default());
+        assert!(empty.pause_hidden);
+    }
+
+    #[test]
+    fn stepping_walks_frames_then_groups() {
+        let at = |group: usize, frame: Option<usize>| Some(StepTarget { group, frame });
+        // Two groups of three frames.
+        assert_eq!(next_position(0, 0, 3, 2, true), at(0, Some(1)));
+        assert_eq!(next_position(0, 2, 3, 2, true), at(1, Some(0)));
+        assert_eq!(next_position(1, 2, 3, 2, true), None, "end of the queue");
+        assert_eq!(next_position(0, 0, 3, 2, false), None, "start");
+        // Backwards into the previous group lands on its last frame.
+        assert_eq!(next_position(1, 0, 3, 2, false), at(0, None));
+        assert_eq!(next_position(0, 1, 3, 2, false), at(0, Some(0)));
     }
 
     #[test]

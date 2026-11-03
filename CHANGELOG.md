@@ -4,6 +4,30 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.35] — 2026-11-03
+
+- **The story viewer's chrome state moved to Rust.** `wa_ui::status::viewer_chrome`
+  answers, for one frame, which arrows are usable, whether this is your own story
+  (reply bar and reaction chips hidden, the "add" badge shown, the view counter
+  visible with its count) and the pause button's visibility/glyph/title.
+  `ui_status_chrome` replaces the hand-rolled checks in `updateStatusNav`,
+  `statusReplyVisible` and `updateStatusPauseButton`; `renderStatusViewCount` is
+  folded into that painter (its count and label now come from the same answer).
+- **Stepping the queue is Rust too.** `wa_ui::status::next_position` returns the
+  next `StepTarget { group, frame }`, wrapping into the next group when a group
+  ends and reporting `None` at the first/last frame (the viewer closes on the
+  last one). A backwards step into the previous group returns `frame: null` —
+  "the last frame of that group" — instead of a `usize::MAX` sentinel, which
+  serialized as `18446744073709552000` and was a latent precision bug.
+  Commands `ui_status_chrome`, `ui_status_next_position`.
+- 2 new `wa-ui` unit tests (196 total, plus 3 contract) and a story-viewer CDP
+  e2e section: the own/theirs/empty chrome, the five step targets (including the
+  group wrap and both ends), and a live viewer that pauses (`Play`, pressed
+  glyph), resumes and steps.
+- All five audits re-run: `check-dead-functions` 0, `check-undefined` 21 (all
+  false positives), `check-ids` 0/271, `check-data-attrs` 0/84,
+  `check-command-args` 0.
+
 ## [0.2.0-rc.34] — 2026-11-03
 
 - **Dead-code sweep with a new audit.** `scripts/check-dead-functions.mjs` lists

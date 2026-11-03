@@ -408,6 +408,24 @@ pub fn ui_draft_plan(
     wa_ui::actions::draft_plan(existing, &files)
 }
 
+/// The story viewer's chrome (arrows, pause glyph, reply bar, view counter).
+#[tauri::command]
+pub fn ui_status_chrome(input: wa_ui::status::ViewerChromeInput) -> wa_ui::status::ViewerChrome {
+    wa_ui::status::viewer_chrome(&input)
+}
+
+/// The next `(group, frame)` after a step, or `None` at the end/start.
+#[tauri::command]
+pub fn ui_status_next_position(
+    group: usize,
+    frame: usize,
+    frame_count: usize,
+    group_count: usize,
+    forward: bool,
+) -> Option<wa_ui::status::StepTarget> {
+    wa_ui::status::next_position(group, frame, frame_count, group_count, forward)
+}
+
 /// The viewer's group queue (newest activity first, updates oldest first).
 #[tauri::command]
 pub fn ui_status_groups(request: wa_ui::StatusRequest) -> Vec<wa_ui::status::ViewerGroup> {
