@@ -21,26 +21,35 @@ function setCallStatus(text) {
   $("call-status").textContent = text;
 }
 
-function showCallOverlay() {
+async function showCallOverlay() {
   const call = currentCall;
   if (!call) return;
   const name = callDisplayName(call.peer);
   $("call-name").textContent = name;
   setAvatar($("call-avatar"), name, call.peer);
   $("call-overlay").hidden = false;
-  $("call-video-stage").hidden = !call.video || call.state === "ringing";
+  // Buttons, stage visibility and the status line are decided by wa_ui::calls.
+  const overlay = await invoke("ui_call_overlay", {
+    input: {
+      state: call.state || "calling",
+      video: Boolean(call.video),
+      send_video: Boolean(call.sendVideo),
+      muted: Boolean(call.muted),
+      started_at: call.startedAt || null,
+      now: Date.now(),
+    },
+  }).catch(() => null);
+  if (!overlay) return;
+  $("call-video-stage").hidden = !overlay.video_stage;
   // A video call answered without a local camera still shows the peer; the
   // self-view stays hidden instead of painting a permanently black tile.
-  $("call-local-video").hidden = !call.sendVideo;
-  const ringing = call.state === "ringing";
-  $("call-accept").hidden = !ringing;
-  $("call-reject").hidden = !ringing;
-  $("call-mute").hidden = ringing;
-  $("call-hangup").hidden = ringing;
-  $("call-mute").classList.toggle("muted", Boolean(call.muted));
-  if (ringing) setCallStatus(call.video ? "Incoming video call" : "Incoming voice call");
-  else if (call.startedAt) setCallStatus("Connected");
-  else setCallStatus("Calling...");
+  $("call-local-video").hidden = !overlay.self_view;
+  $("call-accept").hidden = !overlay.accept;
+  $("call-reject").hidden = !overlay.reject;
+  $("call-mute").hidden = !overlay.mute;
+  $("call-hangup").hidden = !overlay.hangup;
+  $("call-mute").classList.toggle("muted", overlay.mute_pressed);
+  setCallStatus(overlay.status);
 }
 
 function clearCallTimer() {
@@ -54,10 +63,19 @@ function startCallTimer() {
   currentCall.startedAt = Date.now();
   const tick = () => {
     if (!currentCall?.startedAt) return;
-    const seconds = Math.floor((Date.now() - currentCall.startedAt) / 1000);
-    const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
-    const ss = String(seconds % 60).padStart(2, "0");
-    setCallStatus(`Connected · ${mm}:${ss}`);
+    // The "Connected · mm:ss" label is formatted by wa_ui::calls.
+    invoke("ui_call_overlay", {
+      input: {
+        state: currentCall.state || "connected",
+        video: Boolean(currentCall.video),
+        send_video: Boolean(currentCall.sendVideo),
+        muted: Boolean(currentCall.muted),
+        started_at: currentCall.startedAt,
+        now: Date.now(),
+      },
+    })
+      .then((overlay) => setCallStatus(overlay.status))
+      .catch(() => {});
   };
   tick();
   callTimer = setInterval(tick, 1000);
@@ -120,16 +138,17 @@ async function mediaInputsReady(video) {
 async function startOutgoingCall(video) {
   const chat = state.chats.get(state.active);
   if (!chat) return;
-  if (chat.isGroup) {
-    toast("Group calls aren't supported yet.");
-    return;
-  }
-  if (currentCall) {
-    toast("A call is already active.");
+  const guard = await invoke("ui_call_guard", {
+    isGroup: Boolean(chat.isGroup),
+    hasActiveCall: Boolean(currentCall),
+  }).catch(() => ({ ok: true }));
+  if (!guard.ok) {
+    toast(guard.toast);
     return;
   }
   if (!(await mediaInputsReady(video))) {
-    toast(video ? "No camera/microphone or H.264 encoder available." : "No microphone available.");
+    const message = await invoke("ui_call_media_toast", { video }).catch(() => "");
+    if (message) toast(message);
     return;
   }
   try {

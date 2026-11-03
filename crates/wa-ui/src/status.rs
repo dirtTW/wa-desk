@@ -555,9 +555,44 @@ pub fn poster_seek_seconds(duration: f64) -> f64 {
     (duration / 2.0).min(0.2)
 }
 
+/// The status composer's capture limits (thumbnails and video posters).
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct CaptureLimits {
+    pub thumb_max_px: u32,
+    pub jpeg_quality: f64,
+}
+
+pub fn capture_limits() -> CaptureLimits {
+    CaptureLimits {
+        thumb_max_px: STATUS_THUMB_MAX_PX,
+        jpeg_quality: 0.72,
+    }
+}
+
+/// The duration a posted video story reports: at least one second, rounded.
+pub fn video_duration_seconds(duration: f64) -> i64 {
+    let value = if duration.is_finite() && duration > 0.0 {
+        duration
+    } else {
+        1.0
+    };
+    value.round().max(1.0) as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_limits_and_video_duration() {
+        let limits = capture_limits();
+        assert_eq!(limits.thumb_max_px, 320);
+        assert_eq!(limits.jpeg_quality, 0.72);
+        assert_eq!(video_duration_seconds(4.4), 4);
+        assert_eq!(video_duration_seconds(4.6), 5);
+        assert_eq!(video_duration_seconds(0.0), 1);
+        assert_eq!(video_duration_seconds(f64::NAN), 1);
+    }
 
     #[test]
     fn durations_follow_the_kind() {

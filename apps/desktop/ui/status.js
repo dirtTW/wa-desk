@@ -1063,7 +1063,7 @@ function statusImageThumb(file) {
       canvas.height = Math.max(1, Math.round(img.height * scale));
       canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.72).split(",")[1] || "");
+      resolve(canvas.toDataURL("image/jpeg", limits.jpeg_quality).split(",")[1] || "");
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -1098,10 +1098,11 @@ function statusVideoMeta(file) {
     };
     video.onseeked = async () => {
       clearTimeout(timer);
+      const limits = await statusCaptureLimits();
       const size = await invoke("ui_status_thumb_scale", {
         width: video.videoWidth,
         height: video.videoHeight,
-        max: statusTiming.thumbMaxPx,
+        max: limits.thumb_max_px,
       }).catch(() => ({
         width: Math.max(1, video.videoWidth),
         height: Math.max(1, video.videoHeight),
@@ -1110,7 +1111,10 @@ function statusVideoMeta(file) {
       canvas.width = size.width;
       canvas.height = size.height;
       canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-      finish(canvas.toDataURL("image/jpeg", 0.72).split(",")[1] || "", video.duration || 1);
+      const seconds = await invoke("ui_status_duration_seconds", {
+        duration: Number(video.duration) || 0,
+      }).catch(() => 1);
+      finish(canvas.toDataURL("image/jpeg", limits.jpeg_quality).split(",")[1] || "", seconds);
     };
     video.onerror = () => {
       clearTimeout(timer);

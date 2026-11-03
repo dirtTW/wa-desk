@@ -151,6 +151,60 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// Which call-overlay controls show, plus the status line.
+#[tauri::command]
+pub fn ui_call_overlay(input: wa_ui::calls::CallOverlayInput) -> CallOverlayOutput {
+    let overlay = wa_ui::calls::overlay(&input);
+    CallOverlayOutput {
+        status: overlay.status(&input),
+        ringing: overlay.ringing,
+        video_stage: overlay.video_stage,
+        self_view: overlay.self_view,
+        accept: overlay.accept,
+        reject: overlay.reject,
+        mute: overlay.mute,
+        hangup: overlay.hangup,
+        mute_pressed: overlay.mute_pressed,
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct CallOverlayOutput {
+    pub status: String,
+    pub ringing: bool,
+    pub video_stage: bool,
+    pub self_view: bool,
+    pub accept: bool,
+    pub reject: bool,
+    pub mute: bool,
+    pub hangup: bool,
+    pub mute_pressed: bool,
+}
+
+/// Whether a new outgoing call may start.
+#[tauri::command]
+pub fn ui_call_guard(is_group: bool, has_active_call: bool) -> wa_ui::calls::CallGuard {
+    wa_ui::calls::call_guard(is_group, has_active_call)
+}
+
+/// The toast when the call media inputs are missing.
+#[tauri::command]
+pub fn ui_call_media_toast(video: bool) -> String {
+    wa_ui::calls::media_unavailable_toast(video).to_string()
+}
+
+/// The status composer capture limits.
+#[tauri::command]
+pub fn ui_status_capture() -> wa_ui::status::CaptureLimits {
+    wa_ui::status::capture_limits()
+}
+
+/// The duration a posted video story reports.
+#[tauri::command]
+pub fn ui_status_duration_seconds(duration: f64) -> i64 {
+    wa_ui::status::video_duration_seconds(duration)
+}
+
 /// Rows recovered from the disk chat-list mirror.
 #[tauri::command]
 pub fn ui_restore_disk_cache(raw: String) -> Vec<wa_ui::cache::DiskChatRow> {

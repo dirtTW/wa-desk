@@ -4,6 +4,25 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.20] — 2026-11-03
+
+- **The call overlay is driven by Rust.** `wa_ui::calls` decides which controls
+  show (accept/reject while ringing, mute/hangup after), whether the video stage
+  is up (only once answered), whether the self view is painted (hidden on a
+  camera-less video call so no black tile), the muted button state and the
+  status line — `Incoming video call` / `Incoming voice call` / `Calling...` /
+  `Connected · 01:05`. It also owns the outgoing-call guard (`Group calls aren't
+  supported yet.`, `A call is already active.`) and the missing-media toasts.
+  Commands: `ui_call_overlay`, `ui_call_guard`, `ui_call_media_toast`;
+  `showCallOverlay` and the per-second timer now read the Rust status instead of
+  formatting `mm:ss` themselves.
+- **The status composer's capture limits are Rust.** `ui_status_capture` returns
+  the 320 px thumbnail box and 0.72 JPEG quality, and
+  `ui_status_duration_seconds` rounds a posted video's length (minimum 1 s).
+- 5 new `wa-ui` unit tests (153 total, plus 3 contract) and a calls/capture CDP
+  e2e section: the ringing and connected overlays, the guards, the capture
+  limits and a live overlay driven through `showCallOverlay`.
+
 ## [0.2.0-rc.19] — 2026-11-03
 
 - **The disk chat-list mirror and the address-book renames are Rust decisions.**

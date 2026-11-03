@@ -460,6 +460,67 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# calls + capture (rust)");
+const calls = await page.evaluate(async () => {
+  const ringing = await invoke("ui_call_overlay", {
+    input: { state: "ringing", video: true, send_video: true, muted: false, started_at: null, now: 1000 },
+  });
+  const connected = await invoke("ui_call_overlay", {
+    input: { state: "connected", video: true, send_video: false, muted: true, started_at: 10000, now: 75000 },
+  });
+  const guardGroup = await invoke("ui_call_guard", { isGroup: true, hasActiveCall: false });
+  const guardOk = await invoke("ui_call_guard", { isGroup: false, hasActiveCall: false });
+  const toastVideo = await invoke("ui_call_media_toast", { video: true });
+  const capture = await invoke("ui_status_capture");
+  const duration = await invoke("ui_status_duration_seconds", { duration: 4.6 });
+
+  const savedCall = currentCall;
+  currentCall = {
+    callId: "probe",
+    peer: "6285@s.whatsapp.net",
+    video: true,
+    sendVideo: true,
+    outgoing: false,
+    state: "ringing",
+  };
+  await showCallOverlay();
+  await new Promise((r) => setTimeout(r, 250));
+  const live = {
+    status: document.getElementById("call-status").textContent,
+    acceptHidden: document.getElementById("call-accept").hidden,
+    muteHidden: document.getElementById("call-mute").hidden,
+    stageHidden: document.getElementById("call-video-stage").hidden,
+  };
+  currentCall = savedCall;
+  document.getElementById("call-overlay").hidden = true;
+  return { ringing, connected, guardGroup, guardOk, toastVideo, capture, duration, live };
+});
+check(
+  "the ringing overlay offers accept/reject",
+  calls.ringing.accept && calls.ringing.reject && !calls.ringing.mute && !calls.ringing.video_stage,
+  calls.ringing.status,
+);
+check(
+  "the connected overlay shows the stage and timer",
+  calls.connected.video_stage && calls.connected.mute && !calls.connected.self_view && calls.connected.status === "Connected · 01:05",
+  calls.connected.status,
+);
+check(
+  "call guards refuse groups",
+  calls.guardGroup.ok === false && calls.guardOk.ok && calls.toastVideo.includes("H.264"),
+  calls.guardGroup.toast,
+);
+check(
+  "the status capture limits render",
+  calls.capture.thumb_max_px === 320 && calls.capture.jpeg_quality === 0.72 && calls.duration === 5,
+  `${calls.capture.thumb_max_px}px, duration ${calls.duration}s`,
+);
+check(
+  "the live call overlay renders",
+  calls.live.status === "Incoming video call" && !calls.live.acceptHidden && calls.live.muteHidden && calls.live.stageHidden,
+  JSON.stringify(calls.live),
+);
+
 console.log("\n# restore + contacts (rust)");
 const restore = await page.evaluate(async () => {
   const disk = await invoke("ui_restore_disk_cache", {

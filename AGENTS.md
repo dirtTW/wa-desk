@@ -84,6 +84,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/actions.rs               status permissions/drafts, reply banner, selection bar
   src/chat_actions.rs          chat-menu plans, delete commands, message info
   src/context.rs               AI context/stickers, media limits, poster sampling
+  src/calls.rs                 call overlay, outgoing guard, media toasts
   src/search.rs                in-chat search matching and counter label
   src/incoming.rs              message-event folding, unread/receipt rules
   src/export.rs                chat-export parsing and import merge plan
