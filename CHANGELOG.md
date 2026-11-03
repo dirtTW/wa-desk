@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.17] — 2026-11-03
+
+- **Composer, seeding and peer-alias plans moved to Rust.**
+  `wa_ui::actions::send_plan` decides what the send button does (channel =
+  blocked with its toast, media draft, edit, send, or a no-op for empty text);
+  `wa_ui::state::seed_plan` picks the address-book entries that rebuild personal
+  chats (≥6 digits, not our own number, not already known, digits only);
+  `wa_ui::state::peer_fold_plan` decides which LID rows fold into the
+  phone-number row and which placeholder names the verified identity replaces.
+  Commands `ui_send_plan`, `ui_seed_chats`, `ui_alias_plan`; `actions.js` and
+  `chats.js` only apply the results (`foldChat` keeps doing the message merge).
+- 5 new `wa-ui` unit tests (141 total, plus 3 contract) and a store-plans CDP
+  e2e section: send `send/noop/blocked/draft/edit`, the filtered seed list and
+  a LID→PN fold with the rename.
+- Contract note: Tauri camel-cases command args (`mePhone`), caught by the probe
+  before the e2e run.
+
 ## [0.2.0-rc.16] — 2026-11-03
 
 - **Chat-menu actions are planned in Rust.** `wa_ui::chat_actions::plan_chat_action`

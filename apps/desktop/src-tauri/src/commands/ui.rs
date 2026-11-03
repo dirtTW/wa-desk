@@ -151,6 +151,36 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// What the composer's send button does.
+#[tauri::command]
+pub fn ui_send_plan(
+    is_channel: bool,
+    has_draft: bool,
+    editing: bool,
+    text: String,
+) -> wa_ui::actions::SendPlan {
+    wa_ui::actions::send_plan(is_channel, has_draft, editing, &text)
+}
+
+/// The chats to seed from the address book when the cache is empty.
+#[tauri::command]
+pub fn ui_seed_chats(
+    contacts: Vec<wa_ui::state::SeedContact>,
+    me_phone: String,
+    existing: Vec<String>,
+) -> Vec<wa_ui::state::SeededChat> {
+    wa_ui::state::seed_plan(&contacts, &me_phone, &existing)
+}
+
+/// How peer lookups fold LID rows into phone-number rows.
+#[tauri::command]
+pub fn ui_alias_plan(
+    lookups: Vec<wa_ui::state::AliasLookup>,
+    chats: Vec<wa_ui::state::AliasChat>,
+) -> wa_ui::state::AliasPlan {
+    wa_ui::state::peer_fold_plan(&lookups, &chats)
+}
+
 /// What a chat-menu row does.
 #[tauri::command]
 pub fn ui_chat_action(

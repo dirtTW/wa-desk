@@ -185,6 +185,50 @@ pub fn attachment_check(size: u64, mime: &str) -> AttachmentCheck {
     }
 }
 
+#[derive(Debug, Default, Serialize)]
+pub struct SendPlan {
+    /// `blocked`, `draft`, `edit`, `send` or `noop`.
+    pub action: String,
+    /// Set for `blocked` (a toast the UI shows).
+    pub toast: Option<String>,
+}
+
+/// What the composer's send button does: channels are read-only, a media draft
+/// sends the files (the text becomes the caption), an edit needs text, and an
+/// empty composer does nothing.
+pub fn send_plan(is_channel: bool, has_draft: bool, editing: bool, text: &str) -> SendPlan {
+    if is_channel {
+        return SendPlan {
+            action: "blocked".to_string(),
+            toast: Some("Channels are read-only: you can follow them, not post here.".to_string()),
+        };
+    }
+    if has_draft {
+        return SendPlan {
+            action: "draft".to_string(),
+            toast: None,
+        };
+    }
+    if editing {
+        return SendPlan {
+            action: if text.trim().is_empty() {
+                "noop".to_string()
+            } else {
+                "edit".to_string()
+            },
+            toast: None,
+        };
+    }
+    SendPlan {
+        action: if text.trim().is_empty() {
+            "noop".to_string()
+        } else {
+            "send".to_string()
+        },
+        toast: None,
+    }
+}
+
 /// "1 selected" / "N selected" and the action buttons' enabled state.
 pub fn selection_bar(count: usize) -> SelectionBar {
     SelectionBar {
@@ -295,6 +339,19 @@ mod tests {
             Some("File is too large - 48 MB is the limit.")
         );
         assert_eq!(huge.kind, "image");
+    }
+
+    #[test]
+    fn send_plan_covers_the_composer_states() {
+        let channel = send_plan(true, false, false, "hi");
+        assert_eq!(channel.action, "blocked");
+        assert!(channel.toast.unwrap().contains("read-only"));
+
+        assert_eq!(send_plan(false, true, false, "").action, "draft");
+        assert_eq!(send_plan(false, false, true, "x").action, "edit");
+        assert_eq!(send_plan(false, false, true, "   ").action, "noop");
+        assert_eq!(send_plan(false, false, false, "  ").action, "noop");
+        assert_eq!(send_plan(false, false, false, "hello").action, "send");
     }
 
     #[test]

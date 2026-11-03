@@ -156,31 +156,29 @@ async function resolvePeers(chats) {
     return;
   }
 
+  // Which rows fold into which is decided by wa_ui::state::peer_fold_plan.
+  const plan = await invoke("ui_alias_plan", {
+    lookups: (lookups || []).map((info) => ({
+      chat: info.chat,
+      phone: info.phone || "",
+      lid: info.lid || "",
+      name: info.name || "",
+    })),
+    chats: chats.map((chat) => ({
+      jid: chat.jid,
+      name: chat.name || "",
+      exists: state.chats.has(chat.jid),
+    })),
+  }).catch(() => ({ changed: false, folds: [], renames: [] }));
+
   let changed = false;
-  for (const info of lookups || []) {
-    const phoneJid = info.phone ? `${info.phone}@s.whatsapp.net` : "";
-    const lidJid = info.lid ? `${info.lid}@lid` : "";
-    const target = phoneJid || info.chat;
-    if (!target) continue;
-
-    // The phone-number form is the canonical DM key, so fold the LID row into
-    // it (or promote the LID row when the phone row does not exist yet).
-    if (phoneJid) {
-      for (const key of new Set([info.chat, lidJid])) {
-        if (!key || key === target || !state.chats.has(key)) continue;
-        if (await foldChat(key, target, info.name)) changed = true;
-      }
-    }
-
-    const entry = state.chats.get(target);
-    if (
-      entry &&
-      info.name &&
-      (await invoke("ui_placeholder_name", { jid: entry.jid, name: entry.name }).catch(
-        () => false,
-      ))
-    ) {
-      entry.name = info.name;
+  for (const fold of plan.folds) {
+    if (await foldChat(fold.from, fold.to, fold.name)) changed = true;
+  }
+  for (const [jid, name] of plan.renames) {
+    const entry = state.chats.get(jid);
+    if (entry) {
+      entry.name = name;
       changed = true;
     }
   }

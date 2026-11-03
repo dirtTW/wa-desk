@@ -460,6 +460,54 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# store plans (rust)");
+const storePlans2 = await page.evaluate(async () => {
+  const sendText = await invoke("ui_send_plan", { isChannel: false, hasDraft: false, editing: false, text: " hello " });
+  const sendEmpty = await invoke("ui_send_plan", { isChannel: false, hasDraft: false, editing: false, text: "  " });
+  const sendChannel = await invoke("ui_send_plan", { isChannel: true, hasDraft: false, editing: false, text: "x" });
+  const sendDraft = await invoke("ui_send_plan", { isChannel: false, hasDraft: true, editing: false, text: "" });
+  const sendEdit = await invoke("ui_send_plan", { isChannel: false, hasDraft: false, editing: true, text: "x" });
+  const seeded = await invoke("ui_seed_chats", {
+    contacts: [
+      { phone: "628770000000", name: "Budi" },
+      { phone: "62111", name: "Short" },
+      { phone: "628990000000", name: "Known" },
+    ],
+    mePhone: "628550000000",
+    existing: ["628990000000@s.whatsapp.net"],
+  });
+  const alias = await invoke("ui_alias_plan", {
+    lookups: [{ chat: "111@lid", phone: "6285", lid: "111", name: "Ada" }],
+    chats: [
+      { jid: "111@lid", name: "111", exists: true },
+      { jid: "6285@s.whatsapp.net", name: "6285", exists: true },
+    ],
+  });
+  return { sendText, sendEmpty, sendChannel, sendDraft, sendEdit, seeded, alias };
+});
+check(
+  "the send plan covers every composer state",
+  storePlans2.sendText.action === "send" &&
+    storePlans2.sendEmpty.action === "noop" &&
+    storePlans2.sendChannel.action === "blocked" &&
+    storePlans2.sendDraft.action === "draft" &&
+    storePlans2.sendEdit.action === "edit",
+  `${storePlans2.sendText.action}/${storePlans2.sendEmpty.action}/${storePlans2.sendChannel.action}/${storePlans2.sendDraft.action}/${storePlans2.sendEdit.action}`,
+);
+check(
+  "the seed plan filters the address book",
+  storePlans2.seeded.length === 1 && storePlans2.seeded[0].name === "Budi",
+  JSON.stringify(storePlans2.seeded),
+);
+check(
+  "the alias plan folds the LID row",
+  storePlans2.alias.changed &&
+    storePlans2.alias.folds[0].from === "111@lid" &&
+    storePlans2.alias.folds[0].to === "6285@s.whatsapp.net" &&
+    storePlans2.alias.renames[0][1] === "Ada",
+  JSON.stringify(storePlans2.alias.folds),
+);
+
 console.log("\n# chat actions (rust)");
 const chatActions = await page.evaluate(async () => {
   const input = (action, extra = {}) => ({

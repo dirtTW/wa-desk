@@ -4,6 +4,8 @@
 //! The webview owns the `Map`/arrays; these functions return *plans* that the
 //! webview applies, so no message data has to round-trip.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::text::is_placeholder_name;
@@ -277,6 +279,145 @@ pub fn photo_queue_allowed(
     !(has_photo || failed || queued)
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SeedContact {
+    #[serde(default)]
+    pub phone: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SeededChat {
+    pub jid: String,
+    pub name: String,
+}
+
+/// Rebuild personal chats from the address book when the cache is empty: a
+/// phone with at least six digits, not our own number, not already known.
+pub fn seed_plan(contacts: &[SeedContact], me_phone: &str, existing: &[String]) -> Vec<SeededChat> {
+    let mut out = Vec::new();
+    let mut seen: HashSet<String> = existing.iter().cloned().collect();
+    for contact in contacts {
+        let phone = contact.phone.trim();
+        if phone.len() < 6 || phone == me_phone || contact.name.is_empty() {
+            continue;
+        }
+        if !phone.chars().all(|ch| ch.is_ascii_digit()) {
+            continue;
+        }
+        let jid = format!("{phone}@s.whatsapp.net");
+        if !seen.insert(jid.clone()) {
+            continue;
+        }
+        out.push(SeededChat {
+            jid,
+            name: contact.name.clone(),
+        });
+    }
+    out
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AliasChat {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AliasLookup {
+    /// The chat the lookup was for.
+    #[serde(default)]
+    pub chat: String,
+    #[serde(default)]
+    pub phone: String,
+    #[serde(default)]
+    pub lid: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AliasFold {
+    pub from: String,
+    pub to: String,
+    pub name: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct AliasPlan {
+    pub folds: Vec<AliasFold>,
+    pub renames: Vec<(String, String)>,
+    pub changed: bool,
+}
+
+/// Fold the LID row into the phone-number row (the canonical DM key) and rename
+/// placeholder rows with the verified identity.
+pub fn peer_fold_plan(plan: &[AliasLookup], chats: &[AliasChat]) -> AliasPlan {
+    let mut out = AliasPlan::default();
+    let exists = |jid: &str| chats.iter().any(|chat| chat.jid == jid && chat.exists);
+    let name_of = |jid: &str| {
+        chats
+            .iter()
+            .find(|chat| chat.jid == jid)
+            .map(|chat| chat.name.clone())
+            .unwrap_or_default()
+    };
+    let mut folded: HashSet<String> = HashSet::new();
+
+    for lookup in plan {
+        let phone_jid = if lookup.phone.is_empty() {
+            String::new()
+        } else {
+            format!("{}@s.whatsapp.net", lookup.phone)
+        };
+        let lid_jid = if lookup.lid.is_empty() {
+            String::new()
+        } else {
+            format!("{}@lid", lookup.lid)
+        };
+        let target = if phone_jid.is_empty() {
+            lookup.chat.clone()
+        } else {
+            phone_jid.clone()
+        };
+        if target.is_empty() {
+            continue;
+        }
+
+        if !phone_jid.is_empty() {
+            for key in [lookup.chat.clone(), lid_jid] {
+                if key.is_empty() || key == target || !exists(&key) {
+                    continue;
+                }
+                if folded.insert(key.clone()) {
+                    out.folds.push(AliasFold {
+                        from: key,
+                        to: target.clone(),
+                        name: lookup.name.clone(),
+                    });
+                }
+            }
+        }
+
+        if !lookup.name.is_empty() {
+            let current = name_of(&target);
+            let placeholder =
+                current.is_empty() || crate::text::is_placeholder_name(&target, &current);
+            if placeholder && current != lookup.name {
+                out.renames.push((target.clone(), lookup.name.clone()));
+            }
+        }
+    }
+
+    out.changed = !out.folds.is_empty() || !out.renames.is_empty();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +482,118 @@ mod tests {
         b.deleted = false;
         let plan = merge_plan(&[a, b]);
         assert!(!plan.ops[0].deleted);
+    }
+
+    #[test]
+    fn seeding_skips_self_short_and_known_numbers() {
+        let contacts = vec![
+            SeedContact {
+                phone: "628770000000".into(),
+                name: "Budi".into(),
+            },
+            SeedContact {
+                phone: "62111".into(),
+                name: "Short".into(),
+            },
+            SeedContact {
+                phone: "628550000000".into(),
+                name: "Me".into(),
+            },
+            SeedContact {
+                phone: "628990000000".into(),
+                name: "Known".into(),
+            },
+            SeedContact {
+                phone: "not-a-number".into(),
+                name: "Bad".into(),
+            },
+        ];
+        let existing = vec!["628990000000@s.whatsapp.net".to_string()];
+        let out = seed_plan(&contacts, "628550000000", &existing);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].jid, "628770000000@s.whatsapp.net");
+        assert_eq!(out[0].name, "Budi");
+    }
+
+    #[test]
+    fn peer_plan_folds_lid_into_phone_and_renames_placeholders() {
+        let chats = vec![
+            AliasChat {
+                jid: "111@lid".into(),
+                name: "111".into(),
+                exists: true,
+            },
+            AliasChat {
+                jid: "6285@s.whatsapp.net".into(),
+                name: "6285".into(),
+                exists: true,
+            },
+        ];
+        let plan = peer_fold_plan(
+            &[AliasLookup {
+                chat: "111@lid".into(),
+                phone: "6285".into(),
+                lid: "111".into(),
+                name: "Ada".into(),
+            }],
+            &chats,
+        );
+        assert!(plan.changed);
+        assert_eq!(
+            plan.folds,
+            vec![AliasFold {
+                from: "111@lid".into(),
+                to: "6285@s.whatsapp.net".into(),
+                name: "Ada".into(),
+            }]
+        );
+        assert_eq!(
+            plan.renames,
+            vec![("6285@s.whatsapp.net".to_string(), "Ada".to_string())]
+        );
+    }
+
+    #[test]
+    fn peer_plan_keeps_real_names() {
+        let chats = vec![AliasChat {
+            jid: "6285@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            exists: true,
+        }];
+        let plan = peer_fold_plan(
+            &[AliasLookup {
+                chat: "6285@s.whatsapp.net".into(),
+                phone: "6285".into(),
+                lid: String::new(),
+                name: "Ada".into(),
+            }],
+            &chats,
+        );
+        assert!(!plan.changed, "nothing to fold or rename");
+        assert!(plan.folds.is_empty());
+    }
+
+    #[test]
+    fn peer_plan_without_a_phone_uses_the_chat_itself() {
+        let chats = vec![AliasChat {
+            jid: "6285@s.whatsapp.net".into(),
+            name: "6285".into(),
+            exists: true,
+        }];
+        let plan = peer_fold_plan(
+            &[AliasLookup {
+                chat: "6285@s.whatsapp.net".into(),
+                phone: String::new(),
+                lid: String::new(),
+                name: "Ada".into(),
+            }],
+            &chats,
+        );
+        assert!(plan.folds.is_empty());
+        assert_eq!(
+            plan.renames,
+            vec![("6285@s.whatsapp.net".to_string(), "Ada".to_string())]
+        );
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub mod viewer;
 
 mod emoji_data;
 
-pub use actions::{PostCheck, ReplyPreview, SelectionBar, StatusPermissions};
+pub use actions::{PostCheck, ReplyPreview, SelectionBar, SendPlan, StatusPermissions};
 pub use cache::{CachePayloadInput, FingerChat, RestoreOutput};
 pub use chat_actions::{
     ChatActionInput, ChatActionPlan, DeleteCommand, DeleteTarget, InfoRow, MessageInfoInput,
@@ -54,7 +54,9 @@ pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
 pub use search::{SearchLabel, count_label, matched_indices};
 pub use settings::{SettingsOutput, SettingsRequest};
 pub use sidebar::{SidebarChat, SidebarOutput, SidebarRequest};
-pub use state::{MergeChatView, MergePlan, TrimChatView, TrimPlan};
+pub use state::{
+    AliasChat, AliasPlan, MergeChatView, MergePlan, SeedContact, SeededChat, TrimChatView, TrimPlan,
+};
 pub use status::{
     StatusEntryView, StatusFrameOutput, StatusFrameRequest, StatusListOutput, StatusRequest,
     StatusUpdateView, StatusViewsOutput,

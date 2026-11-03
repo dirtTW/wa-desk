@@ -359,23 +359,24 @@ async function restoreDiskChatCache() {
 async function seedChatsFromContacts() {
   if (state.chats.size > 0 || state.contacts.size === 0) return 0;
   const me = await invoke("ui_phone_from_jid", { jid: state.meJid || "" }).catch(() => "");
-  let added = 0;
-  for (const [phone, name] of state.contacts) {
-    if (!phone || phone.length < 6 || phone === me) continue;
-    const jid = `${phone}@s.whatsapp.net`;
-    if (state.chats.has(jid)) continue;
-    state.chats.set(jid, {
-      jid,
-      name,
+  // Which address-book entries become chats is decided by wa_ui::state.
+  const seeded = await invoke("ui_seed_chats", {
+    contacts: [...state.contacts].map(([phone, name]) => ({ phone, name })),
+    mePhone: me,
+    existing: [...state.chats.keys()],
+  }).catch(() => []);
+  for (const chat of seeded) {
+    state.chats.set(chat.jid, {
+      jid: chat.jid,
+      name: chat.name,
       isGroup: false,
       messages: [],
       last: null,
       lastTs: 0,
       unread: 0,
     });
-    added += 1;
   }
-  return added;
+  return seeded.length;
 }
 
 async function openChat(jid) {
@@ -429,19 +430,23 @@ async function sendCurrent() {
   const chat = state.active;
   const text = input.value.trim();
   if (!chat) return;
-  if (isChannelJid(chat)) {
-    toast("Channels are read-only: you can follow them, not post here.");
-    return;
-  }
 
-  // With a media draft open, the send button sends the media (text = caption).
-  if (!$("draft").hidden) {
+  // The composer-state decision comes from wa_ui::actions::send_plan.
+  const plan = await invoke("ui_send_plan", {
+    isChannel: isChannelJid(chat),
+    hasDraft: !$("draft").hidden,
+    editing: Boolean(state.editing),
+    text,
+  }).catch(() => ({ action: "send" }));
+  if (plan.toast) toast(plan.toast);
+  if (plan.action === "blocked" || plan.action === "noop") return;
+  if (plan.action === "draft") {
     await sendDraft();
     return;
   }
 
   // Editing an existing message instead of sending a new one.
-  if (state.editing) {
+  if (plan.action === "edit") {
     const { chat, id } = state.editing;
     if (!text) return;
     cancelEdit();
