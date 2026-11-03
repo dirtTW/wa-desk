@@ -42,6 +42,8 @@ pub struct WaDesk {
     commands: Sender<Command>,
     runtime: tokio::runtime::Handle,
     typing_sent: bool,
+    /// The status panel is showing instead of a conversation.
+    show_status: bool,
     /// Rasterised QR code, keyed by the SVG it came from so a rotating code
     /// is decoded once per rotation.
     qr: Option<(String, egui::TextureHandle)>,
@@ -59,6 +61,7 @@ impl WaDesk {
             commands: native.commands,
             runtime: native.runtime,
             typing_sent: false,
+            show_status: false,
             qr: None,
             media_rx: native.media,
             textures: std::collections::HashMap::new(),
@@ -96,6 +99,10 @@ impl WaDesk {
                 ui.horizontal(|ui| {
                     ui.heading("Chats");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Status").clicked() {
+                            self.show_status = !self.show_status;
+                            self.model.close_status();
+                        }
                         ui.label(egui::RichText::new(&self.model.status).small().weak());
                     });
                 });
@@ -404,6 +411,197 @@ impl WaDesk {
     }
 }
 
+impl WaDesk {
+    /// Status: the poster rail, or the story viewer when one is open.
+    fn status_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if self.model.viewer.is_some() {
+                self.status_viewer(ui, ctx);
+                return;
+            }
+            ui.horizontal(|ui| {
+                ui.heading("Status");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Back to chats").clicked() {
+                        self.show_status = false;
+                    }
+                });
+            });
+            ui.separator();
+
+            let groups = self.model.status_groups();
+            if groups.is_empty() {
+                ui.add_space(20.0);
+                ui.label(egui::RichText::new("No status updates").weak());
+                return;
+            }
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for group in &groups {
+                        let ring = if group.unseen {
+                            egui::Color32::from_rgb(37, 211, 102)
+                        } else {
+                            egui::Color32::from_gray(120)
+                        };
+                        ui.horizontal(|ui| {
+                            // The ring: unseen green, seen grey.
+                            let (rect, _) = ui
+                                .allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                            ui.painter().circle_stroke(
+                                rect.center(),
+                                7.0,
+                                egui::Stroke::new(2.5_f32, ring),
+                            );
+                            let label = format!("{}  ·  {} update(s)", group.name, group.count);
+                            if ui.button(label).clicked() {
+                                let jid = group.jid.clone();
+                                self.model.open_status(&jid);
+                            }
+                        });
+                    }
+                });
+        });
+    }
+
+    /// One story frame: progress segments, the body, and prev/next/close.
+    fn status_viewer(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let Some(update) = self.model.current_status().cloned() else {
+            self.model.close_status();
+            return;
+        };
+        let Some(chrome) = self.model.status_chrome() else {
+            self.model.close_status();
+            return;
+        };
+
+        // Segments: everything before the frame is full, the active one fills.
+        let (group, frame) = self.model.viewer.unwrap_or((0, 0));
+        let groups = self.model.status_groups();
+        let frames = groups.get(group).map(|row| row.count).unwrap_or(1);
+        let ratio = self.model.status_progress() as f32;
+        ui.horizontal(|ui| {
+            for index in 0..frames {
+                let fill = if index < frame {
+                    1.0
+                } else if index == frame {
+                    ratio.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let width = (ui.available_width() - (frames as f32) * 4.0) / frames.max(1) as f32;
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(width, 4.0), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(rect, 2.0, egui::Color32::from_gray(70));
+                let mut done = rect;
+                done.set_width(rect.width() * fill);
+                ui.painter()
+                    .rect_filled(done, 2.0, egui::Color32::from_gray(220));
+            }
+        });
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(&update.name).strong());
+            ui.label(
+                egui::RichText::new(self.model.bubble_stamp(&status_as_message(&update)))
+                    .small()
+                    .weak(),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("✕").clicked() {
+                    self.model.close_status();
+                }
+            });
+        });
+
+        let bg = update.background.trim_start_matches('#');
+        let color = u32::from_str_radix(bg, 16)
+            .map(|value| {
+                egui::Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
+            })
+            .unwrap_or(egui::Color32::from_rgb(36, 38, 38));
+        egui::Frame::new()
+            .fill(color)
+            .inner_margin(egui::Margin::same(16))
+            .corner_radius(egui::CornerRadius::same(10))
+            .show(ui, |ui| {
+                ui.set_min_height(240.0);
+                ui.centered_and_justified(|ui| {
+                    let body = if update.text.trim().is_empty() {
+                        wa_ui::chat::media_placeholder(&update.kind).to_string()
+                    } else {
+                        update.text.clone()
+                    };
+                    ui.label(
+                        egui::RichText::new(body)
+                            .size(22.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                });
+            });
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if !chrome.prev_hidden && ui.button("◀").clicked() {
+                self.model.step_status(false);
+            }
+            if !chrome.next_hidden && ui.button("▶").clicked() {
+                self.model.step_status(true);
+            }
+            if chrome.own_story {
+                ui.label(
+                    egui::RichText::new(format!("{} view(s)", chrome.view_count_label))
+                        .small()
+                        .weak(),
+                );
+            }
+        });
+
+        // A frame that runs out advances on its own, like the phone.
+        if ratio >= 1.0 {
+            self.model.step_status(true);
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
+/// A story frame as a message, so `wa-ui`'s clock label can format it.
+fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
+    MessageView {
+        chat: update.sender.clone(),
+        chat_name: update.name.clone(),
+        sender: Some(update.sender.clone()),
+        sender_name: Some(update.name.clone()),
+        sender_phone: None,
+        id: update.id.clone(),
+        from_me: update.from_me,
+        is_group: false,
+        timestamp: update.timestamp,
+        kind: update.kind.clone(),
+        text: update.text.clone(),
+        mentions: Vec::new(),
+        reply_to: None,
+        link: None,
+        document: None,
+        audio: None,
+        stats: None,
+        forwarded: false,
+        once_recovered: false,
+        status_quote: false,
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.model.now = std::time::SystemTime::now()
@@ -411,11 +609,16 @@ impl eframe::App for WaDesk {
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         self.drain_events(ctx);
+        self.model.now = now_ms();
         if !self.model.login.is_linked() {
             self.gate(ctx);
         } else {
             self.sidebar(ctx);
-            self.conversation(ctx);
+            if self.show_status {
+                self.status_panel(ctx);
+            } else {
+                self.conversation(ctx);
+            }
         }
         let _ = &self.runtime;
     }

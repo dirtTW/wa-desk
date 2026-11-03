@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.54] — 2026-11-03
+
+- **The native window shows status/stories.** `Model` folds `Status` and
+  `StatusViewed` into per-author rows, and the panel/viewer lean on `wa-ui`:
+  `status::viewer_groups` orders posters newest-first, `next_position` steps
+  frames and groups, `frame_duration` + `progress_ratio` drive the progress
+  segments and `viewer_chrome` decides the arrows and the own-story view count.
+  A view receipt marks the frame seen and records the viewer.
+- `app.rs`: a **Status** button next to the title switches the central panel to
+  the poster rail — green ring for unseen, grey for seen, with update counts.
+  Opening a poster shows the story viewer: progress segments (finished frames
+  full, the active one filling), the frame's own background colour, its text or
+  media placeholder, prev/next and close. A frame that runs out advances on its
+  own, like the phone.
+- `--selftest` asserts the whole flow: two posters newest-first and unseen,
+  opening the newer one shows next-but-no-prev, progress within 0..1, the poster
+  becomes seen, stepping lands on the other poster, closing clears the viewer.
+  Report now includes `"status_groups":2`.
+- 8 native tests, `wa-ui` 232, clippy clean across the workspace, window starts.
+
 ## [0.2.0-rc.53] — 2026-11-03
 
 - **The native window shows media.** A photo bubble decodes the file `wa-core`

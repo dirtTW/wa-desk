@@ -119,6 +119,7 @@ apps/desktop-native/         NATIVE front end (eframe/egui, no WebView, no JS)
   src/model.rs               chat store from UiEvents, search, unread, labels
   src/login.rs               QR / pairing-code gate state (pure fold)
   (media: Model::media + egui textures, one fetch per message)
+  (status: Model::statuses + viewer via wa_ui::status)
   src/app.rs                 egui window: chat list + conversation + composer
 apps/desktop/
   src-tauri/                   Tauri 2 shell, commands, event bridge

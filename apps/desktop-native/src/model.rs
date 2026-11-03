@@ -6,7 +6,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use wa_types::{MessageView, UiEvent};
+use wa_types::{MessageView, StatusUpdate, UiEvent};
+use wa_ui::status::{
+    StatusEntryView, StatusRequest, StatusUpdateView, ViewerChromeInput, next_position,
+    progress_ratio, viewer_chrome, viewer_groups,
+};
 
 use crate::login::{LoginEvent, LoginState, fold};
 use wa_ui::labels::stamp_of;
@@ -38,6 +42,24 @@ pub enum Command {
     },
 }
 
+/// One author's stories.
+#[derive(Debug, Default, Clone)]
+pub struct StatusRow {
+    pub jid: String,
+    pub name: String,
+    pub updates: Vec<StatusUpdateView>,
+}
+
+/// A row the status panel lists: who posted, how many, and whether any of
+/// it is still unseen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusGroupRow {
+    pub jid: String,
+    pub name: String,
+    pub count: usize,
+    pub unseen: bool,
+}
+
 /// Where a message's media is in the download lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MediaState {
@@ -62,12 +84,19 @@ pub struct Model {
     pub active: Option<String>,
     /// The connection line under the title.
     pub status: String,
+    /// Stories by author JID.
+    pub statuses: BTreeMap<String, StatusRow>,
+    /// The viewer's position: `(group, frame)` while a story is open.
+    pub viewer: Option<(usize, usize)>,
+    /// When the current frame started, for the progress bar.
+    pub frame_started: Option<std::time::Instant>,
     /// Downloaded media per message id: the file `wa-core` cached.
     pub media: HashMap<String, MediaState>,
     /// Before the account is linked the window shows the gate instead of chats.
     pub login: LoginState,
     /// The phone number typed into the pairing-code form.
     pub pair_phone: String,
+    pub me_jid: String,
     pub search: String,
     pub composer: String,
     pub now: i64,
@@ -107,6 +136,26 @@ impl Model {
             }
             UiEvent::PairError { message } => {
                 self.status = message.clone();
+            }
+            UiEvent::Status(update) => self.add_status(update.clone()),
+            UiEvent::StatusViewed {
+                id,
+                jid,
+                name,
+                timestamp,
+            } => {
+                for row in self.statuses.values_mut() {
+                    if let Some(update) = row.updates.iter_mut().find(|u| &u.id == id) {
+                        update.viewed = true;
+                        if !update.viewers.iter().any(|viewer| &viewer.jid == jid) {
+                            update.viewers.push(wa_ui::status::ViewerRow {
+                                jid: jid.clone(),
+                                name: name.clone(),
+                                timestamp: *timestamp,
+                            });
+                        }
+                    }
+                }
             }
             UiEvent::Chat {
                 jid: chat, name, ..
@@ -203,6 +252,163 @@ impl Model {
     pub fn login_restarted(&mut self) {
         self.login = LoginState::Waiting;
         self.status = "Requesting a new code…".to_string();
+    }
+
+    fn add_status(&mut self, update: StatusUpdate) {
+        let jid = update.sender.clone();
+        let row = self
+            .statuses
+            .entry(jid.clone())
+            .or_insert_with(|| StatusRow {
+                jid,
+                ..Default::default()
+            });
+        if !update.name.is_empty() {
+            row.name = update.name.clone();
+        }
+        let view = StatusUpdateView {
+            id: update.id,
+            sender: update.sender,
+            name: update.name,
+            kind: update.kind,
+            text: update.text,
+            background: update.background.unwrap_or_default(),
+            timestamp: update.timestamp,
+            viewed: update.from_me,
+            from_me: update.from_me,
+            viewers: Vec::new(),
+        };
+        row.updates.retain(|existing| existing.id != view.id);
+        row.updates.push(view);
+        row.updates.sort_by_key(|u| u.timestamp);
+    }
+
+    fn status_request(&self) -> StatusRequest {
+        StatusRequest {
+            entries: self
+                .statuses
+                .values()
+                .map(|row| StatusEntryView {
+                    jid: row.jid.clone(),
+                    name: row.name.clone(),
+                    updates: row.updates.clone(),
+                })
+                .collect(),
+            me: "Me".to_string(),
+            me_jid: self.me_jid.clone(),
+            me_lid: String::new(),
+            now: self.now,
+            photos: Default::default(),
+            local_media: Default::default(),
+        }
+    }
+
+    /// The panel's rows: newest story first, unseen flag from the frames.
+    pub fn status_groups(&self) -> Vec<StatusGroupRow> {
+        viewer_groups(&self.status_request())
+            .into_iter()
+            .map(|group| {
+                let row = self.statuses.get(&group.jid);
+                let unseen = row
+                    .map(|row| row.updates.iter().any(|u| !u.viewed))
+                    .unwrap_or(false);
+                StatusGroupRow {
+                    jid: group.jid.clone(),
+                    name: group.name.clone(),
+                    count: group.update_ids.len(),
+                    unseen,
+                }
+            })
+            .collect()
+    }
+
+    /// Open a poster's story at their first unseen frame.
+    pub fn open_status(&mut self, jid: &str) {
+        let groups = self.status_groups();
+        let Some(index) = groups.iter().position(|group| group.jid == jid) else {
+            return;
+        };
+        self.viewer = Some((index, 0));
+        self.frame_started = Some(std::time::Instant::now());
+        if let Some(row) = self.statuses.values_mut().find(|row| row.jid == jid) {
+            for update in row.updates.iter_mut() {
+                update.viewed = true;
+            }
+        }
+    }
+
+    pub fn close_status(&mut self) {
+        self.viewer = None;
+        self.frame_started = None;
+    }
+
+    /// The update the viewer is showing.
+    pub fn current_status(&self) -> Option<&StatusUpdateView> {
+        let (group, frame) = self.viewer?;
+        let groups = self.status_groups();
+        let row = self.statuses.get(&groups.get(group)?.jid)?;
+        row.updates.get(frame)
+    }
+
+    /// Step the viewer through frames and groups with `wa-ui`'s rules.
+    pub fn step_status(&mut self, forward: bool) {
+        let Some((group, frame)) = self.viewer else {
+            return;
+        };
+        let groups = self.status_groups();
+        let frames = groups
+            .get(group)
+            .and_then(|row| self.statuses.get(&row.jid))
+            .map(|row| row.updates.len())
+            .unwrap_or(0);
+        match next_position(group, frame, frames, groups.len(), forward) {
+            Some(target) => {
+                let frame = target.frame.unwrap_or_else(|| {
+                    groups
+                        .get(target.group)
+                        .and_then(|row| self.statuses.get(&row.jid))
+                        .map(|row| row.updates.len().saturating_sub(1))
+                        .unwrap_or(0)
+                });
+                self.viewer = Some((target.group, frame));
+                self.frame_started = Some(std::time::Instant::now());
+            }
+            None => self.close_status(),
+        }
+    }
+
+    /// The active frame's fill (0..=1), and the chrome the viewer shows.
+    pub fn status_progress(&self) -> f64 {
+        let Some(update) = self.current_status() else {
+            return 0.0;
+        };
+        let total = wa_ui::status::frame_duration(&update.kind, &update.text);
+        let elapsed = self
+            .frame_started
+            .map(|started| started.elapsed().as_millis() as i64)
+            .unwrap_or(0);
+        progress_ratio(total, total - elapsed)
+    }
+
+    pub fn status_chrome(&self) -> Option<wa_ui::status::ViewerChrome> {
+        let update = self.current_status()?;
+        let (group, frame) = self.viewer?;
+        let groups = self.status_groups();
+        let frames = groups
+            .get(group)
+            .and_then(|row| self.statuses.get(&row.jid))
+            .map(|row| row.updates.len())
+            .unwrap_or(0);
+        Some(viewer_chrome(&ViewerChromeInput {
+            own: update.from_me,
+            has_frame: true,
+            paused: false,
+            group_index: group,
+            group_count: groups.len(),
+            frame_index: frame,
+            frame_count: frames,
+            viewers: update.viewers.len(),
+        }))
     }
 
     /// Ask for a message's media exactly once; the window calls this while
@@ -449,6 +655,76 @@ pub fn selftest() -> Result<String, String> {
         return Err("the cached path should land in the model".to_string());
     }
 
+    // Status: two posters, newest first, unseen rings, the viewer steps.
+    model.now = now;
+    model.apply(&UiEvent::Status(StatusUpdate {
+        id: "s-old".into(),
+        sender: "9@s.whatsapp.net".into(),
+        name: "Older".into(),
+        kind: "text".into(),
+        text: "old story".into(),
+        background: Some("#243640".into()),
+        timestamp: now - 60_000,
+        from_me: false,
+    }));
+    model.apply(&UiEvent::Status(StatusUpdate {
+        id: "s-new".into(),
+        sender: "8@s.whatsapp.net".into(),
+        name: "Newer".into(),
+        kind: "text".into(),
+        text: "new story".into(),
+        background: None,
+        timestamp: now - 1_000,
+        from_me: false,
+    }));
+    let groups = model.status_groups();
+    if groups.len() != 2 || groups[0].name != "Newer" {
+        return Err(format!(
+            "status groups should be newest first, got {groups:?}"
+        ));
+    }
+    if !groups.iter().all(|group| group.unseen) {
+        return Err("both posters start unseen".to_string());
+    }
+    model.open_status("8@s.whatsapp.net");
+    let chrome = model
+        .status_chrome()
+        .ok_or("the viewer should have chrome")?;
+    if chrome.own_story || !chrome.prev_hidden || chrome.next_hidden {
+        return Err(format!(
+            "first of two frames should offer next only, got {chrome:?}"
+        ));
+    }
+    if model.status_progress() < 0.0 || model.status_progress() > 1.0 {
+        return Err("progress must stay within 0..1".to_string());
+    }
+    if !model
+        .current_status()
+        .map(|u| u.id == "s-new")
+        .unwrap_or(false)
+    {
+        return Err("the viewer should show the opened story".to_string());
+    }
+    // Watching it marks the poster seen in the list.
+    if model
+        .status_groups()
+        .iter()
+        .any(|g| g.name == "Newer" && g.unseen)
+    {
+        return Err("an opened story should not stay unseen".to_string());
+    }
+    model.step_status(true);
+    if !model
+        .current_status()
+        .map(|u| u.id == "s-old")
+        .unwrap_or(false)
+    {
+        return Err("stepping should move to the other poster".to_string());
+    }
+    model.close_status();
+    if model.viewer.is_some() {
+        return Err("closing clears the viewer".to_string());
+    }
     Ok(serde_json::json!({
         "chats": model.chats.len(),
         "first": first,
@@ -457,6 +733,7 @@ pub fn selftest() -> Result<String, String> {
         "status": model.status,
         "linked": model.login.is_linked(),
         "photo_body": model.bubble_body(&photo),
+        "status_groups": model.status_groups().len(),
     })
     .to_string())
 }
