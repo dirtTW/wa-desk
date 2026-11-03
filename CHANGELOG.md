@@ -4,6 +4,29 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.22] — 2026-11-03
+
+- **Status view receipts and interaction healing moved to Rust.**
+  `wa_ui::status::note_view` normalizes the author JID (a device suffix like
+  `111:42@lid` becomes `111@lid`), refuses the `@broadcast`/`@newsletter`
+  pseudo-viewers and drops a repeat, returning the row to store.
+  `heal_plan` decides which replies must wear the "· Status" card (their quote
+  target is a story we track) and which phantom chat bubbles (a story recovered
+  through a reply quote) are dropped, per chat. `wa_ui::text::jid_without_device`
+  is the shared normalizer. Commands `ui_status_note_view`, `ui_status_heal`;
+  `noteStatusView` and `healStatusInteractions` only apply the results.
+- **The image-draft stack is planned in Rust.** `wa_ui::actions::draft_plan`
+  owns `MAX_DRAFT_FILES` (10) and the image-only gate, returning the accepted
+  indices plus the first toast, so `addDraftFiles` no longer loops over rules.
+  Command `ui_draft_plan`. The status add-menu now uses the shared
+  `ui_clamp_popover` too (it had a fourth copy of the edge maths).
+- 3 new `wa-ui` unit tests (159 total, plus 3 contract) and a
+  status-views/draft CDP e2e section: normalized + deduped receipts, the heal
+  plan, the capped image-only draft stack, and the live paths (one accepted
+  image of two offered, a healed reply, a recorded viewer).
+- Contract note: `ui_status_heal` takes `updateIds` (Tauri camel-cases command
+  arguments); the first probe failed on `update_ids` and was corrected.
+
 ## [0.2.0-rc.21] — 2026-11-03
 
 - **The status viewer's group queue is planned in Rust.**

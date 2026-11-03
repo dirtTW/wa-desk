@@ -14,7 +14,7 @@ use crate::labels::{clock_label, day_of};
 /// Stories expire after 24 hours.
 pub const STATUS_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ViewerRow {
     #[serde(default)]
     pub jid: String,
@@ -294,6 +294,97 @@ pub fn own_update_ids(req: &StatusRequest) -> Vec<String> {
         .flat_map(|entry| entry.updates.iter())
         .filter(|update| update.from_me && !update.id.is_empty())
         .map(|update| update.id.clone())
+        .collect()
+}
+
+/// One viewer, or `None` when the receipt should be ignored.
+#[derive(Debug, Clone, Serialize)]
+pub struct NoteView {
+    pub accept: bool,
+    pub viewer: Option<ViewerRow>,
+}
+
+/// Add a "view" receipt to a story: the author JID loses its device suffix, the
+/// broadcast/newsletter chat itself is never a viewer, and a repeat is dropped.
+pub fn note_view(viewers: &[ViewerRow], jid: &str, name: &str, timestamp: i64) -> NoteView {
+    let normalized = crate::text::jid_without_device(jid);
+    if normalized.is_empty()
+        || normalized.ends_with("@broadcast")
+        || normalized.ends_with("@newsletter")
+    {
+        return NoteView {
+            accept: false,
+            viewer: None,
+        };
+    }
+    if viewers.iter().any(|viewer| viewer.jid == normalized) {
+        return NoteView {
+            accept: false,
+            viewer: None,
+        };
+    }
+    NoteView {
+        accept: true,
+        viewer: Some(ViewerRow {
+            jid: normalized.clone(),
+            name: if name.is_empty() {
+                normalized
+            } else {
+                name.to_string()
+            },
+            timestamp,
+        }),
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct HealMessage {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub status_quote: bool,
+    #[serde(default)]
+    pub reply_to_id: String,
+    #[serde(default)]
+    pub once_recovered: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct HealChat {
+    #[serde(default)]
+    pub messages: Vec<HealMessage>,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct HealPlan {
+    /// Messages that quote a story and must wear the "· Status" card.
+    pub quote_ids: Vec<String>,
+    /// Phantom chat bubbles recovered from a status reply, now dropped.
+    pub remove_ids: Vec<String>,
+}
+
+/// Replies/reactions to a story used to be stored as plain replies with the
+/// quoted story recovered as a phantom bubble; heal both once the id is a story
+/// we track.
+pub fn heal_plan(chats: &[HealChat], update_ids: &[String]) -> Vec<HealPlan> {
+    let known: std::collections::HashSet<&str> = update_ids.iter().map(String::as_str).collect();
+    chats
+        .iter()
+        .map(|chat| {
+            let mut plan = HealPlan::default();
+            for message in &chat.messages {
+                if !message.status_quote
+                    && !message.reply_to_id.is_empty()
+                    && known.contains(message.reply_to_id.as_str())
+                {
+                    plan.quote_ids.push(message.id.clone());
+                }
+                if message.once_recovered && known.contains(message.id.as_str()) {
+                    plan.remove_ids.push(message.id.clone());
+                }
+            }
+            plan
+        })
         .collect()
 }
 
@@ -768,6 +859,78 @@ mod tests {
             updates: vec![mine, theirs],
         }]));
         assert_eq!(ids, vec!["mine".to_string()]);
+    }
+
+    #[test]
+    fn view_receipts_normalize_and_dedupe() {
+        let viewers = vec![ViewerRow {
+            jid: "111@lid".into(),
+            name: "Ada".into(),
+            timestamp: 1,
+        }];
+        // A device suffix is stripped before comparing.
+        let again = note_view(&viewers, "111:42@lid", "Ada", 5);
+        assert!(!again.accept, "already recorded");
+        assert!(again.viewer.is_none());
+
+        let fresh = note_view(&viewers, "222:9@s.whatsapp.net", "", 7);
+        assert!(fresh.accept);
+        let viewer = fresh.viewer.unwrap();
+        assert_eq!(viewer.jid, "222@s.whatsapp.net");
+        assert_eq!(
+            viewer.name, "222@s.whatsapp.net",
+            "name falls back to the JID"
+        );
+        assert_eq!(viewer.timestamp, 7);
+
+        assert!(!note_view(&[], "status@broadcast", "x", 1).accept);
+        assert!(!note_view(&[], "1@newsletter", "x", 1).accept);
+        assert!(!note_view(&[], "", "x", 1).accept);
+    }
+
+    #[test]
+    fn healing_marks_status_quotes_and_drops_phantoms() {
+        let chats = vec![
+            HealChat {
+                messages: vec![
+                    HealMessage {
+                        id: "m1".into(),
+                        status_quote: false,
+                        reply_to_id: "story-1".into(),
+                        once_recovered: false,
+                    },
+                    HealMessage {
+                        id: "m2".into(),
+                        status_quote: false,
+                        reply_to_id: "chat-msg".into(),
+                        once_recovered: false,
+                    },
+                    HealMessage {
+                        id: "m3".into(),
+                        status_quote: true,
+                        reply_to_id: "story-1".into(),
+                        once_recovered: false,
+                    },
+                ],
+            },
+            HealChat {
+                messages: vec![HealMessage {
+                    id: "story-1".into(),
+                    status_quote: false,
+                    reply_to_id: String::new(),
+                    once_recovered: true,
+                }],
+            },
+        ];
+        let plans = heal_plan(&chats, &["story-1".to_string()]);
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0].quote_ids, vec!["m1".to_string()]);
+        assert!(plans[0].remove_ids.is_empty());
+        assert_eq!(plans[1].remove_ids, vec!["story-1".to_string()]);
+
+        let none = heal_plan(&chats, &[]);
+        assert!(none[0].quote_ids.is_empty() && none[0].remove_ids.is_empty());
+        assert!(none[1].remove_ids.is_empty());
     }
 
     #[test]

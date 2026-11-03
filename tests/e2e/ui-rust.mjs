@@ -460,6 +460,137 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# status views + draft stack (rust)");
+const viewsDrafts = await page.evaluate(async () => {
+  const fresh = await invoke("ui_status_note_view", {
+    viewers: [{ jid: "111@lid", name: "Ada", timestamp: 1 }],
+    jid: "222:9@s.whatsapp.net",
+    name: "",
+    timestamp: 7,
+  });
+  const duplicate = await invoke("ui_status_note_view", {
+    viewers: [{ jid: "111@lid", name: "Ada", timestamp: 1 }],
+    jid: "111:42@lid",
+    name: "Ada",
+    timestamp: 5,
+  });
+  const broadcast = await invoke("ui_status_note_view", {
+    viewers: [],
+    jid: "status@broadcast",
+    name: "x",
+    timestamp: 1,
+  });
+  const heal = await invoke("ui_status_heal", {
+    chats: [
+      {
+        messages: [
+          { id: "m1", status_quote: false, reply_to_id: "story-1", once_recovered: false },
+          { id: "m2", status_quote: false, reply_to_id: "chat-1", once_recovered: false },
+          { id: "story-1", status_quote: false, reply_to_id: "", once_recovered: true },
+        ],
+      },
+    ],
+    updateIds: ["story-1"],
+  });
+  const files = [
+    { name: "a.png", mime: "image/png" },
+    { name: "b.pdf", mime: "application/pdf" },
+    { name: "c.jpg", mime: "image/jpeg" },
+  ];
+  const draft = await invoke("ui_draft_plan", { existing: 0, files });
+  const draftFull = await invoke("ui_draft_plan", { existing: 10, files });
+
+  // Live: open a chat, then stack a real image + a rejected PDF.
+  const chat = [...state.chats.values()].find((entry) => !entry.isGroup && entry.messages.length);
+  let liveDraft = null;
+  let liveHeal = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    clearDraft();
+    const img = new File([new Uint8Array([1, 2, 3])], "probe.png", { type: "image/png" });
+    const pdf = new File([new Uint8Array([1])], "probe.pdf", { type: "application/pdf" });
+    await addDraftFiles([img, pdf]);
+    await new Promise((r) => setTimeout(r, 400));
+    liveDraft = {
+      added: draftFiles.length,
+      thumbs: document.querySelectorAll("#draft-thumbs .draft-item").length,
+      open: !document.getElementById("draft").hidden,
+    };
+    clearDraft();
+
+    const story = [...state.statuses.values()].flatMap((entry) => entry.updates)[0];
+    if (story) {
+      const target = chat.messages[0];
+      const savedQuote = target.status_quote;
+      const savedReply = target.reply_to;
+      target.status_quote = false;
+      target.reply_to = { id: story.id, kind: "text", text: "x" };
+      await healStatusInteractions();
+      await new Promise((r) => setTimeout(r, 400));
+      liveHeal = { quoted: Boolean(target.status_quote), sameMessage: target.id === chat.messages[0].id };
+      target.status_quote = savedQuote;
+      target.reply_to = savedReply;
+    }
+  }
+
+  // Live view receipt on a throwaway story entry.
+  const probe = {
+    id: "probe-story",
+    sender: "me",
+    kind: "text",
+    text: "hi",
+    timestamp: Date.now(),
+    viewed: true,
+    from_me: true,
+    viewers: [],
+  };
+  state.statuses.set("probe@s.whatsapp.net", {
+    jid: "probe@s.whatsapp.net",
+    name: "Probe",
+    updates: [probe],
+  });
+  await noteStatusView({ id: "probe-story", jid: "333:8@s.whatsapp.net", name: "", timestamp: 9 });
+  await new Promise((r) => setTimeout(r, 400));
+  const liveView = state.statuses.get("probe@s.whatsapp.net").updates[0].viewers;
+  state.statuses.delete("probe@s.whatsapp.net");
+  return { fresh, duplicate, broadcast, heal, draft, draftFull, liveDraft, liveHeal, liveView };
+});
+check(
+  "view receipts normalize the jid",
+  viewsDrafts.fresh.accept && viewsDrafts.fresh.viewer.jid === "222@s.whatsapp.net",
+  viewsDrafts.fresh.viewer.jid,
+);
+check(
+  "repeat and broadcast receipts are dropped",
+  viewsDrafts.duplicate.accept === false && viewsDrafts.broadcast.accept === false,
+);
+check(
+  "the heal plan marks quotes and drops phantoms",
+  viewsDrafts.heal[0].quote_ids.join(",") === "m1" && viewsDrafts.heal[0].remove_ids.join(",") === "story-1",
+  JSON.stringify(viewsDrafts.heal[0]),
+);
+check(
+  "the draft stack takes images only and caps at 10",
+  viewsDrafts.draft.accepted.join(",") === "0,2" && viewsDrafts.draftFull.accepted.length === 0,
+  viewsDrafts.draft.toast,
+);
+if (viewsDrafts.liveDraft) {
+  check(
+    "the live draft stack keeps one image and rejects the pdf",
+    viewsDrafts.liveDraft.added === 1 && viewsDrafts.liveDraft.thumbs === 1 && viewsDrafts.liveDraft.open,
+    JSON.stringify(viewsDrafts.liveDraft),
+  );
+}
+if (viewsDrafts.liveHeal) {
+  check("the live heal marks the reply", viewsDrafts.liveHeal.quoted, JSON.stringify(viewsDrafts.liveHeal));
+}
+check(
+  "the live view receipt is recorded",
+  viewsDrafts.liveView.length === 1 && viewsDrafts.liveView[0].jid === "333@s.whatsapp.net",
+  JSON.stringify(viewsDrafts.liveView),
+);
+
 console.log("\n# calls + capture (rust)");
 const calls = await page.evaluate(async () => {
   const ringing = await invoke("ui_call_overlay", {

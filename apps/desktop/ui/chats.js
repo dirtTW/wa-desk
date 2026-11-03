@@ -201,26 +201,28 @@ function schedulePeerLookups(delay = 4000) {
 
 /* ------------------------------------------------------- clipboard drafts */
 
-const MAX_DRAFT_FILES = 10;
 let draftFiles = [];
 let draftUrls = [];
+// The cap itself is wa_ui::actions::MAX_DRAFT_FILES; kept for the UI checks.
+const DRAFT_FILE_LIMIT = 10;
 
-function addDraftFiles(files) {
+async function addDraftFiles(files) {
   if (!state.active) {
     toast("Open a chat first.");
     return;
   }
 
-  for (const file of files) {
+  const offered = [...files].filter(Boolean);
+  if (!offered.length) return;
+  // The stack cap and the image-only gate are decided by wa_ui::actions.
+  const plan = await invoke("ui_draft_plan", {
+    existing: draftFiles.length,
+    files: offered.map((file) => ({ name: file.name || "", mime: file.type || "" })),
+  }).catch(() => ({ accepted: [], full: false, toast: null }));
+  if (plan.toast) toast(plan.toast);
+  for (const index of plan.accepted) {
+    const file = offered[index];
     if (!file) continue;
-    if (draftFiles.length >= MAX_DRAFT_FILES) {
-      toast(`You can attach up to ${MAX_DRAFT_FILES} images at once.`);
-      break;
-    }
-    if (!/^image\//.test(file.type)) {
-      toast("Only images can be added to a draft.");
-      continue;
-    }
     draftFiles.push(file);
     draftUrls.push(URL.createObjectURL(file));
   }
@@ -243,7 +245,7 @@ function renderDraft() {
   // The official desktop keeps a single send button: the disc beside the
   // draft replaces the composer's text send while a media draft is open.
   $("send").hidden = open;
-  $("draft-more").hidden = draftFiles.length >= MAX_DRAFT_FILES;
+  $("draft-more").hidden = draftFiles.length >= DRAFT_FILE_LIMIT;
   // Keep the text box available: its content becomes the caption.
   $("composer").hidden = false;
 }

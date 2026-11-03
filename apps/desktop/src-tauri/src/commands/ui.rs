@@ -151,6 +151,35 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// Whether a status "view" receipt should be recorded, and the viewer row.
+#[tauri::command]
+pub fn ui_status_note_view(
+    viewers: Vec<wa_ui::status::ViewerRow>,
+    jid: String,
+    name: String,
+    timestamp: i64,
+) -> wa_ui::status::NoteView {
+    wa_ui::status::note_view(&viewers, &jid, &name, timestamp)
+}
+
+/// Which replies become "· Status" cards and which phantom bubbles go away.
+#[tauri::command]
+pub fn ui_status_heal(
+    chats: Vec<wa_ui::status::HealChat>,
+    update_ids: Vec<String>,
+) -> Vec<wa_ui::status::HealPlan> {
+    wa_ui::status::heal_plan(&chats, &update_ids)
+}
+
+/// The image-draft stack plan (cap and MIME gating).
+#[tauri::command]
+pub fn ui_draft_plan(
+    existing: usize,
+    files: Vec<wa_ui::actions::DraftFile>,
+) -> wa_ui::actions::DraftPlan {
+    wa_ui::actions::draft_plan(existing, &files)
+}
+
 /// The viewer's group queue (newest activity first, updates oldest first).
 #[tauri::command]
 pub fn ui_status_groups(request: wa_ui::StatusRequest) -> Vec<wa_ui::status::ViewerGroup> {

@@ -114,25 +114,50 @@ function statusUpdateById(id) {
 /// did not know a status is not a chat message). Both heal as soon as the quote
 /// target is a status update we track: the message wears the official
 /// "· Status" card and the phantom bubble disappears.
-function healStatusInteractions() {
-  let changed = false;
-  for (const chat of state.chats.values()) {
-    for (const message of chat.messages) {
-      if (message.status_quote || !message.reply_to?.id) continue;
-      if (!statusUpdateById(message.reply_to.id)) continue;
-      message.status_quote = true;
-      changed = true;
-    }
-    const kept = chat.messages.filter(
-      (message) => !(message.once_recovered && statusUpdateById(message.id)),
-    );
-    if (kept.length !== chat.messages.length) {
-      chat.messages = kept;
-      chat.last = kept.length ? kept[kept.length - 1] : null;
-      chat.lastTs = chat.last ? chat.last.timestamp : chat.lastTs;
-      changed = true;
-    }
+async function healStatusInteractions() {
+  const chats = [...state.chats.values()];
+  if (!chats.length) return;
+  const updateIds = [];
+  for (const entry of state.statuses.values()) {
+    for (const update of entry.updates) updateIds.push(update.id);
   }
+  // Which replies wear the "· Status" card and which phantom bubbles are
+  // stories we now track is decided by wa_ui::status::heal_plan.
+  const plans = await invoke("ui_status_heal", {
+    chats: chats.map((chat) => ({
+      messages: chat.messages.map((message) => ({
+        id: String(message.id || ""),
+        status_quote: Boolean(message.status_quote),
+        reply_to_id: String(message.reply_to?.id || ""),
+        once_recovered: Boolean(message.once_recovered),
+      })),
+    })),
+    updateIds,
+  }).catch(() => []);
+
+  let changed = false;
+  plans.forEach((plan, index) => {
+    const chat = chats[index];
+    if (!chat) return;
+    if (plan.quote_ids.length) {
+      const quote = new Set(plan.quote_ids);
+      for (const message of chat.messages) {
+        if (!quote.has(message.id)) continue;
+        message.status_quote = true;
+        changed = true;
+      }
+    }
+    if (plan.remove_ids.length) {
+      const remove = new Set(plan.remove_ids);
+      const kept = chat.messages.filter((message) => !remove.has(message.id));
+      if (kept.length !== chat.messages.length) {
+        chat.messages = kept;
+        chat.last = kept.length ? kept[kept.length - 1] : null;
+        chat.lastTs = chat.last ? chat.last.timestamp : chat.lastTs;
+        changed = true;
+      }
+    }
+  });
   if (!changed) return;
   scheduleSave();
   renderChatList();
@@ -480,21 +505,22 @@ function openStatusViews() {
 }
 
 /// A status "view" receipt arrived: remember who watched which update.
-function noteStatusView(event) {
+async function noteStatusView(event) {
   if (!event || !event.id) return;
   for (const entry of state.statuses.values()) {
     const update = entry.updates.find((item) => item.id === event.id);
     if (!update) continue;
-    const jid = normalizeStatusJid(event.jid);
-    // The broadcast chat itself is not a viewer.
-    if (!jid || jid.endsWith("@broadcast") || jid.endsWith("@newsletter")) return;
     update.viewers = update.viewers || [];
-    if (update.viewers.some((viewer) => viewer.jid === jid)) return;
-    update.viewers.push({
-      jid,
-      name: event.name || jid,
-      timestamp: event.timestamp || Date.now(),
-    });
+    // The device suffix, the broadcast/newsletter exclusion and the repeat
+    // check are decided by wa_ui::status::note_view.
+    const note = await invoke("ui_status_note_view", {
+      viewers: update.viewers,
+      jid: String(event.jid || ""),
+      name: String(event.name || ""),
+      timestamp: Number(event.timestamp) || Date.now(),
+    }).catch(() => ({ accept: false, viewer: null }));
+    if (!note.accept || !note.viewer) return;
+    update.viewers.push(note.viewer);
     saveStatuses();
     if (!$("status-screen").hidden) renderStatusList();
     if (update.from_me) syncOwnStatusIds();
@@ -870,16 +896,24 @@ function openStatusComposer() {
 
 // WhatsApp Web opens a two-item menu under the My status row instead of
 // jumping straight into the editor.
-function openStatusAddMenu() {
+async function openStatusAddMenu() {
   const menu = $("status-add-menu");
   const rect = $("status-mine").getBoundingClientRect();
   menu.hidden = false;
   const width = menu.offsetWidth || 236;
   const height = menu.offsetHeight || 112;
-  const left = Math.min(rect.left + 16, window.innerWidth - width - 12);
-  const top = Math.min(rect.bottom + 6, window.innerHeight - height - 12);
-  menu.style.left = `${Math.max(12, left)}px`;
-  menu.style.top = `${Math.max(12, top)}px`;
+  // The edge maths live in wa_ui::menus::clamp_popover.
+  const pos = await invoke("ui_clamp_popover", {
+    x: rect.left + 16,
+    y: rect.bottom + 6,
+    width,
+    height,
+    viewportW: window.innerWidth,
+    viewportH: window.innerHeight,
+    margin: 12,
+  }).catch(() => ({ left: rect.left + 16, top: rect.bottom + 6 }));
+  menu.style.left = `${pos.left}px`;
+  menu.style.top = `${pos.top}px`;
 }
 
 function closeStatusAddMenu() {

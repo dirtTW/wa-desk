@@ -27,6 +27,22 @@ pub fn is_placeholder_name(jid: &str, name: &str) -> bool {
     name == jid.split('@').next().unwrap_or("")
 }
 
+/// Drop a device suffix: `123:98@lid` -> `123@lid`. Status authors and message
+/// keys use the bare JID.
+pub fn jid_without_device(jid: &str) -> String {
+    let text = jid.trim();
+    if text.is_empty() {
+        return String::new();
+    }
+    match text.split_once('@') {
+        Some((user, server)) => {
+            let user = user.split(':').next().unwrap_or("");
+            format!("{user}@{server}")
+        }
+        None => text.to_string(),
+    }
+}
+
 /// The account's own conversation.
 pub fn is_self_jid(jid: &str, me_jid: &str, me_lid: &str) -> bool {
     if jid.is_empty() {

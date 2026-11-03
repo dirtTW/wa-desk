@@ -229,6 +229,54 @@ pub fn send_plan(is_channel: bool, has_draft: bool, editing: bool, text: &str) -
     }
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct DraftFile {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub mime: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct DraftPlan {
+    /// Indices of the offered files that were accepted into the stack.
+    pub accepted: Vec<usize>,
+    /// True once the stack is full (the picker hides its "more" affordance).
+    pub full: bool,
+    /// The toast for the first rejected file, if any.
+    pub toast: Option<String>,
+}
+
+/// The image-draft stack: at most `MAX_DRAFT_FILES` entries, images only.
+pub const MAX_DRAFT_FILES: usize = 10;
+
+pub fn draft_plan(existing: usize, files: &[DraftFile]) -> DraftPlan {
+    let mut accepted = Vec::new();
+    let mut full = existing >= MAX_DRAFT_FILES;
+    let mut toast: Option<String> = None;
+    for (index, file) in files.iter().enumerate() {
+        if full {
+            toast.get_or_insert_with(|| {
+                format!("You can attach up to {MAX_DRAFT_FILES} images at once.")
+            });
+            break;
+        }
+        if !file.mime.to_lowercase().starts_with("image/") {
+            toast.get_or_insert_with(|| "Only images can be added to a draft.".to_string());
+            continue;
+        }
+        accepted.push(index);
+        if existing + accepted.len() >= MAX_DRAFT_FILES {
+            full = true;
+        }
+    }
+    DraftPlan {
+        full,
+        accepted,
+        toast,
+    }
+}
+
 /// "1 selected" / "N selected" and the action buttons' enabled state.
 pub fn selection_bar(count: usize) -> SelectionBar {
     SelectionBar {
@@ -339,6 +387,50 @@ mod tests {
             Some("File is too large - 48 MB is the limit.")
         );
         assert_eq!(huge.kind, "image");
+    }
+
+    #[test]
+    fn draft_stack_caps_and_filters_images() {
+        let files = vec![
+            DraftFile {
+                name: "a.png".into(),
+                mime: "image/png".into(),
+            },
+            DraftFile {
+                name: "b.pdf".into(),
+                mime: "application/pdf".into(),
+            },
+            DraftFile {
+                name: "c.jpg".into(),
+                mime: "image/jpeg".into(),
+            },
+        ];
+        let plan = draft_plan(0, &files);
+        assert_eq!(plan.accepted, vec![0, 2]);
+        assert_eq!(
+            plan.toast.as_deref(),
+            Some("Only images can be added to a draft.")
+        );
+        assert!(!plan.full);
+
+        // Nine already stacked: only one more fits, then the cap toast fires.
+        let plan = draft_plan(MAX_DRAFT_FILES - 1, &files);
+        assert_eq!(plan.accepted, vec![0]);
+        assert!(plan.full);
+        assert_eq!(
+            plan.toast.as_deref(),
+            Some("You can attach up to 10 images at once."),
+            "the rest of the batch is refused at the cap"
+        );
+
+        // Full stack rejects everything with the cap toast.
+        let plan = draft_plan(MAX_DRAFT_FILES, &files);
+        assert!(plan.accepted.is_empty());
+        assert!(plan.full);
+        assert_eq!(
+            plan.toast.as_deref(),
+            Some("You can attach up to 10 images at once.")
+        );
     }
 
     #[test]
