@@ -229,9 +229,57 @@ pub fn anchor_menu(
     clamp_popover(x, y, menu_w, menu_h, viewport_w, viewport_h, margin)
 }
 
+/// The group member menu sits to the right of its row (its right edge 20 px
+/// past the button) and flips up when the row is near the bottom.
+pub fn member_menu_position(
+    anchor: AnchorBox,
+    menu_w: f64,
+    menu_h: f64,
+    viewport_w: f64,
+    viewport_h: f64,
+    margin: f64,
+    gap: f64,
+) -> ClampedPosition {
+    let left = (anchor.x + anchor.width - (menu_w - 20.0))
+        .min(viewport_w - menu_w)
+        .max(margin);
+    let top = (anchor.y + anchor.height + gap)
+        .min(viewport_h - menu_h)
+        .max(margin);
+    ClampedPosition { left, top }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_member_menu_hugs_its_row() {
+        // The row's button ends at x=500, y=200; the menu is 210x130.
+        let anchor = AnchorBox {
+            x: 460.0,
+            y: 180.0,
+            width: 40.0,
+            height: 20.0,
+        };
+        let pos = member_menu_position(anchor, 210.0, 130.0, 1200.0, 800.0, 8.0, 4.0);
+        assert_eq!(pos.left, 310.0, "right edge 20px past the button");
+        assert_eq!(pos.top, 204.0, "just below the button");
+
+        // A row near the bottom flips the menu up to stay on screen.
+        let low = AnchorBox {
+            x: 460.0,
+            y: 760.0,
+            width: 40.0,
+            height: 20.0,
+        };
+        let pos = member_menu_position(low, 210.0, 130.0, 1200.0, 800.0, 8.0, 4.0);
+        assert_eq!(pos.top, 670.0, "800 - 130");
+
+        // A narrow window keeps the left margin.
+        let pos = member_menu_position(anchor, 1190.0, 130.0, 1200.0, 800.0, 8.0, 4.0);
+        assert_eq!(pos.left, 8.0);
+    }
 
     #[test]
     fn menus_anchor_below_their_button() {

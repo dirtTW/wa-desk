@@ -103,6 +103,15 @@ pub fn format_followers(count: i64) -> String {
     }
 }
 
+/// `34` -> `"Group - 34 members"`, `1` -> `"Group - 1 member"`.
+pub fn group_member_count(count: usize) -> String {
+    if count == 1 {
+        "Group - 1 member".to_string()
+    } else {
+        format!("Group - {count} members")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +122,13 @@ mod tests {
             .single()
             .unwrap()
             .timestamp_millis()
+    }
+
+    #[test]
+    fn the_group_member_count_reads_naturally() {
+        assert_eq!(group_member_count(34), "Group - 34 members");
+        assert_eq!(group_member_count(1), "Group - 1 member");
+        assert_eq!(group_member_count(0), "Group - 0 members");
     }
 
     #[test]

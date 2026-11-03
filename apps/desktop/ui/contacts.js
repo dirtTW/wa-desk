@@ -66,12 +66,20 @@ async function createGroup() {
   const error = $("group-error");
   error.hidden = true;
 
+  // The form rules are wa_ui::picker::group_form_error.
+  const formError = await invoke("ui_group_form_error", {
+    mode: groupModalMode,
+    subject: $("group-subject").value,
+    selected: groupSelection.size,
+  }).catch(() => null);
+  if (formError) {
+    error.textContent = formError;
+    error.hidden = false;
+    return;
+  }
+
   if (groupModalMode === "add") {
-    if (!groupTargetChat || groupSelection.size === 0) {
-      error.textContent = "Pick at least one participant.";
-      error.hidden = false;
-      return;
-    }
+    if (!groupTargetChat) return;
     $("group-create").disabled = true;
     try {
       await invoke("group_add_members", {
@@ -91,16 +99,6 @@ async function createGroup() {
   }
 
   const subject = $("group-subject").value.trim();
-  if (!subject) {
-    error.textContent = "Give the group a name.";
-    error.hidden = false;
-    return;
-  }
-  if (groupSelection.size === 0) {
-    error.textContent = "Pick at least one participant.";
-    error.hidden = false;
-    return;
-  }
 
   $("group-create").disabled = true;
   try {

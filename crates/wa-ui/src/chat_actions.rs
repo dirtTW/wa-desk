@@ -467,6 +467,55 @@ pub fn message_info_html(rows: &[InfoRow]) -> String {
         .collect()
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MemberActionPlan {
+    pub allowed: bool,
+    /// The Tauri command to run (empty when nothing may happen).
+    pub command: &'static str,
+    pub confirm: Option<&'static str>,
+    pub toast: &'static str,
+    /// The member list is re-fetched afterwards.
+    pub refresh: bool,
+}
+
+/// Promote / demote / remove from the group member menu.
+pub fn member_action(action: &str, has_target: bool) -> MemberActionPlan {
+    let none = MemberActionPlan {
+        allowed: false,
+        command: "",
+        confirm: None,
+        toast: "",
+        refresh: false,
+    };
+    if !has_target {
+        return none;
+    }
+    match action {
+        "promote" => MemberActionPlan {
+            allowed: true,
+            command: "group_promote_members",
+            confirm: None,
+            toast: "Promoted to group admin",
+            refresh: true,
+        },
+        "demote" => MemberActionPlan {
+            allowed: true,
+            command: "group_demote_members",
+            confirm: None,
+            toast: "Admin rights removed",
+            refresh: true,
+        },
+        "remove" => MemberActionPlan {
+            allowed: true,
+            command: "group_remove_members",
+            confirm: Some("Remove this member from the group?"),
+            toast: "Member removed",
+            refresh: true,
+        },
+        _ => none,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,6 +615,29 @@ mod tests {
         assert_eq!(mine[0].command, "delete_for_me");
         assert_eq!(mine[1].from_me, Some(false));
         assert_eq!(mine[1].participant.as_deref(), Some("6285@s.whatsapp.net"));
+    }
+
+    #[test]
+    fn member_actions_carry_their_command_and_copy() {
+        let promote = member_action("promote", true);
+        assert!(promote.allowed);
+        assert_eq!(promote.command, "group_promote_members");
+        assert!(promote.confirm.is_none());
+        assert_eq!(promote.toast, "Promoted to group admin");
+        assert!(promote.refresh);
+
+        let demote = member_action("demote", true);
+        assert_eq!(demote.command, "group_demote_members");
+        assert_eq!(demote.toast, "Admin rights removed");
+
+        let remove = member_action("remove", true);
+        assert_eq!(remove.command, "group_remove_members");
+        assert_eq!(remove.confirm, Some("Remove this member from the group?"));
+        assert_eq!(remove.toast, "Member removed");
+
+        // No target and unknown actions do nothing.
+        assert!(!member_action("promote", false).allowed);
+        assert!(!member_action("nonsense", true).allowed);
     }
 
     #[test]

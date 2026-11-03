@@ -488,6 +488,117 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# group plans (rust)");
+const groupPlans = await page.evaluate(async () => {
+  const counts = [
+    await invoke("ui_group_member_count", { count: 34 }),
+    await invoke("ui_group_member_count", { count: 1 }),
+  ];
+  const pos = await invoke("ui_member_menu_position", {
+    anchor: { x: 460, y: 180, width: 40, height: 20 },
+    menuW: 210,
+    menuH: 130,
+    viewportW: 1200,
+    viewportH: 800,
+  });
+  const posLow = await invoke("ui_member_menu_position", {
+    anchor: { x: 460, y: 760, width: 40, height: 20 },
+    menuW: 210,
+    menuH: 130,
+    viewportW: 1200,
+    viewportH: 800,
+  });
+  const actions = {
+    promote: await invoke("ui_member_action", { action: "promote", hasTarget: true }),
+    demote: await invoke("ui_member_action", { action: "demote", hasTarget: true }),
+    remove: await invoke("ui_member_action", { action: "remove", hasTarget: true }),
+    noTarget: await invoke("ui_member_action", { action: "promote", hasTarget: false }),
+    unknown: await invoke("ui_member_action", { action: "nonsense", hasTarget: true }),
+  };
+  const forms = {
+    noName: await invoke("ui_group_form_error", { mode: "create", subject: "  ", selected: 2 }),
+    noMember: await invoke("ui_group_form_error", { mode: "create", subject: "Team", selected: 0 }),
+    ok: await invoke("ui_group_form_error", { mode: "create", subject: "Team", selected: 1 }),
+    addOk: await invoke("ui_group_form_error", { mode: "add", subject: "", selected: 1 }),
+    addEmpty: await invoke("ui_group_form_error", { mode: "add", subject: "", selected: 0 }),
+  };
+
+  // Live: the member kebab opens the menu with the right rows for the role.
+  const chat = [...state.chats.values()].find(
+    (entry) => entry.isGroup && entry.messages.length > 0 && !entry.jid.endsWith("@newsletter"),
+  );
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    await openGroupInfo();
+    await new Promise((r) => setTimeout(r, 1600));
+    const info = {
+      count: document.getElementById("group-info-count").textContent,
+      members: document.querySelectorAll("#group-members .group-member").length,
+    };
+    const more = document.querySelector("#group-members .member-more");
+    if (more) {
+      await openMemberMenu(more);
+      await new Promise((r) => setTimeout(r, 500));
+      const menu = document.getElementById("member-menu");
+      info.menu = {
+        open: !menu.hidden,
+        placed: menu.style.left !== "" && menu.style.top !== "",
+        promoteHidden: menu.querySelector('[data-member-action="promote"]').hidden,
+        demoteHidden: menu.querySelector('[data-member-action="demote"]').hidden,
+      };
+      closeMemberMenu();
+    }
+    document.getElementById("group-info-screen").hidden = true;
+    document.getElementById("rail-chats").click();
+    live = info;
+  }
+  return { counts, pos, posLow, actions, forms, live };
+});
+check(
+  "the group member count reads naturally",
+  groupPlans.counts[0] === "Group - 34 members" && groupPlans.counts[1] === "Group - 1 member",
+  groupPlans.counts.join(" / "),
+);
+check(
+  "the member menu hugs its row and flips up near the bottom",
+  groupPlans.pos.left === 310 &&
+    groupPlans.pos.top === 204 &&
+    groupPlans.posLow.top === 670,
+  JSON.stringify(groupPlans),
+);
+check(
+  "member actions carry their command, confirmation and toast",
+  groupPlans.actions.promote.command === "group_promote_members" &&
+    groupPlans.actions.promote.toast === "Promoted to group admin" &&
+    groupPlans.actions.demote.command === "group_demote_members" &&
+    groupPlans.actions.remove.confirm === "Remove this member from the group?" &&
+    !groupPlans.actions.noTarget.allowed &&
+    !groupPlans.actions.unknown.allowed,
+  JSON.stringify(groupPlans.actions.remove),
+);
+check(
+  "the group form asks for a name and a participant",
+  groupPlans.forms.noName === "Give the group a name." &&
+    groupPlans.forms.noMember === "Pick at least one participant." &&
+    groupPlans.forms.ok === null &&
+    groupPlans.forms.addOk === null &&
+    groupPlans.forms.addEmpty === "Pick at least one participant.",
+  JSON.stringify(groupPlans.forms),
+);
+if (groupPlans.live) {
+  check(
+    "the live member menu opens with the right rows",
+    groupPlans.live.count.startsWith("Group - ") &&
+      groupPlans.live.members > 0 &&
+      groupPlans.live.menu?.open &&
+      groupPlans.live.menu?.placed &&
+      groupPlans.live.menu.demoteHidden !== groupPlans.live.menu.promoteHidden,
+    JSON.stringify(groupPlans.live),
+  );
+}
+
 console.log("\n# reaction + receipt plans (rust)");
 const reactionCheck = await page.evaluate(async () => {
   const toggle = {

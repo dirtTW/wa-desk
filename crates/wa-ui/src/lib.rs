@@ -54,7 +54,7 @@ pub use export::{ExistingMessage, ExportMessage, ImportPlan};
 pub use history::{AnchorRequest, HistoryChat};
 pub use html::{avatar, escape, icon, icon_with_class, initials};
 pub use incoming::{Decision, DuplicatePlan, IncomingView, UnreadRule};
-pub use labels::{clock_label, day_of, format_followers, stamp_of};
+pub use labels::{clock_label, day_of, format_followers, group_member_count, stamp_of};
 pub use media::{DownloadAction, HydrateAction, HydrateInput};
 pub use menus::{
     AnchorBox, ChatMenuInput, ChatMenuOutput, ClampedPosition, DeleteConfirmOutput,

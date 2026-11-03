@@ -21,7 +21,10 @@ async function openGroupInfo() {
   try {
     const info = await invoke("group_info", { chat: chat.jid });
     $("group-info-name").textContent = info.subject || chat.name;
-    $("group-info-count").textContent = `Group - ${info.members.length} members`;
+    // The subtitle is wa_ui::labels::group_member_count.
+    $("group-info-count").textContent = await invoke("ui_group_member_count", {
+      count: info.members.length,
+    }).catch(() => `Group - ${info.members.length} members`);
     $("group-info-desc").textContent = info.description || "";
     const rendered = await invoke("ui_group_members", {
       members: await Promise.all(
@@ -72,7 +75,7 @@ function closeMemberMenu() {
   memberTarget = null;
 }
 
-function openMemberMenu(button) {
+async function openMemberMenu(button) {
   const row = button.closest(".group-member");
   if (!row) return;
   memberTarget = {
@@ -85,30 +88,37 @@ function openMemberMenu(button) {
   menu.querySelector('[data-member-action="demote"]').hidden = !memberTarget.admin;
   menu.hidden = false;
 
+  // The edge maths is wa_ui::menus::member_menu_position.
   const rect = button.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - 210, rect.right - 190))}px`;
-  menu.style.top = `${Math.min(window.innerHeight - 130, rect.bottom + 4)}px`;
+  const menuRect = menu.getBoundingClientRect();
+  const pos = await invoke("ui_member_menu_position", {
+    anchor: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+    menuW: menuRect.width || 210,
+    menuH: menuRect.height || 130,
+    viewportW: window.innerWidth,
+    viewportH: window.innerHeight,
+  }).catch(() => ({ left: rect.right - 190, top: rect.bottom + 4 }));
+  menu.style.left = `${pos.left}px`;
+  menu.style.top = `${pos.top}px`;
 }
 
 async function applyMemberAction(action) {
   const target = memberTarget;
   if (!target) return;
   closeMemberMenu();
-  if (action === "remove" && !confirm("Remove this member from the group?")) return;
+  // The command, the confirmation copy and the toast are wa_ui::chat_actions.
+  const plan = await invoke("ui_member_action", {
+    action,
+    hasTarget: Boolean(target.jid),
+  }).catch(() => null);
+  if (!plan || !plan.allowed) return;
+  if (plan.confirm && !confirm(plan.confirm)) return;
 
   const chat = state.active;
   try {
-    if (action === "promote") {
-      await invoke("group_promote_members", { chat, participants: [target.jid] });
-      toast("Promoted to group admin");
-    } else if (action === "demote") {
-      await invoke("group_demote_members", { chat, participants: [target.jid] });
-      toast("Admin rights removed");
-    } else {
-      await invoke("group_remove_members", { chat, participants: [target.jid] });
-      toast("Member removed");
-    }
-    await openGroupInfo();
+    await invoke(plan.command, { chat, participants: [target.jid] });
+    toast(plan.toast);
+    if (plan.refresh) await openGroupInfo();
   } catch (err) {
     toast(String(err));
   }

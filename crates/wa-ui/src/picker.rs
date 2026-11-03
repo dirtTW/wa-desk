@@ -297,6 +297,18 @@ pub struct GroupContactsOutput {
 }
 
 /// The "New group" / "Add members" contact checklist.
+/// Validation for the new-group / add-members dialog: the first problem, or
+/// `None` when the form may be submitted.
+pub fn group_form_error(mode: &str, subject: &str, selected: usize) -> Option<String> {
+    if mode != "add" && subject.trim().is_empty() {
+        return Some("Give the group a name.".to_string());
+    }
+    if selected == 0 {
+        return Some("Pick at least one participant.".to_string());
+    }
+    None
+}
+
 pub fn group_contacts(req: &GroupContactsRequest) -> GroupContactsOutput {
     let known_lids: HashSet<&str> = req.known_lids.iter().map(String::as_str).collect();
     let self_phone = phone_from_jid(&req.me_jid);
@@ -385,6 +397,30 @@ mod tests {
             forward: false,
             forward_targets: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_group_form_asks_for_a_name_and_a_member() {
+        assert_eq!(
+            group_form_error("create", "  ", 2).as_deref(),
+            Some("Give the group a name.")
+        );
+        assert_eq!(
+            group_form_error("create", "Team", 0).as_deref(),
+            Some("Pick at least one participant.")
+        );
+        assert!(group_form_error("create", "Team", 1).is_none());
+        // Adding members needs no subject.
+        assert!(group_form_error("add", "", 1).is_none());
+        assert_eq!(
+            group_form_error("add", "", 0).as_deref(),
+            Some("Pick at least one participant.")
+        );
+        // The name is checked before the member count.
+        assert_eq!(
+            group_form_error("create", "", 0).as_deref(),
+            Some("Give the group a name.")
+        );
     }
 
     #[test]

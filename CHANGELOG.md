@@ -4,6 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.38] — 2026-11-03
+
+- **The group-screen rules moved to Rust.**
+  - `wa_ui::labels::group_member_count` — `Group - 34 members` / `Group - 1 member`
+    (the group info subtitle used to be a template literal).
+  - `wa_ui::menus::member_menu_position` — the member kebab's menu hugs its row
+    (right edge 20 px past the button) and flips up near the bottom, replacing
+    two hand-written `Math.max/Math.min` lines; `openMemberMenu` is async now.
+  - `wa_ui::chat_actions::member_action` — promote / demote / remove each carry
+    their Tauri command, the confirmation copy (`Remove this member from the
+    group?`), the toast and whether the list refreshes. `applyMemberAction`
+    just runs the plan, and an unknown action or a missing target does nothing.
+  - `wa_ui::picker::group_form_error` — the New group / Add members form
+    validation (`Give the group a name.`, `Pick at least one participant.`),
+    with the name checked first and no subject needed when adding members.
+  Commands `ui_group_member_count`, `ui_member_menu_position`,
+  `ui_member_action`, `ui_group_form_error`.
+- 4 new `wa-ui` unit tests (207 total, plus 3 contract) and a group-plans CDP
+  e2e section: the two count labels, the menu placement (normal + near the
+  bottom), the five action outcomes, the form errors, and a live group screen
+  whose member kebab opens with Promote hidden for an admin row.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.37] — 2026-11-03
 
 - **Reactions moved to Rust (`wa_ui::reactions`).**

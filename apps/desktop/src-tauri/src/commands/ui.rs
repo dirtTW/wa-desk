@@ -297,6 +297,46 @@ pub fn ui_pcm_sample(sample: f64) -> i16 {
     wa_ui::calls::pcm_i16(sample as f32)
 }
 
+/// The group-info subtitle (`Group - 34 members`).
+#[tauri::command]
+pub fn ui_group_member_count(count: usize) -> String {
+    wa_ui::labels::group_member_count(count)
+}
+
+/// Where the group member menu opens next to its row.
+#[tauri::command]
+pub fn ui_member_menu_position(
+    anchor: wa_ui::menus::AnchorBox,
+    menu_w: f64,
+    menu_h: f64,
+    viewport_w: f64,
+    viewport_h: f64,
+    margin: Option<f64>,
+    gap: Option<f64>,
+) -> wa_ui::menus::ClampedPosition {
+    wa_ui::menus::member_menu_position(
+        anchor,
+        menu_w,
+        menu_h,
+        viewport_w,
+        viewport_h,
+        margin.unwrap_or(8.0),
+        gap.unwrap_or(4.0),
+    )
+}
+
+/// Promote / demote / remove a group member.
+#[tauri::command]
+pub fn ui_member_action(action: String, has_target: bool) -> wa_ui::chat_actions::MemberActionPlan {
+    wa_ui::chat_actions::member_action(&action, has_target)
+}
+
+/// The new-group / add-members form validation (`None` when it may submit).
+#[tauri::command]
+pub fn ui_group_form_error(mode: String, subject: String, selected: usize) -> Option<String> {
+    wa_ui::picker::group_form_error(&mode, &subject, selected)
+}
+
 /// Tapping a reaction emoji: the value to send, whether to revoke first, and
 /// what our pill shows afterwards.
 #[tauri::command]
