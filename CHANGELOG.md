@@ -4,6 +4,32 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.47] — 2026-11-03
+
+- **`emoji.js` is deleted — 19 → 18 JS files, with real Rust behind it.**
+  `wa_ui::emoji` gained the picker's bookkeeping rather than just its markup:
+  - `remember_recent(recents, char)` — moves the picked emoji to the front,
+    dedupes the whole stored list (older builds could keep duplicates) and caps
+    it at `RECENTS_CAP` (24).
+  - `picker_tab(tab)` — which of the three views a tab shows, whether the
+    sticker grid must reload, and which element takes focus.
+  - `insert_text(value, start, end, insert)` — replaces the selection (reversed
+    or out-of-range indices are clamped) and reports the new caret, so the
+    composer no longer slices strings by hand.
+  - `composer_has_text(text)` — the send button's "needs real text" gate.
+  Commands `ui_emoji_remember`, `ui_picker_tab`, `ui_insert_text`,
+  `ui_composer_has_text`; the remaining DOM code moved into `stickers.js`.
+- 4 new `wa-ui` unit tests (225 total, plus 3 contract) and an emoji CDP e2e
+  section: the file is no longer loaded, dedupe/cap, the three tabs, caret
+  insertion and a live pass that types, inserts 😀 at the caret, disables send on
+  an empty composer and flips tabs.
+- The e2e's per-file "is it still loaded?" checks now compare against the number
+  of `<script src>` tags in `index.html` instead of a hard-coded count, so they
+  stop needing an edit every release.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.46] — 2026-11-03
 
 - **`attachments.js` is deleted — 20 → 19 JS files.** Its last decisions became

@@ -10,6 +10,16 @@
 // from `wa-ui` (Rust) and that no JavaScript error was logged while they
 // rendered.
 import { chromium } from "playwright-core";
+import fs from "node:fs";
+
+// The number of <script src> tags the shipped index.html has: the per-file
+// "is it still loaded?" checks compare the live document against this, so the
+// count does not need editing every time a file is folded away.
+const expectedScripts = (
+  fs.readFileSync(new URL("../../apps/desktop/ui/index.html", import.meta.url), "utf8").match(
+    /<script[^>]*\bsrc=/g,
+  ) || []
+).length;
 
 const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const pages = browser.contexts().flatMap((context) => context.pages());
@@ -79,6 +89,119 @@ if (rows > 0) {
   check("search keeps its section headers", section >= 1);
   await page.fill("#search", "");
   await page.waitForTimeout(600);
+}
+
+console.log("\n# emoji picker (rust, emoji.js removed)");
+const emojiFiles = await page.evaluate(async () => {
+  const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
+    node.getAttribute("src"),
+  );
+  const loadsEmoji = scripts.some((src) => String(src).includes("emoji.js"));
+  const plans = {
+    remember: await invoke("ui_emoji_remember", { recents: ["😀", "🔥", "😀"], char: "👍" }),
+    tabEmoji: await invoke("ui_picker_tab", { tab: "emoji" }),
+    tabStickers: await invoke("ui_picker_tab", { tab: "stickers" }),
+    tabGif: await invoke("ui_picker_tab", { tab: "gif" }),
+    insert: await invoke("ui_insert_text", { value: "hello ", start: 6, end: 6, insert: "😀" }),
+    replace: await invoke("ui_insert_text", {
+      value: "hello world",
+      start: 6,
+      end: 11,
+      insert: "🔥",
+    }),
+    hasText: [
+      await invoke("ui_composer_has_text", { text: "  " }),
+      await invoke("ui_composer_has_text", { text: " hi " }),
+    ],
+  };
+  const defined = {
+    toggleEmoji: typeof toggleEmoji === "function",
+    insertEmoji: typeof insertEmoji === "function",
+    setPickerTab: typeof setPickerTab === "function",
+    buildEmojiPicker: typeof buildEmojiPicker === "function",
+  };
+
+  // Live: insert an emoji at the caret, then flip tabs.
+  const chat = [...state.chats.values()].find((entry) => !entry.isGroup && entry.messages.length);
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    const input = document.getElementById("input");
+    input.value = "hello ";
+    input.setSelectionRange(6, 6);
+    await insertEmoji("😀");
+    await new Promise((r) => setTimeout(r, 400));
+    live = {
+      value: input.value,
+      caret: input.selectionStart,
+      sendEnabled: !document.getElementById("send").disabled,
+    };
+    input.value = "";
+    updateSendState();
+    await new Promise((r) => setTimeout(r, 300));
+    live.sendDisabledWhenEmpty = document.getElementById("send").disabled;
+    toggleEmoji(true);
+    await new Promise((r) => setTimeout(r, 300));
+    await setPickerTab("stickers");
+    await new Promise((r) => setTimeout(r, 500));
+    live.stickerView = !document.getElementById("sticker-view").hidden;
+    live.emojiViewHidden = document.getElementById("emoji-view").hidden;
+    await setPickerTab("emoji");
+    await new Promise((r) => setTimeout(r, 400));
+    live.backToEmoji = !document.getElementById("emoji-view").hidden;
+    toggleEmoji(false);
+  }
+  return { scripts, loadsEmoji, plans, defined, live };
+});
+check(
+  `emoji.js is no longer loaded (${expectedScripts} JS files)`,
+  !emojiFiles.loadsEmoji && emojiFiles.scripts.length === expectedScripts,
+  `${emojiFiles.scripts.length} scripts, loadsEmoji=${emojiFiles.loadsEmoji}`,
+);
+check(
+  "recents move to the front, dedupe and cap",
+  emojiFiles.plans.remember.length === 3 &&
+    emojiFiles.plans.remember[0] === "👍" &&
+    new Set(emojiFiles.plans.remember).size === 3,
+  JSON.stringify(emojiFiles.plans.remember),
+);
+check(
+  "each picker tab shows one view",
+  emojiFiles.plans.tabEmoji.emoji_view &&
+    emojiFiles.plans.tabEmoji.focus === "emoji-search" &&
+    emojiFiles.plans.tabStickers.sticker_view &&
+    emojiFiles.plans.tabStickers.reload_stickers &&
+    emojiFiles.plans.tabGif.gif_view &&
+    !emojiFiles.plans.tabGif.emoji_view,
+  JSON.stringify(emojiFiles.plans.tabStickers),
+);
+check(
+  "inserting an emoji replaces the selection",
+  emojiFiles.plans.insert.value === "hello 😀" &&
+    emojiFiles.plans.insert.caret === 7 &&
+    emojiFiles.plans.replace.value === "hello 🔥" &&
+    emojiFiles.plans.hasText[0] === false &&
+    emojiFiles.plans.hasText[1] === true,
+  JSON.stringify(emojiFiles.plans.insert),
+);
+check(
+  "the emoji helpers survive the move",
+  Object.values(emojiFiles.defined).every(Boolean),
+  JSON.stringify(emojiFiles.defined),
+);
+if (emojiFiles.live) {
+  check(
+    "the live composer inserts, gates send and switches tabs",
+    emojiFiles.live.value === "hello 😀" &&
+      emojiFiles.live.caret === 7 &&
+      emojiFiles.live.sendEnabled &&
+      emojiFiles.live.sendDisabledWhenEmpty &&
+      emojiFiles.live.stickerView &&
+      emojiFiles.live.emojiViewHidden &&
+      emojiFiles.live.backToEmoji,
+    JSON.stringify(emojiFiles.live),
+  );
 }
 
 console.log("\n# emoji picker (rust)");
@@ -529,8 +652,8 @@ const attachFiles = await page.evaluate(async () => {
   return { scripts, loadsAttachments, plans, defined, live };
 });
 check(
-  "attachments.js is no longer loaded (19 JS files)",
-  !attachFiles.loadsAttachments && attachFiles.scripts.length === 19,
+  `attachments.js is no longer loaded (${expectedScripts} JS files)`,
+  !attachFiles.loadsAttachments && attachFiles.scripts.length === expectedScripts,
   `${attachFiles.scripts.length} scripts, loadsAttachments=${attachFiles.loadsAttachments}`,
 );
 check(
@@ -603,8 +726,8 @@ const contactsFiles = await page.evaluate(async () => {
   return { scripts, loadsContacts, plans, row, createState, addState };
 });
 check(
-  "contacts.js is no longer loaded (19 JS files)",
-  !contactsFiles.loadsContacts && contactsFiles.scripts.length === 19,
+  `contacts.js is no longer loaded (${expectedScripts} JS files)`,
+  !contactsFiles.loadsContacts && contactsFiles.scripts.length === expectedScripts,
   `${contactsFiles.scripts.length} scripts, loadsContacts=${contactsFiles.loadsContacts}`,
 );
 check(
@@ -687,8 +810,8 @@ const groupInfoFiles = await page.evaluate(async () => {
   return { scripts, loadsGroupInfo, defined, confirms, live };
 });
 check(
-  "group-info.js is no longer loaded (19 JS files)",
-  !groupInfoFiles.loadsGroupInfo && groupInfoFiles.scripts.length === 19,
+  `group-info.js is no longer loaded (${expectedScripts} JS files)`,
+  !groupInfoFiles.loadsGroupInfo && groupInfoFiles.scripts.length === expectedScripts,
   `${groupInfoFiles.scripts.length} scripts, loadsGroupInfo=${groupInfoFiles.loadsGroupInfo}`,
 );
 check(
@@ -787,8 +910,10 @@ check(
   JSON.stringify(searchCheck.plans),
 );
 check(
-  "chat-search.js is no longer loaded",
-  !searchCheck.loadsSearchFile && searchCheck.hasSearchFn,
+  `chat-search.js is no longer loaded (${expectedScripts} JS files)`,
+  !searchCheck.loadsSearchFile &&
+    searchCheck.hasSearchFn &&
+    searchCheck.scripts.length === expectedScripts,
   `${searchCheck.scripts.length} scripts, loadsSearchFile=${searchCheck.loadsSearchFile}`,
 );
 if (searchCheck.live) {

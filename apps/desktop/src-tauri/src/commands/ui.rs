@@ -235,6 +235,35 @@ pub fn ui_photo_result_ok(url: String) -> bool {
     wa_ui::state::photo_result_ok(&url)
 }
 
+/// Move an emoji to the front of the recents (deduped, capped at 24).
+#[tauri::command]
+pub fn ui_emoji_remember(recents: Vec<String>, char: String) -> Vec<String> {
+    wa_ui::emoji::remember_recent(&recents, &char)
+}
+
+/// Which picker view a tab shows, plus its focus/reload behaviour.
+#[tauri::command]
+pub fn ui_picker_tab(tab: String) -> wa_ui::emoji::PickerTab {
+    wa_ui::emoji::picker_tab(&tab)
+}
+
+/// Insert text at the composer's selection and report the new caret.
+#[tauri::command]
+pub fn ui_insert_text(
+    value: String,
+    start: usize,
+    end: usize,
+    insert: String,
+) -> wa_ui::emoji::Insertion {
+    wa_ui::emoji::insert_text(&value, start, end, &insert)
+}
+
+/// Whether the composer's send button should be live.
+#[tauri::command]
+pub fn ui_composer_has_text(text: String) -> bool {
+    wa_ui::emoji::composer_has_text(&text)
+}
+
 /// The emoji category that should be highlighted while the picker scrolls.
 #[tauri::command]
 pub fn ui_emoji_active_group(

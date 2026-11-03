@@ -49,7 +49,10 @@ pub use chat_actions::{
 };
 pub use composer::{EmojiPanel, StatusPalette};
 pub use context::{ContextLine, ContextMessage, MediaLimits, StickerCandidate};
-pub use emoji::{EmojiGroupView, EmojiItem};
+pub use emoji::{
+    EmojiGroupView, EmojiItem, Insertion, PickerTab, RECENTS_CAP, composer_has_text, insert_text,
+    picker_tab, remember_recent,
+};
 pub use export::{ExistingMessage, ExportMessage, ImportPlan};
 pub use history::{
     AnchorRequest, HistoryChat, SyncConstants, SyncProgress, sync_allowed, sync_constants,

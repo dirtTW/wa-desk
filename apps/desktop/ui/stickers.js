@@ -406,3 +406,206 @@ async function forwardSticker(messageId) {
   }
 }
 
+
+/* ------------------------------------------------------------------ emoji */
+
+/* ------------------------------------------------------------------ */
+/* wiring                                                              */
+/* ------------------------------------------------------------------ */
+
+const EMOJI_RECENT_KEY = "wadesk.emoji.recents";
+
+let emojiBuilt = false;
+let emojiQuery = "";
+let emojiActiveGroup = 0;
+
+async function updateSendState() {
+  // The "needs real text" rule is wa_ui::emoji::composer_has_text.
+  const live = await invoke("ui_composer_has_text", { text: $("input").value }).catch(
+    () => $("input").value.trim().length > 0,
+  );
+  $("send").disabled = !live;
+}
+
+function recentEmojis() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EMOJI_RECENT_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((value) => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function rememberEmoji(char) {
+  // The dedupe/unshift/cap is wa_ui::emoji::remember_recent.
+  const recents = await invoke("ui_emoji_remember", {
+    recents: recentEmojis(),
+    char,
+  }).catch(() => recentEmojis());
+  try {
+    localStorage.setItem(EMOJI_RECENT_KEY, JSON.stringify(recents));
+  } catch {
+    /* storage full: recents are a nicety */
+  }
+  renderRecentEmojis();
+}
+
+function renderRecentEmojis() {
+  const node = $("emoji-recents");
+  if (!node) return;
+  // The row markup comes from wa-ui::emoji; the list itself is local storage.
+  invoke("ui_emoji_recents", { chars: recentEmojis() })
+    .then((html) => {
+      node.innerHTML = html;
+    })
+    .catch(() => {});
+}
+
+// "full" emoji support: every Unicode group, searchable, plus recents.
+//
+// The catalogue and the picker markup live in Rust (`wa-ui`): the webview only
+// injects the HTML fetched at boot and asks Rust for search results.
+function buildEmojiPicker() {
+  if (emojiBuilt) return;
+  const scroll = $("emoji-scroll");
+  const cats = $("emoji-cats");
+  scroll.innerHTML = uiAssets.emojiPicker || "";
+  cats.innerHTML = uiAssets.emojiCategories || "";
+  renderRecentEmojis();
+  emojiBuilt = true;
+}
+
+async function filterEmoji(query) {
+  const scroll = $("emoji-scroll");
+  const needle = query.trim();
+  emojiQuery = needle.toLowerCase();
+  const recents = $("emoji-recents");
+
+  if (!needle) {
+    scroll.querySelectorAll(".emoji-title, .emoji-grid").forEach((node) => {
+      node.hidden = false;
+    });
+    const stale = scroll.querySelector(".emoji-grid.search-results");
+    if (stale) stale.remove();
+    recents.hidden = false;
+    return;
+  }
+
+  recents.hidden = true;
+  scroll.querySelectorAll(".emoji-title, .emoji-grid").forEach((node) => {
+    node.hidden = true;
+  });
+  const html = await invoke("ui_emoji_search", { query: needle, limit: 240 });
+  if (emojiQuery !== needle.toLowerCase()) return;
+  let grid = scroll.querySelector(".emoji-grid.search-results");
+  if (!grid) {
+    grid = document.createElement("div");
+    grid.className = "emoji-grid search-results";
+    scroll.appendChild(grid);
+  }
+  grid.hidden = false;
+  grid.innerHTML = html.replace(/^<div[^>]*>|<\/div>$/g, "");
+}
+
+function scrollToEmojiGroup(index) {
+  const title = $("emoji-scroll").querySelector(`.emoji-title[data-group="${index}"]`);
+  if (title) title.scrollIntoView({ block: "start" });
+  setActiveEmojiGroup(index);
+}
+
+function setActiveEmojiGroup(index) {
+  emojiActiveGroup = index;
+  $("emoji-cats")
+    .querySelectorAll(".emoji-cat")
+    .forEach((node) => node.classList.toggle("active", node.dataset.group === String(index)));
+}
+
+function bindEmojiScroll() {
+  const scroll = $("emoji-scroll");
+  let groupScrollQueued = false;
+  scroll.addEventListener(
+    "scroll",
+    () => {
+      if (emojiQuery || groupScrollQueued) return;
+      // The category maths is wa_ui::emoji::active_group; ask once per frame
+      // instead of per scroll event.
+      groupScrollQueued = true;
+      // setTimeout rather than requestAnimationFrame: rAF is suspended while the
+      // window is hidden/occluded, which would leave the flag stuck on.
+      setTimeout(async () => {
+        groupScrollQueued = false;
+        if (emojiQuery) return;
+        const titles = [...scroll.querySelectorAll(".emoji-title")];
+        const current = await invoke("ui_emoji_active_group", {
+          offsets: titles.map((title) => [Number(title.dataset.group), title.offsetTop]),
+          scrollTop: scroll.scrollTop,
+        }).catch(() => emojiActiveGroup);
+        if (current !== emojiActiveGroup) setActiveEmojiGroup(current);
+      }, 50);
+    },
+    { passive: true },
+  );
+}
+
+let reactionPickMessage = null;
+
+function toggleEmoji(force) {
+  const panel = $("emoji-panel");
+  const show = force ?? panel.hidden;
+  panel.hidden = !show;
+  if (!show) {
+    reactionPickMessage = null;
+    return;
+  }
+
+  buildEmojiPicker();
+  if (!panel.dataset.bound) {
+    panel.dataset.bound = "1";
+    bindEmojiScroll();
+  }
+  $("emoji-scroll").scrollTop = 0;
+  if (currentPickerTab() === "stickers") reloadStickerView();
+  else if (currentPickerTab() === "emoji") $("emoji-search").focus();
+}
+
+function currentPickerTab() {
+  const active = $("emoji-panel").querySelector(".picker-tab.active");
+  return active ? active.dataset.tab : "emoji";
+}
+
+async function setPickerTab(tab) {
+  // Which view a tab shows (and its focus/reload behaviour) is
+  // wa_ui::emoji::picker_tab.
+  const plan = await invoke("ui_picker_tab", { tab }).catch(() => null);
+  if (!plan) return;
+  $("emoji-panel")
+    .querySelectorAll(".picker-tab")
+    .forEach((node) => node.classList.toggle("active", node.dataset.tab === tab));
+  $("emoji-view").hidden = !plan.emoji_view;
+  $("sticker-view").hidden = !plan.sticker_view;
+  $("gif-view").hidden = !plan.gif_view;
+  if (plan.reload_stickers) reloadStickerView();
+  else if (plan.focus) $(plan.focus).focus();
+}
+
+async function insertEmoji(emoji) {
+  const input = $("input");
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  // Replacing the selection and the new caret are wa_ui::emoji::insert_text.
+  const plan = await invoke("ui_insert_text", {
+    value: input.value,
+    start,
+    end,
+    insert: emoji,
+  }).catch(() => null);
+  if (plan) {
+    input.value = plan.value;
+    input.setSelectionRange(plan.caret, plan.caret);
+  }
+  input.focus();
+  autosize(input);
+  updateSendState();
+  startTyping();
+  rememberEmoji(emoji);
+}

@@ -148,6 +148,85 @@ pub fn active_group(offsets: &[(usize, f64)], scroll_top: f64, pad: f64) -> usiz
     current
 }
 
+/// How many recent emoji the picker keeps.
+pub const RECENTS_CAP: usize = 24;
+
+/// Move `char` to the front of the recents, deduped and capped. Older duplicates
+/// in the stored list are cleaned up on the way.
+pub fn remember_recent(recents: &[String], char: &str) -> Vec<String> {
+    let char = char.trim();
+    if char.is_empty() {
+        return recents.to_vec();
+    }
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    seen.insert(char);
+    let mut next: Vec<String> = Vec::with_capacity(recents.len() + 1);
+    next.push(char.to_string());
+    for value in recents {
+        if seen.insert(value.as_str()) {
+            next.push(value.clone());
+        }
+    }
+    next.truncate(RECENTS_CAP);
+    next
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PickerTab {
+    pub emoji_view: bool,
+    pub sticker_view: bool,
+    pub gif_view: bool,
+    /// The element to focus, when the tab takes typing.
+    pub focus: Option<&'static str>,
+    /// The sticker grid is rebuilt when its tab opens.
+    pub reload_stickers: bool,
+}
+
+/// Which of the picker's three views a tab shows.
+pub fn picker_tab(tab: &str) -> PickerTab {
+    PickerTab {
+        emoji_view: tab != "stickers" && tab != "gif",
+        sticker_view: tab == "stickers",
+        gif_view: tab == "gif",
+        focus: if tab == "emoji" {
+            Some("emoji-search")
+        } else {
+            None
+        },
+        reload_stickers: tab == "stickers",
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct Insertion {
+    pub value: String,
+    pub caret: usize,
+}
+
+/// Insert text at the composer's selection, replacing it. Out-of-range or
+/// reversed selection indices are clamped to the value.
+pub fn insert_text(value: &str, start: usize, end: usize, insert: &str) -> Insertion {
+    let chars: Vec<char> = value.chars().collect();
+    let len = chars.len();
+    let (from, to) = if start <= end {
+        (start.min(len), end.min(len))
+    } else {
+        (end.min(len), start.min(len))
+    };
+    let mut next: String = chars[..from].iter().collect();
+    next.push_str(insert);
+    next.extend(chars[to..].iter());
+    Insertion {
+        value: next,
+        caret: from + insert.chars().count(),
+    }
+}
+
+/// The composer's send button is live only with non-blank text.
+pub fn composer_has_text(text: &str) -> bool {
+    !text.trim().is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,6 +238,87 @@ mod tests {
         assert!(count() > 2000, "count = {}", count());
         assert_eq!(groups[0].id, "smileys");
         assert!(!groups[0].items[0].char.is_empty());
+    }
+
+    #[test]
+    fn recents_move_to_the_front_and_stop_at_24() {
+        let recents = vec!["😀".to_string(), "🔥".to_string()];
+        let next = remember_recent(&recents, "😀");
+        assert_eq!(
+            next,
+            vec!["😀".to_string(), "🔥".to_string()],
+            "deduped, moved first"
+        );
+
+        let added = remember_recent(&recents, "👍");
+        assert_eq!(
+            added,
+            vec!["👍".to_string(), "😀".to_string(), "🔥".to_string()]
+        );
+
+        // An older list with duplicates is cleaned up.
+        let messy = vec!["😀".to_string(), "🔥".to_string(), "😀".to_string()];
+        assert_eq!(
+            remember_recent(&messy, "👍").len(),
+            3,
+            "no duplicate survives"
+        );
+
+        // The cap keeps the newest 24.
+        let full: Vec<String> = (0..30).map(|i| format!("e{i}")).collect();
+        let capped = remember_recent(&full, "new");
+        assert_eq!(capped.len(), RECENTS_CAP);
+        assert_eq!(capped[0], "new");
+
+        // A blank pick changes nothing.
+        assert_eq!(remember_recent(&recents, "  ").len(), 2);
+    }
+
+    #[test]
+    fn the_picker_tab_picks_one_view() {
+        let emoji = picker_tab("emoji");
+        assert!(emoji.emoji_view && !emoji.sticker_view && !emoji.gif_view);
+        assert_eq!(emoji.focus, Some("emoji-search"));
+        assert!(!emoji.reload_stickers);
+
+        let stickers = picker_tab("stickers");
+        assert!(stickers.sticker_view && !stickers.emoji_view);
+        assert!(stickers.reload_stickers);
+        assert!(stickers.focus.is_none(), "the sticker grid needs no typing");
+
+        let gif = picker_tab("gif");
+        assert!(gif.gif_view && !gif.emoji_view && !gif.reload_stickers);
+
+        // An unknown tab falls back to the emoji view.
+        assert!(picker_tab("nonsense").emoji_view);
+    }
+
+    #[test]
+    fn inserting_emoji_replaces_the_selection() {
+        let at_end = insert_text("hello ", 6, 6, "😀");
+        assert_eq!(at_end.value, "hello 😀");
+        assert_eq!(at_end.caret, 7);
+
+        // A selection is replaced, not appended.
+        let replaced = insert_text("hello world", 6, 11, "🔥");
+        assert_eq!(replaced.value, "hello 🔥");
+        assert_eq!(replaced.caret, 7);
+
+        // A reversed selection normalises (it replaces "bc").
+        let reversed = insert_text("abc", 3, 1, "x");
+        assert_eq!(reversed.value, "ax");
+
+        // Out-of-range indices clamp to the value.
+        let beyond = insert_text("ab", 99, 99, "z");
+        assert_eq!(beyond.value, "abz");
+        assert_eq!(beyond.caret, 3);
+    }
+
+    #[test]
+    fn the_composer_needs_real_text() {
+        assert!(!composer_has_text(""));
+        assert!(!composer_has_text("   "));
+        assert!(composer_has_text(" hi "));
     }
 
     #[test]
