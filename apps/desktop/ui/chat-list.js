@@ -159,10 +159,121 @@ function renderChatList() {
 /// Work that must happen once the (async) list is in the DOM.
 function afterChatListRender() {}
 
-/* ------------------------------------------------------ starred messages */
+/* ------------------------------------------- sidebar multi-select ("Select chats") */
+
+// These four were called from the sidebar menu and the row handler but never
+// defined, so "Select chats" used to throw. The selection maths is
+// wa_ui::actions::toggle_selection; the bulk commands are planned in
+// wa_ui::chat_actions::bulk_chat_plan.
+
+async function updateChatSelectBar() {
+  const count = state.selectedChats.size;
+  const bar = await invoke("ui_selection_bar", { count }).catch(() => ({
+    label: `${count} selected`,
+    disabled: count === 0,
+  }));
+  $("chat-select-count").textContent = bar.label;
+  for (const id of ["chat-select-read", "chat-select-archive", "chat-select-delete"]) {
+    const node = $(id);
+    if (node) node.disabled = bar.disabled;
+  }
+  $("chat-select-bar").hidden = false;
+}
+
+function startChatSelection() {
+  state.selectingChats = true;
+  state.selectedChats = new Set();
+  $("chat-list").classList.add("select-mode");
+  updateChatSelectBar();
+  renderChatList();
+}
+
+function exitChatSelection() {
+  state.selectingChats = false;
+  state.selectedChats = new Set();
+  $("chat-list").classList.remove("select-mode");
+  $("chat-select-bar").hidden = true;
+  renderChatList();
+}
+
+async function toggleChatSelection(jid) {
+  if (!state.selectingChats || !jid) return;
+  // Same add/remove/exit rules as the message selection.
+  const plan = await invoke("ui_toggle_selection", {
+    selected: [...state.selectedChats],
+    id: jid,
+  }).catch(() => null);
+  if (!plan) return;
+  state.selectedChats = new Set(plan.selected);
+  if (plan.exit) {
+    exitChatSelection();
+    return;
+  }
+  updateChatSelectBar();
+  renderChatList();
+}
+
+/// "Mark all as read" from the sidebar menu: every chat with an unread badge.
+async function markAllChatsRead() {
+  const unread = [...state.chats.values()].filter((chat) => (chat.unread || 0) > 0);
+  if (!unread.length) {
+    toast("No unread chats");
+    return;
+  }
+  for (const chat of unread) await markRead(chat.jid);
+  toast(`Marked ${unread.length} chat${unread.length === 1 ? "" : "s"} as read`);
+}
+
+/// Run one sidebar bulk action over the selected chats.
+async function applyChatSelection(action) {
+  const jids = [...state.selectedChats];
+  if (!jids.length) return;
+  const chats = jids.map((jid) => state.chats.get(jid)).filter(Boolean);
+  let plans = [];
+  try {
+    plans = await invoke("ui_bulk_chat_plan", {
+      action,
+      chats: chats.map((chat) => ({
+        jid: chat.jid,
+        pinned: Boolean(chat.pinned),
+        archived: Boolean(chat.archived),
+        unread: chat.unread || 0,
+        is_group: Boolean(chat.isGroup),
+      })),
+    });
+  } catch (err) {
+    toast(String(err));
+    return;
+  }
+  const confirmText = plans.find((plan) => plan.confirm)?.confirm;
+  if (confirmText && !confirm(confirmText)) return;
+
+  for (const plan of plans) {
+    try {
+      if (plan.command) await invoke(plan.command, plan.args || {});
+      const entry = state.chats.get(plan.args?.chat);
+      if (!entry) continue;
+      if (plan.archived !== null && plan.archived !== undefined) entry.archived = plan.archived;
+      if (plan.unread !== null && plan.unread !== undefined) entry.unread = 0;
+      if (plan.delete) entry.deleted = true;
+    } catch (err) {
+      toast(String(err));
+    }
+  }
+  if (action === "delete" && state.active && jids.includes(state.active)) {
+    state.active = null;
+    renderChat();
+  }
+  exitChatSelection();
+  scheduleSave();
+}
+
+
 
 // Starred ids come from the `star` app-state collection (a full sync replays
 // every star), so this list matches the phone and every linked client.
+/* ------------------------------------------------------ starred messages */
+
 function starredEntries() {
   const rows = [];
   for (const chat of state.chats.values()) {

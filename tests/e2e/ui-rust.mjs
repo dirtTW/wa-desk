@@ -460,6 +460,83 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# sidebar select chats (rust)");
+const selectChats = await page.evaluate(async () => {
+  const chats = [
+    { jid: "a", pinned: false, archived: false, unread: 3, is_group: false },
+    { jid: "b", pinned: false, archived: false, unread: 0, is_group: false },
+    { jid: "c", pinned: false, archived: true, unread: 1, is_group: true },
+  ];
+  const read = await invoke("ui_bulk_chat_plan", { action: "read", chats });
+  const archive = await invoke("ui_bulk_chat_plan", { action: "archive", chats });
+  const del = await invoke("ui_bulk_chat_plan", {
+    action: "delete",
+    chats: [chats[0]],
+  });
+  const unknown = await invoke("ui_bulk_chat_plan", { action: "nope", chats });
+
+  // Live: the menu's "Select chats" path used to throw (the handlers were never
+  // defined); it must now enter selection mode and tick rows.
+  const defined = ["startChatSelection", "exitChatSelection", "toggleChatSelection", "markAllChatsRead", "applyChatSelection"].every(
+    (name) => typeof window[name] === "function",
+  );
+  startChatSelection();
+  await new Promise((r) => setTimeout(r, 300));
+  const rows = [...document.querySelectorAll("#chat-list .chat-item[data-jid]")];
+  const first = rows[0]?.dataset.jid;
+  const second = rows[1]?.dataset.jid;
+  await toggleChatSelection(first);
+  await new Promise((r) => setTimeout(r, 400));
+  const live = {
+    defined,
+    selecting: state.selectingChats,
+    barHidden: document.getElementById("chat-select-bar").hidden,
+    label: document.getElementById("chat-select-count").textContent,
+    checkedRows: document.querySelectorAll("#chat-list .chat-item.selected").length,
+    readEnabled: !document.getElementById("chat-select-read").disabled,
+  };
+  await toggleChatSelection(second);
+  await new Promise((r) => setTimeout(r, 300));
+  const twoSelected = state.selectedChats.size;
+  await toggleChatSelection(first);
+  await toggleChatSelection(second);
+  await new Promise((r) => setTimeout(r, 300));
+  const afterEmpty = {
+    selecting: state.selectingChats,
+    barHidden: document.getElementById("chat-select-bar").hidden,
+  };
+  return { read, archive, del, unknown, live, twoSelected, afterEmpty };
+});
+check(
+  "bulk read skips already-read chats",
+  selectChats.read.length === 2 &&
+    selectChats.read[0].command === "chat_read_mark" &&
+    selectChats.read[1].args.chat === "c",
+  `${selectChats.read.length} plans`,
+);
+check(
+  "bulk archive skips archived chats and delete never does",
+  selectChats.archive.length === 2 &&
+    selectChats.del.length === 1 &&
+    Boolean(selectChats.del[0].confirm),
+  `${selectChats.archive.length} archive / ${selectChats.del.length} delete`,
+);
+check("unknown bulk actions plan nothing", selectChats.unknown.length === 0);
+check(
+  "Select chats now enters selection mode",
+  selectChats.live.defined &&
+    selectChats.live.selecting &&
+    !selectChats.live.barHidden &&
+    selectChats.live.checkedRows === 1 &&
+    selectChats.live.readEnabled,
+  `${selectChats.live.label}, ${selectChats.live.checkedRows} ticked`,
+);
+check(
+  "the sidebar selection ends when the last row is unticked",
+  selectChats.twoSelected === 2 && !selectChats.afterEmpty.selecting && selectChats.afterEmpty.barHidden,
+  `${selectChats.twoSelected} selected then exited`,
+);
+
 console.log("\n# photo pump + theme + icons (rust)");
 const pumpTheme = await page.evaluate(async () => {
   const pump = {

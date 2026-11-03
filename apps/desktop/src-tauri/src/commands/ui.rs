@@ -559,6 +559,15 @@ pub fn ui_alias_plan(
     wa_ui::state::peer_fold_plan(&lookups, &chats)
 }
 
+/// The plans for a sidebar bulk action (`read`, `archive`, `delete`).
+#[tauri::command]
+pub fn ui_bulk_chat_plan(
+    action: String,
+    chats: Vec<wa_ui::chat_actions::BulkChatInput>,
+) -> Vec<wa_ui::chat_actions::ChatActionPlan> {
+    wa_ui::chat_actions::bulk_chat_plan(&action, &chats)
+}
+
 /// What a chat-menu row does.
 #[tauri::command]
 pub fn ui_chat_action(

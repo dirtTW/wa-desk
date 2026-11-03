@@ -237,6 +237,7 @@ pub fn run() {
             crate::commands::ui::ui_send_plan,
             crate::commands::ui::ui_seed_chats,
             crate::commands::ui::ui_alias_plan,
+            crate::commands::ui::ui_bulk_chat_plan,
             crate::commands::ui::ui_chat_action,
             crate::commands::ui::ui_delete_commands,
             crate::commands::ui::ui_message_info,

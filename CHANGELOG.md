@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.27] — 2026-11-03
+
+- **Fixed: "Select chats" threw a `ReferenceError`.** The sidebar menu and the
+  row click handler called `startChatSelection` / `exitChatSelection` /
+  `toggleChatSelection` / `applyChatSelection` / `markAllChatsRead`, but none of
+  them existed — the `#chat-select-bar` markup was dead. The handlers are now
+  implemented and the selection rules come from Rust: `ui_toggle_selection`
+  (shared with the message selection) and `ui_selection_bar` for the counter and
+  the button states.
+- **Bulk sidebar actions are planned in Rust.** `wa_ui::chat_actions::bulk_chat_plan`
+  maps `read` / `archive` / `delete` over the selected chats, skipping rows that
+  would not change (a read chat for `read`, an archived one for `archive`; delete
+  never skips and always asks), and returns the same `ChatActionPlan` shape the
+  single-row menu uses. Command `ui_bulk_chat_plan`.
+- `markAllChatsRead` now walks the chats with an unread badge and reports how
+  many it marked instead of silently doing nothing.
+- 1 new `wa-ui` unit test (180 total, plus 3 contract) and a sidebar
+  select-chats CDP e2e section: the bulk plans, the live selection mode (bar,
+  counter, ticked row, enabled actions), two rows selected, and exit when the
+  last row is unticked.
+
 ## [0.2.0-rc.26] — 2026-11-03
 
 - **The profile-photo pump, the theme rules and the avatar/media icon tables

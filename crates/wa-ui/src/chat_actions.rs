@@ -196,6 +196,52 @@ pub fn delete_commands(items: &[DeleteTarget], everyone: bool) -> Vec<DeleteComm
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+pub struct BulkChatInput {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub unread: i64,
+    #[serde(default)]
+    pub is_group: bool,
+}
+
+/// One plan per chat for a sidebar bulk action (`read`, `archive`, `delete`).
+/// Rows that would not change anything are skipped, so an empty selection or an
+/// already-read chat never sends a stanza.
+pub fn bulk_chat_plan(action: &str, chats: &[BulkChatInput]) -> Vec<ChatActionPlan> {
+    let wanted = match action {
+        "read" => "read",
+        "archive" => "archive",
+        "delete" => "delete",
+        _ => return Vec::new(),
+    };
+    let mut plans = Vec::new();
+    for chat in chats {
+        // Nothing to do when the row is already in the target state.
+        if wanted == "read" && chat.unread == 0 {
+            continue;
+        }
+        if wanted == "archive" && chat.archived {
+            continue;
+        }
+        plans.push(plan_chat_action(&ChatActionInput {
+            action: wanted.to_string(),
+            jid: chat.jid.clone(),
+            pinned: chat.pinned,
+            archived: chat.archived,
+            blocked: false,
+            is_open: false,
+            is_group: chat.is_group,
+        }));
+    }
+    plans
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct MessageInfoInput {
     #[serde(default)]
     pub kind: String,
@@ -399,6 +445,45 @@ mod tests {
         assert_eq!(mine[0].command, "delete_for_me");
         assert_eq!(mine[1].from_me, Some(false));
         assert_eq!(mine[1].participant.as_deref(), Some("6285@s.whatsapp.net"));
+    }
+
+    #[test]
+    fn bulk_actions_skip_rows_that_would_not_change() {
+        let chats = vec![
+            BulkChatInput {
+                jid: "a@s.whatsapp.net".into(),
+                unread: 3,
+                ..Default::default()
+            },
+            BulkChatInput {
+                jid: "b@s.whatsapp.net".into(),
+                unread: 0,
+                ..Default::default()
+            },
+            BulkChatInput {
+                jid: "c@g.us".into(),
+                unread: 1,
+                archived: true,
+                is_group: true,
+                ..Default::default()
+            },
+        ];
+        let read = bulk_chat_plan("read", &chats);
+        assert_eq!(read.len(), 2, "the already-read chat is skipped");
+        assert_eq!(read[0].command.as_deref(), Some("chat_read_mark"));
+        assert_eq!(read[1].args["chat"], "c@g.us");
+
+        let archive = bulk_chat_plan("archive", &chats);
+        assert_eq!(archive.len(), 2, "the archived chat is skipped");
+        assert_eq!(archive[0].archived, Some(true));
+
+        let delete = bulk_chat_plan("delete", &chats);
+        assert_eq!(delete.len(), 3, "delete never skips");
+        assert_eq!(delete[0].command.as_deref(), Some("chat_delete"));
+        assert!(delete[0].confirm.is_some());
+
+        assert!(bulk_chat_plan("nope", &chats).is_empty());
+        assert!(bulk_chat_plan("read", &[]).is_empty());
     }
 
     #[test]
