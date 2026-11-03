@@ -543,6 +543,29 @@ pub fn ui_draft_plan(
     wa_ui::actions::draft_plan(existing, &files)
 }
 
+/// Star / unstar a message (participant only for someone else's message).
+#[tauri::command]
+pub fn ui_star_plan(
+    id: String,
+    starred_now: bool,
+    from_me: bool,
+    sender: String,
+) -> wa_ui::chat_actions::StarPlan {
+    wa_ui::chat_actions::star_plan(&id, starred_now, from_me, &sender)
+}
+
+/// One mute-menu choice mapped to its duration and toast.
+#[tauri::command]
+pub fn ui_mute_plan(choice: String) -> wa_ui::chat_actions::MutePlan {
+    wa_ui::chat_actions::mute_plan(&choice)
+}
+
+/// Whether the address book should be requested (once, while empty).
+#[tauri::command]
+pub fn ui_contact_sync_needed(syncing: bool, known: usize) -> bool {
+    wa_ui::state::contact_sync_needed(syncing, known)
+}
+
 /// The optimistic own story after a successful post.
 #[tauri::command]
 pub fn ui_status_own_update(

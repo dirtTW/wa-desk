@@ -82,7 +82,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/state.rs                 merge/trim plans for the chat store, photo queue
   src/cache.rs                 cache fingerprint, payload, restore, photo queue
   src/actions.rs               status permissions/drafts, reply banner, selection bar
-  src/chat_actions.rs          chat-menu plans, delete commands, message info
+  src/chat_actions.rs          chat-menu/bulk/message/star/mute plans, delete targets, message info
   src/context.rs               AI context/stickers, media limits, poster sampling
   src/calls.rs                 call overlay, guard, codec/audio formats, jitter buffer
   src/search.rs                in-chat search matching and counter label

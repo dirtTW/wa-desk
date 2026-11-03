@@ -362,18 +362,26 @@ function cancelEdit() {
 // client show the same list); the local set is applied optimistically so the
 // menu flips immediately.
 async function toggleStar(message) {
-  const starred = !state.starred.has(message.id);
+  // The toggle direction, the participant rule and the toast are
+  // wa_ui::chat_actions::star_plan.
+  const plan = await invoke("ui_star_plan", {
+    id: String(message.id || ""),
+    starredNow: state.starred.has(message.id),
+    fromMe: Boolean(message.from_me),
+    sender: message.sender || "",
+  }).catch(() => null);
+  if (!plan || !plan.allowed) return;
   try {
     await invoke("chat_star", {
       chat: message.chat,
       id: message.id,
-      starred,
+      starred: plan.starred,
       fromMe: Boolean(message.from_me),
       // The wire needs the author for someone else's group message.
-      participant: message.from_me ? null : message.sender || null,
+      participant: plan.participant,
     });
-    applyStar(message.chat, message.id, starred);
-    toast(starred ? "Message starred" : "Message unstarred");
+    applyStar(message.chat, message.id, plan.starred);
+    toast(plan.toast);
   } catch (err) {
     toast(String(err));
   }

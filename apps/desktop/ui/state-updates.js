@@ -109,7 +109,13 @@ let contactsSyncing = false;
 // Ask the phone for its full address book once per connection. WhatsApp only
 // pushes contact deltas to linked devices after pairing; this fills the list.
 async function syncContacts() {
-  if (contactsSyncing || state.contacts.size > 0) return;
+  // Ask the phone once per connection, and only while nothing is stored
+  // (wa_ui::state::contact_sync_needed).
+  const needed = await invoke("ui_contact_sync_needed", {
+    syncing: contactsSyncing,
+    known: state.contacts.size,
+  }).catch(() => false);
+  if (!needed) return;
   contactsSyncing = true;
   try {
     await invoke("sync_contacts");

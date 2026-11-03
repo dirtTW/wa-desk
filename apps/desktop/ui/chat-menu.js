@@ -211,25 +211,22 @@ function initChatMenu() {
     if (!button || !chatJid) return;
     const choice = button.dataset.muteChoice;
     closeChatMenu();
-    const until = choice === "0" ? 0 : choice === "-1" ? -1 : Number(choice);
+    // The choice -> duration mapping and the toast are wa_ui's mute_plan.
+    const plan = await invoke("ui_mute_plan", { choice }).catch(() => null);
+    if (!plan) return;
+    const until = plan.until_ms;
     try {
       await invoke("chat_mute", { chat: chatJid, untilMs: until });
       const entry = state.chats.get(chatJid);
       if (entry) {
         entry.muteUntil = until;
         delete entry.muteForever;
-        if (until < 0) entry.muteForever = true;
+        if (plan.forever) entry.muteForever = true;
         renderChatList();
         scheduleSave();
         scheduleNotifySync();
       }
-      toast(
-        until === 0
-          ? "Notifications unmuted"
-          : until === -1
-            ? "Notifications muted: Always"
-            : `Notifications muted for ${until === 28800000 ? "8 hours" : "1 week"}`,
-      );
+      toast(plan.toast);
     } catch (err) {
       toast(String(err));
     }

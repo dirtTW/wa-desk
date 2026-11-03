@@ -465,6 +465,12 @@ pub fn contact_rename_plan(updates: &[(String, String)], chats: &[ContactChatVie
     plan
 }
 
+/// The address book is requested once per connection and only while we have no
+/// saved names yet.
+pub fn contact_sync_needed(syncing: bool, known: usize) -> bool {
+    !syncing && known == 0
+}
+
 /// Profile photos are fetched a few at a time, like WhatsApp Web.
 pub const PHOTO_CONCURRENCY: usize = 3;
 /// A failed profile photo is retried after this long instead of being hidden
@@ -768,6 +774,13 @@ mod tests {
         b.deleted = false;
         let plan = merge_plan(&[a, b]);
         assert!(!plan.ops[0].deleted);
+    }
+
+    #[test]
+    fn the_address_book_is_requested_once_while_empty() {
+        assert!(contact_sync_needed(false, 0), "nothing stored yet");
+        assert!(!contact_sync_needed(true, 0), "already in flight");
+        assert!(!contact_sync_needed(false, 12), "names already cached");
     }
 
     #[test]

@@ -4,6 +4,29 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.41] — 2026-11-03
+
+- **Star, mute and the contact-sync gate moved to Rust.**
+  - `wa_ui::chat_actions::star_plan(id, starred_now, from_me, sender)` — the
+    toggle direction (`starred: !now`), the participant rule (only someone
+    else's message carries an author) and the toast; a message without an id is
+    refused. `toggleStar` sends `plan.starred` / `plan.participant`.
+  - `wa_ui::chat_actions::mute_plan(choice)` — the menu's `0` / `-1` /
+    `28800000` / `604800000` choices become `{ until_ms, forever, toast }`,
+    including the `8 hours` vs `1 week` copy and a safe week fallback for an
+    unreadable value (it used to fall through to `NaN`). `entry.muteForever`
+    now follows `plan.forever` instead of re-deriving `until < 0`.
+  - `wa_ui::state::contact_sync_needed(syncing, known)` — the address book is
+    requested once per connection and only while nothing is stored.
+  Commands `ui_star_plan`, `ui_mute_plan`, `ui_contact_sync_needed`.
+- 3 new `wa-ui` unit tests (215 total, plus 3 contract) and a
+  star/mute/contact-gate CDP e2e section: the three star plans, the five mute
+  choices (including the garbage fallback), the gate's three states, and a live
+  `applyStar` that flags the message and restores it.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.40] — 2026-11-03
 
 - **The status composer's draft rules moved to Rust (`wa_ui::status`).**

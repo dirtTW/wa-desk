@@ -468,6 +468,70 @@ pub fn message_info_html(rows: &[InfoRow]) -> String {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StarPlan {
+    /// The state to send: the opposite of what the message is in now.
+    pub starred: bool,
+    /// The wire needs the author for someone else's message only.
+    pub participant: Option<String>,
+    pub toast: &'static str,
+    pub allowed: bool,
+}
+
+/// Star / unstar from the message menu.
+pub fn star_plan(id: &str, starred_now: bool, from_me: bool, sender: &str) -> StarPlan {
+    if id.is_empty() {
+        return StarPlan {
+            starred: false,
+            participant: None,
+            toast: "",
+            allowed: false,
+        };
+    }
+    let starred = !starred_now;
+    StarPlan {
+        starred,
+        participant: if from_me || sender.is_empty() {
+            None
+        } else {
+            Some(sender.to_string())
+        },
+        toast: if starred {
+            "Message starred"
+        } else {
+            "Message unstarred"
+        },
+        allowed: true,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MutePlan {
+    /// `0` unmutes, `-1` is "always", anything else is a duration in ms.
+    pub until_ms: i64,
+    pub forever: bool,
+    pub toast: &'static str,
+}
+
+/// One of the mute menu's choices (`0`, `-1`, `28800000`, `604800000`).
+pub fn mute_plan(choice: &str) -> MutePlan {
+    let until_ms = match choice.trim() {
+        "0" => 0,
+        "-1" => -1,
+        other => other.parse::<i64>().unwrap_or(604_800_000),
+    };
+    MutePlan {
+        until_ms,
+        forever: until_ms < 0,
+        toast: match until_ms {
+            0 => "Notifications unmuted",
+            -1 => "Notifications muted: Always",
+            28_800_000 => "Notifications muted for 8 hours",
+            _ => "Notifications muted for 1 week",
+        },
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct MemberActionPlan {
     pub allowed: bool,
     /// The Tauri command to run (empty when nothing may happen).
@@ -615,6 +679,48 @@ mod tests {
         assert_eq!(mine[0].command, "delete_for_me");
         assert_eq!(mine[1].from_me, Some(false));
         assert_eq!(mine[1].participant.as_deref(), Some("6285@s.whatsapp.net"));
+    }
+
+    #[test]
+    fn starring_toggles_and_needs_an_author_for_others() {
+        let on = star_plan("m1", false, false, "6285@s.whatsapp.net");
+        assert!(on.allowed && on.starred);
+        assert_eq!(on.participant.as_deref(), Some("6285@s.whatsapp.net"));
+        assert_eq!(on.toast, "Message starred");
+
+        // Our own message carries no participant.
+        let mine = star_plan("m1", true, true, "6285@s.whatsapp.net");
+        assert!(!mine.starred);
+        assert!(mine.participant.is_none());
+        assert_eq!(mine.toast, "Message unstarred");
+
+        // A message without an id cannot be starred.
+        assert!(!star_plan("", false, false, "x").allowed);
+    }
+
+    #[test]
+    fn mute_choices_map_to_durations_and_copy() {
+        let unmute = mute_plan("0");
+        assert_eq!(unmute.until_ms, 0);
+        assert!(!unmute.forever);
+        assert_eq!(unmute.toast, "Notifications unmuted");
+
+        let always = mute_plan("-1");
+        assert_eq!(always.until_ms, -1);
+        assert!(always.forever);
+        assert_eq!(always.toast, "Notifications muted: Always");
+
+        let eight = mute_plan("28800000");
+        assert_eq!(eight.until_ms, 28_800_000);
+        assert_eq!(eight.toast, "Notifications muted for 8 hours");
+
+        let week = mute_plan("604800000");
+        assert_eq!(week.toast, "Notifications muted for 1 week");
+        assert!(!week.forever);
+
+        // An unreadable choice falls back to the week, not to unmuted.
+        assert_eq!(mute_plan("garbage").until_ms, 604_800_000);
+        assert_eq!(mute_plan(" 0 ").until_ms, 0, "trimmed");
     }
 
     #[test]

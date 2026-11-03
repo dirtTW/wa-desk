@@ -488,6 +488,88 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# star + mute + contact gate (rust)");
+const starMute = await page.evaluate(async () => {
+  const star = {
+    theirs: await invoke("ui_star_plan", {
+      id: "m1",
+      starredNow: false,
+      fromMe: false,
+      sender: "6285@s.whatsapp.net",
+    }),
+    mine: await invoke("ui_star_plan", {
+      id: "m1",
+      starredNow: true,
+      fromMe: true,
+      sender: "6285@s.whatsapp.net",
+    }),
+    noId: await invoke("ui_star_plan", { id: "", starredNow: false, fromMe: false, sender: "" }),
+  };
+  const mute = {
+    unmute: await invoke("ui_mute_plan", { choice: "0" }),
+    always: await invoke("ui_mute_plan", { choice: "-1" }),
+    eight: await invoke("ui_mute_plan", { choice: "28800000" }),
+    week: await invoke("ui_mute_plan", { choice: "604800000" }),
+    junk: await invoke("ui_mute_plan", { choice: "garbage" }),
+  };
+  const contacts = {
+    empty: await invoke("ui_contact_sync_needed", { syncing: false, known: 0 }),
+    busy: await invoke("ui_contact_sync_needed", { syncing: true, known: 0 }),
+    known: await invoke("ui_contact_sync_needed", { syncing: false, known: 12 }),
+  };
+
+  // Live: applyStar is the local half of the star flow, so it can be checked
+  // without touching the server.
+  const chat = [...state.chats.values()].find((entry) => entry.messages.some((m) => m.text));
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    const message = chat.messages.find((m) => m.text);
+    const was = state.starred.has(message.id);
+    applyStar(chat.jid, message.id, true);
+    await new Promise((r) => setTimeout(r, 300));
+    const starred = state.starred.has(message.id) && Boolean(message.starred);
+    applyStar(chat.jid, message.id, was);
+    await new Promise((r) => setTimeout(r, 300));
+    live = { starred, restored: state.starred.has(message.id) === was };
+  }
+  return { star, mute, contacts, live };
+});
+check(
+  "starring toggles and only carries a participant for others",
+  starMute.star.theirs.starred &&
+    starMute.star.theirs.participant === "6285@s.whatsapp.net" &&
+    starMute.star.theirs.toast === "Message starred" &&
+    !starMute.star.mine.starred &&
+    starMute.star.mine.participant === null &&
+    starMute.star.mine.toast === "Message unstarred" &&
+    !starMute.star.noId.allowed,
+  JSON.stringify(starMute.star),
+);
+check(
+  "mute choices map to durations and copy",
+  starMute.mute.unmute.until_ms === 0 &&
+    starMute.mute.always.until_ms === -1 &&
+    starMute.mute.always.forever &&
+    starMute.mute.eight.toast === "Notifications muted for 8 hours" &&
+    starMute.mute.week.toast === "Notifications muted for 1 week" &&
+    starMute.mute.junk.until_ms === 604800000,
+  JSON.stringify(starMute.mute),
+);
+check(
+  "the address book is requested once while empty",
+  starMute.contacts.empty && !starMute.contacts.busy && !starMute.contacts.known,
+  JSON.stringify(starMute.contacts),
+);
+if (starMute.live) {
+  check(
+    "applying a star flags the message",
+    starMute.live.starred && starMute.live.restored,
+    JSON.stringify(starMute.live),
+  );
+}
+
 console.log("\n# status composer draft (rust)");
 const statusDraft = await page.evaluate(async () => {
   const server = await invoke("ui_status_own_update", {
