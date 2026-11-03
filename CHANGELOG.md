@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.1.0-rc.5] — 2026-11-03
+
+- **In-app updates.** Settings → Account gained an **Updates** row. *Check for
+  updates* asks `tauri-plugin-updater` whether a newer release is published;
+  when one is, the row becomes *Update to vX*, which downloads the installer,
+  verifies its minisign signature and installs it, then restarts into the new
+  version. `plugins.updater.endpoints` points at the `latest.json` attached to
+  the newest release, and `plugins.updater.pubkey` pins the key the CI signs
+  with (`TAURI_SIGNING_PRIVATE_KEY`).
+- **Settings → Help and feedback** now links the **source code** and the
+  **licence**, shows the running version, and carries a **Special thanks** list
+  crediting every library the client stands on (mirrored by the README's
+  Credits section).
+- The release job signs the installer (`bundle.createUpdaterArtifacts: true`),
+  writes `latest.json` for the updater and uploads it alongside the other
+  assets, so a tag push now produces a working update channel.
+
 ## [0.1.0-rc.4] — 2026-11-03
 
 - **The window now opens at a size that fits the screen.** The configured
@@ -638,6 +655,7 @@ Everything below is part of this release.
 
 <!-- Version comparison links. The earlier pre-release tags were removed, so the
      diffs are anchored on their release commits. -->
+[0.1.0-rc.5]: https://github.com/dirtTW/wa-desk/compare/v0.1.0-rc.4...v0.1.0-rc.5
 [0.1.0-rc.4]: https://github.com/dirtTW/wa-desk/compare/v0.1.0-rc.3...v0.1.0-rc.4
 [0.1.0-rc.3]: https://github.com/dirtTW/wa-desk/compare/68a19c0...v0.1.0-rc.3
 [0.1.0-rc.2]: https://github.com/dirtTW/wa-desk/compare/ab8027f...68a19c0

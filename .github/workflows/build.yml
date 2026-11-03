@@ -23,6 +23,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Known-vulnerability scan. `.cargo/audit.toml` records the accepted
+      # advisories and why each one cannot be cleared yet.
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
 
   build:
     strategy:
@@ -76,6 +82,9 @@ jobs:
           path: dist
       - name: Build the Windows installers
         working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx --yes "@tauri-apps/cli@^2" build --bundles msi,nsis
       - name: Compose the release body from CHANGELOG.md
         shell: pwsh
@@ -104,6 +113,35 @@ jobs:
           # `git describe` above exits non-zero when there is no previous tag,
           # and Actions' pwsh wrapper exits with $LASTEXITCODE. Reset it.
           exit 0
+      # `plugins.updater.endpoints` points at this file on the newest release.
+      # tauri-plugin-updater fetches it, compares `version` and verifies the
+      # installer against the `.sig` produced by TAURI_SIGNING_PRIVATE_KEY.
+      - name: Write latest.json for the in-app updater
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $version = $tag -replace '^v', ''
+          $setup = Get-ChildItem 'target/release/bundle/nsis/*-setup.exe' -ErrorAction Stop |
+            Select-Object -First 1
+          $sigPath = "$($setup.FullName).sig"
+          if (-not (Test-Path $sigPath)) {
+            Write-Error "no signature at $sigPath - is TAURI_SIGNING_PRIVATE_KEY set?"
+            exit 1
+          }
+          $manifest = [ordered]@{
+            version   = $version
+            notes     = (Get-Content release-body.md -Raw)
+            pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            platforms = [ordered]@{
+              'windows-x86_64' = [ordered]@{
+                signature = (Get-Content $sigPath -Raw).Trim()
+                url       = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$($setup.Name)"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path latest.json -Encoding utf8
+          Write-Output '----- latest.json -----'
+          Get-Content latest.json
       - name: Push the artifacts to the release
         shell: pwsh
         env:
@@ -115,10 +153,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "WA Desk $tag" $pre --notes-file release-body.md
           }
-          $assets = @()
+          $assets = @('latest.json')
           $assets += Get-ChildItem -Path dist -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          $assets += Get-ChildItem -Path target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          $assets += Get-ChildItem -Path target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          $assets += Get-ChildItem -Path target/release/bundle/msi/*, target/release/bundle/nsis/* -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
           Write-Output "attaching to ${tag}:"
           $assets | ForEach-Object { Write-Output "  $_" }
           gh release upload $tag @assets --clobber

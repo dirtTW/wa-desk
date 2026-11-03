@@ -202,3 +202,61 @@ not trigger — but the licence statement is honest about what the binary contai
 
 If the upstream metadata is ever corrected, or `wacore-libsignal` is replaced with a
 permissively licensed equivalent, the project could be relicensed back.
+
+---
+
+## Credits
+
+WA Desk is a thin layer on top of other people's work. Special thanks to everyone below — this
+client would not exist without them.
+
+### Protocol
+
+- **[whatsapp-rust](https://github.com/jlucaso1/whatsapp-rust)** by
+  [jlucaso1](https://github.com/jlucaso1) — the WhatsApp Web protocol client this app is built on
+  (`wacore`, `waproto`, `wacore-noise`, `wacore-appstate`, `whatsapp-rust-*`). This is the single
+  biggest dependency and the reason the project is possible at all.
+- **[Signal](https://signal.org/) / [libsignal](https://github.com/signalapp/libsignal)** — the
+  Double Ratchet, X3DH and the crypto primitives behind end-to-end encryption
+  (`wacore-libsignal`). Also the reason this app is AGPL.
+- **[whatsmeow](https://github.com/tulir/whatsmeow)** and
+  **[Baileys](https://github.com/WhiskeySockets/Baileys)** — the reference implementations that
+  `whatsapp-rust` checks its protocol behaviour against.
+
+### Desktop shell
+
+- **[Tauri](https://tauri.app/)** — the desktop app framework, and the WebView it drives.
+- **[WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)** (Microsoft) — the
+  Windows renderer, preinstalled with Windows 10/11.
+- **[WebKitGTK](https://webkitgtk.org/)** — the Linux renderer.
+
+### Crates
+
+- **[tokio](https://tokio.rs/)** — the async runtime.
+- **[serde](https://serde.rs/)** / **[serde_json](https://serde.rs/)** — serialization.
+- **[RustCrypto](https://github.com/RustCrypto)** — `aes-gcm`, `sha2`, `hmac`, `hkdf`.
+- **[ureq](https://github.com/algesten/ureq)** — the blocking HTTP client.
+- **[qrcode](https://github.com/kennytm/qrcode-rust)** — the pairing QR code.
+- **[tracing](https://tokio.rs/tokio/tracing)** — logging.
+- **[anyhow](https://github.com/dtolnay/anyhow)** — error handling.
+- **[webview2-com](https://github.com/wravery/webview2-rs)** and
+  **[windows](https://github.com/microsoft/windows-rs)** — the Win32 bindings.
+- …and every other crate in `Cargo.lock`; `cargo tree` lists them all.
+
+### Assets
+
+- **[Material Symbols](https://fonts.google.com/icons)** (Google) — every icon in the UI.
+- **[Material Web](https://github.com/material-components/material-web)** (Google) — the settings
+  dialog and its controls.
+
+### Tools
+
+- **[OpenCode](https://opencode.ai)** — the agentic coding environment this was built in.
+- **[DeepSeek V4.1 Flash](https://deepseek.com)** and **[GLM 5.3 Flash](https://z.ai)** — the
+  models that wrote the code (see the [Development note](#development-note)).
+
+### And
+
+- **WhatsApp / Meta** — for the protocol this reimplements. Not affiliated, not endorsed, and
+  subject to their Terms of Service.
+

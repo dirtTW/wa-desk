@@ -1,0 +1,21 @@
+# `cargo audit` configuration for the workspace.
+#
+# The tree is clean apart from advisories that need an upstream release to
+# clear. Every ignore records what it is, how it is reachable, and what would
+# remove it — re-check these whenever the dependencies move.
+#
+# Run with: cargo audit
+
+[advisories]
+ignore = [
+  # crypto-bigint 0.5.5 — "Multiple timing variability issues in operations
+  # intended to be constant-time".
+  #
+  # Reachable only through the VoIP stack:
+  #   crypto-bigint <- elliptic-curve <- p256/p384 <- webrtc-dtls <- whatsapp-rust
+  # It is NOT on the Signal end-to-end path (that is `wacore-libsignal`), and
+  # exploiting it needs local timing measurements against a live call.
+  # Cleared by elliptic-curve 0.14 / crypto-bigint 0.7, which needs an upstream
+  # `webrtc-dtls` release we do not control.
+  "RUSTSEC-2026-0387",
+]

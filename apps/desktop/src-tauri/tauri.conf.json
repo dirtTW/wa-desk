@@ -1,10 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WA Desk",
-  "version": "0.1.0-rc.4",
+  "version": "0.1.0-rc.5",
   "identifier": "io.github.dirttw.wadesk",
   "build": {
     "frontendDist": "../ui"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFDMjVDNEMwMzU0M0MxQTgKUldTb3dVTTF3TVFscktqOXpEdDl6R1JXa3d2S1ZtVjFUMWI1S0V6dTNlU2xOYTZSTjJtYWRYVmoK",
+      "endpoints": [
+        "https://github.com/dirtTW/wa-desk/releases/latest/download/latest.json"
+      ]
+    }
   },
   "app": {
     "withGlobalTauri": true,
@@ -32,6 +40,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "category": "SocialNetworking",
     "publisher": "dirttw",
     "copyright": "Copyright (C) 2026 dirttw. Licensed under AGPL-3.0-only.",
@@ -42,7 +51,7 @@
     },
     "windows": {
       "wix": {
-        "version": "0.1.0.4"
+        "version": "0.1.0.5"
       }
     },
     "icon": [

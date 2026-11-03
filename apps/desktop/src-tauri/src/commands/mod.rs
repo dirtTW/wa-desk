@@ -15,3 +15,4 @@ pub mod media;
 pub mod messages;
 pub mod session;
 pub mod status;
+pub mod update;

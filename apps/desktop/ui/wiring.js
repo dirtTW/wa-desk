@@ -421,6 +421,12 @@ function wire() {
       previewAiReply();
       return;
     }
+    const update = event.target.closest("[data-update]");
+    if (update) {
+      if (update.dataset.update === "install") installUpdate();
+      else checkForUpdate();
+      return;
+    }
 
     const toggle = event.target.closest("[data-toggle]");
     if (toggle) {

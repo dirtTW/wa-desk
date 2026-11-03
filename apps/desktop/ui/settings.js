@@ -3,6 +3,9 @@
 /* ------------------------------------------------------------------ settings */
 
 const SETTINGS_KEY = "wadesk.settings.v1";
+// Where the client's source and licence live. `Help and feedback` links here.
+const SOURCE_URL = "https://github.com/dirtTW/wa-desk";
+const LICENSE_URL = "https://github.com/dirtTW/wa-desk/blob/main/LICENSE.md";
 const SETTINGS_TITLES = {
   home: "Settings",
   profile: "Profile",
@@ -162,12 +165,113 @@ function settingsStatic(title, detail) {
     </div>`;
 }
 
+// An external row: the same shape as `settingsStatic`, but an anchor so the
+// global `a[target="_blank"]` handler opens it in the default browser.
+function settingsExternal(title, detail, href) {
+  return `<a class="settings-row static" href="${href}" target="_blank" rel="noreferrer noopener">
+      <div class="settings-row-main"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>
+      <span class="settings-chevron">&#8250;</span>
+    </a>`;
+}
+
+// Everyone whose work this client stands on. `Help and feedback` lists these
+// with links; keep it in step with the Credits section of the README.
+const CREDITS = [
+  ["whatsapp-rust", "jlucaso1 — the WhatsApp Web protocol client", "https://github.com/jlucaso1/whatsapp-rust"],
+  ["libsignal", "Signal — the end-to-end encryption primitives", "https://github.com/signalapp/libsignal"],
+  ["whatsmeow / Baileys", "protocol reference implementations", "https://github.com/tulir/whatsmeow"],
+  ["Tauri", "the desktop app framework", "https://tauri.app/"],
+  ["tokio", "the async runtime", "https://tokio.rs/"],
+  ["serde", "serialization", "https://serde.rs/"],
+  ["RustCrypto", "aes-gcm, sha2, hmac, hkdf", "https://github.com/RustCrypto"],
+  ["ureq", "the blocking HTTP client", "https://github.com/algesten/ureq"],
+  ["qrcode", "the pairing QR code", "https://github.com/kennytm/qrcode-rust"],
+  ["tracing", "logging", "https://tokio.rs/tokio/tracing"],
+  ["Material Symbols", "every icon in this UI", "https://fonts.google.com/icons"],
+  ["Material Web", "the settings dialog", "https://github.com/material-components/material-web"],
+  ["OpenCode", "the agentic coding environment", "https://opencode.ai"],
+  ["DeepSeek & GLM", "the models that wrote the code", "https://deepseek.com"],
+];
+
+function settingsCredits() {
+  const rows = CREDITS.map(([name, what, url]) => settingsExternal(name, what, url)).join("");
+  return `<div class="settings-section">Special thanks</div>
+    <div class="settings-list">${rows}</div>`;
+}
+
 function settingsToggle(key, title, detail) {
   const on = Boolean(settingsPrefs[key]);
   return `<button type="button" class="settings-row clickable" data-toggle="${key}">
       <div class="settings-row-main"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>
       <span class="switch ${on ? "on" : ""}"></span>
     </button>`;
+}
+
+/* ---------------------------------------------------------------- updates */
+
+// The Account screen's update row: a manual check, then a one-click install.
+// `check_for_update`/`install_update` go through tauri-plugin-updater, which
+// reads the `latest.json` on the newest GitHub release and verifies the
+// installer against the minisign key in `plugins.updater.pubkey`.
+let updateState = { checking: false, version: null, status: "" };
+
+function settingsUpdates() {
+  const status =
+    updateState.status || "Check whether a newer version of WA Desk has been published.";
+  const action = updateState.version
+    ? `<button type="button" class="settings-edit" data-update="install">Update to ${escapeHtml(updateState.version)}</button>`
+    : `<button type="button" class="settings-edit" data-update="check"${updateState.checking ? " disabled" : ""}>${updateState.checking ? "Checking..." : "Check for updates"}</button>`;
+  return `<div class="settings-list">
+      <div class="settings-row static">
+        <div class="settings-row-main"><strong>Updates</strong><span id="update-status">${escapeHtml(status)}</span></div>
+        ${action}
+      </div>
+    </div>`;
+}
+
+async function checkForUpdate() {
+  updateState = { checking: true, version: null, status: "Checking for updates..." };
+  renderSettings();
+  try {
+    const result = await invoke("check_for_update");
+    updateState = result.version
+      ? {
+          checking: false,
+          version: result.version,
+          status: `Version ${result.version} is available — you are on ${result.current}.`,
+        }
+      : {
+          checking: false,
+          version: null,
+          status: `You are on the newest version (${result.current}).`,
+        };
+  } catch (err) {
+    updateState = {
+      checking: false,
+      version: null,
+      status: `Could not check for updates: ${String(err)}`,
+    };
+  }
+  renderSettings();
+}
+
+async function installUpdate() {
+  updateState = {
+    checking: false,
+    version: null,
+    status: "Downloading and installing... WA Desk restarts when it is done.",
+  };
+  renderSettings();
+  try {
+    await invoke("install_update");
+  } catch (err) {
+    updateState = {
+      checking: false,
+      version: null,
+      status: `Could not install the update: ${String(err)}`,
+    };
+    renderSettings();
+  }
 }
 
 function renderSettings() {
@@ -202,7 +306,8 @@ function renderSettings() {
         ${settingsStatic("Build", buildLabel())}
         ${settingsStatic("Request account info", "Available from your phone")}
         ${settingsStatic("How to delete my account", "Unlink this device first, then use your phone")}
-      </div>`;
+      </div>
+      ${settingsUpdates()}`;
   } else if (settingsPage === "privacy") {
     body = `
       <div class="settings-list">
@@ -245,7 +350,13 @@ function renderSettings() {
         ${settingsStatic("WA Desk", "Unofficial client built on whatsapp-rust + Tauri")}
         ${settingsStatic("Not affiliated", "WhatsApp and Meta are trademarks of Meta Platforms")}
         ${settingsStatic("Privacy", "Keys and history stay on this device; nothing is uploaded by this app")}
-      </div>`;
+      </div>
+      <div class="settings-list">
+        ${settingsExternal("Source code", "github.com/dirtTW/wa-desk", SOURCE_URL)}
+        ${settingsExternal("License", "AGPL-3.0-only — the binary links Signal's AGPL code", LICENSE_URL)}
+        ${settingsStatic("Version", buildLabel())}
+      </div>
+      ${settingsCredits()}`;
   } else {
     body = `
       ${settingsHeaderAvatar()}

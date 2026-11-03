@@ -84,6 +84,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             crate::commands::session::get_status,
@@ -169,7 +170,9 @@ pub fn run() {
             crate::commands::messages::edit_message,
             crate::commands::session::logout,
             crate::notifications::set_notify_state,
-            crate::notifications::test_notify
+            crate::notifications::test_notify,
+            crate::commands::update::check_for_update,
+            crate::commands::update::install_update
         ])
         .setup(|app| {
             #[cfg(windows)]
