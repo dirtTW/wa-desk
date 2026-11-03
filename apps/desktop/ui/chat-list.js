@@ -506,20 +506,26 @@ function setRailStatusUnseen(count) {
   updateRailBadges();
 }
 
-function updateRailBadges() {
-  let unreadChats = 0;
-  for (const [, chat] of state.chats) {
-    if (isChannelJid(chat.jid) || isSelfChat(chat.jid)) continue;
-    if (chat.deleted && !state.showDeleted) continue;
-    if (chat.unread > 0) unreadChats += 1;
-  }
-  const chatsText = unreadChats ? String(Math.min(unreadChats, 99)) : "";
-  const statusText = railStatusUnseen ? "dot" : "";
-  const key = `${chatsText}|${statusText}`;
-  if (key === railBadgeState) return;
-  railBadgeState = key;
-  setRailBadge($("rail-chats"), chatsText);
-  setRailBadge($("btn-status"), statusText);
+async function updateRailBadges() {
+  // Which chats count (channels, the account's own chat and hidden deleted
+  // chats are skipped), the 99 cap and the dot are
+  // wa_ui::sidebar::rail_badges.
+  const badges = await invoke("ui_rail_badges", {
+    chats: [...state.chats.values()].map((chat) => ({
+      jid: chat.jid || "",
+      unread: chat.unread || 0,
+      deleted: Boolean(chat.deleted),
+    })),
+    showDeleted: Boolean(state.showDeleted),
+    statusUnseen: railStatusUnseen,
+    meJid: state.meJid || "",
+    meLid: state.meLid || "",
+  }).catch(() => null);
+  if (!badges) return;
+  if (badges.key === railBadgeState) return;
+  railBadgeState = badges.key;
+  setRailBadge($("rail-chats"), badges.chats_text);
+  setRailBadge($("btn-status"), badges.status_text);
 }
 
 function setRailBadge(btn, text) {

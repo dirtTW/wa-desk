@@ -672,6 +672,62 @@ pub fn is_group(jid: &str) -> bool {
     is_group_jid(jid)
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RailChatView {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub unread: i64,
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RailBadges {
+    /// The count pill on the chats icon (empty when there is nothing unread),
+    /// capped at 99 like the official client.
+    pub chats_text: String,
+    /// `dot` while unseen stories exist.
+    pub status_text: String,
+    /// Change guard so a repaint without changes skips the DOM work.
+    pub key: String,
+    pub unread_chats: usize,
+}
+
+/// The rail's notification badges: unread chats (channels, the account's own
+/// chat and hidden deleted chats do not count) and the status dot.
+pub fn rail_badges(
+    chats: &[RailChatView],
+    show_deleted: bool,
+    status_unseen: usize,
+    me_jid: &str,
+    me_lid: &str,
+) -> RailBadges {
+    let unread_chats = chats
+        .iter()
+        .filter(|chat| !chat.jid.ends_with("@newsletter"))
+        .filter(|chat| !crate::text::is_self_jid(&chat.jid, me_jid, me_lid))
+        .filter(|chat| !(chat.deleted && !show_deleted))
+        .filter(|chat| chat.unread > 0)
+        .count();
+    let chats_text = if unread_chats > 0 {
+        unread_chats.min(99).to_string()
+    } else {
+        String::new()
+    };
+    let status_text = if status_unseen > 0 {
+        "dot".to_string()
+    } else {
+        String::new()
+    };
+    RailBadges {
+        key: format!("{chats_text}|{status_text}"),
+        unread_chats,
+        chats_text,
+        status_text,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,6 +786,46 @@ mod tests {
             "the empty state is hidden while chats exist"
         );
         assert_eq!(out.queue, vec!["6285@s.whatsapp.net".to_string()]);
+    }
+
+    #[test]
+    fn rail_badges_count_only_real_unread_chats() {
+        let chat = |jid: &str, unread: i64, deleted: bool| RailChatView {
+            jid: jid.into(),
+            unread,
+            deleted,
+        };
+        let chats = vec![
+            chat("111@s.whatsapp.net", 3, false),
+            chat("222@s.whatsapp.net", 1, false),
+            chat("333@s.whatsapp.net", 0, false),
+            chat("444@newsletter", 5, false),
+            chat("62111@s.whatsapp.net", 7, false),
+            chat("555@s.whatsapp.net", 2, true),
+        ];
+        let badges = rail_badges(&chats, false, 0, "62111@s.whatsapp.net", "");
+        assert_eq!(
+            badges.unread_chats, 2,
+            "channel, self and hidden deleted skip"
+        );
+        assert_eq!(badges.chats_text, "2");
+        assert_eq!(badges.status_text, "");
+        assert_eq!(badges.key, "2|");
+
+        // Deleted chats count once they are visible.
+        let shown = rail_badges(&chats, true, 4, "62111@s.whatsapp.net", "");
+        assert_eq!(shown.unread_chats, 3);
+        assert_eq!(shown.status_text, "dot");
+        assert_eq!(shown.key, "3|dot");
+
+        // The pill caps at 99 and disappears when nothing is unread.
+        let many: Vec<RailChatView> = (0..120)
+            .map(|i| chat(&format!("{i}@g.us"), 1, false))
+            .collect();
+        assert_eq!(rail_badges(&many, false, 0, "", "").chats_text, "99");
+        let quiet = rail_badges(&[], false, 0, "", "");
+        assert!(quiet.chats_text.is_empty() && quiet.status_text.is_empty());
+        assert_eq!(quiet.key, "|");
     }
 
     #[test]

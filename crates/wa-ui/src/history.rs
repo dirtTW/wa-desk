@@ -84,6 +84,68 @@ pub fn sync_targets(chats: &[HistoryChat], limit: usize) -> Vec<String> {
         .collect()
 }
 
+/// A re-sync asks for a handful of chats: every entry is a peer message to the
+/// phone, and a large burst is indistinguishable from spam.
+pub const HISTORY_SYNC_BATCH: usize = 8;
+/// The automatic re-sync runs at most once a day.
+pub const HISTORY_SYNC_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SyncProgress {
+    /// 0..=100
+    pub percent: u32,
+    pub text: &'static str,
+    pub count: String,
+    pub complete: bool,
+}
+
+/// The history re-sync progress line (`Syncing chat history… 3/8`, then
+/// `History refreshed`).
+pub fn sync_progress(done: usize, total: usize) -> SyncProgress {
+    let percent = if total > 0 {
+        (((done as f64 / total as f64) * 100.0).round() as u32).min(100)
+    } else {
+        0
+    };
+    let complete = total > 0 && done >= total;
+    SyncProgress {
+        percent,
+        text: if complete {
+            "History refreshed"
+        } else {
+            "Syncing chat history…"
+        },
+        count: if total > 0 {
+            format!("{done}/{total}")
+        } else {
+            String::new()
+        },
+        complete,
+    }
+}
+
+/// Whether a re-sync may start: never while one runs or offline, and (unless
+/// forced) not when the last one is younger than a day.
+pub fn sync_allowed(syncing: bool, connected: bool, last_at: i64, now: i64, force: bool) -> bool {
+    if syncing || !connected {
+        return false;
+    }
+    force || last_at == 0 || now - last_at >= HISTORY_SYNC_WINDOW_MS
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct SyncConstants {
+    pub batch: usize,
+    pub window_ms: i64,
+}
+
+pub fn sync_constants() -> SyncConstants {
+    SyncConstants {
+        batch: HISTORY_SYNC_BATCH,
+        window_ms: HISTORY_SYNC_WINDOW_MS,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +157,57 @@ mod tests {
             last_ts,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_resync_progress_line_reads() {
+        let start = sync_progress(0, 8);
+        assert_eq!(start.percent, 0);
+        assert_eq!(start.text, "Syncing chat history…");
+        assert_eq!(start.count, "0/8");
+        assert!(!start.complete);
+
+        let mid = sync_progress(3, 8);
+        assert_eq!(mid.percent, 38, "3/8 rounds to 38%");
+        assert_eq!(mid.count, "3/8");
+
+        let done = sync_progress(8, 8);
+        assert_eq!(done.percent, 100);
+        assert_eq!(done.text, "History refreshed");
+        assert!(done.complete);
+
+        // An empty batch shows an empty counter and never claims completion.
+        let empty = sync_progress(0, 0);
+        assert_eq!(empty.percent, 0);
+        assert_eq!(empty.count, "");
+        assert!(!empty.complete);
+
+        // A late event cannot push the bar past 100%.
+        assert_eq!(sync_progress(9, 8).percent, 100);
+    }
+
+    #[test]
+    fn the_resync_gate_is_once_a_day_unless_forced() {
+        let now = 1_800_000_000_000;
+        assert!(sync_allowed(false, true, 0, now, false), "never synced");
+        assert!(!sync_allowed(true, true, 0, now, false), "already running");
+        assert!(!sync_allowed(false, false, 0, now, false), "offline");
+        assert!(
+            !sync_allowed(false, true, now - 1000, now, false),
+            "a second ago"
+        );
+        assert!(sync_allowed(
+            false,
+            true,
+            now - HISTORY_SYNC_WINDOW_MS,
+            now,
+            false
+        ));
+        assert!(sync_allowed(false, true, now - 1000, now, true), "forced");
+        assert!(
+            !sync_allowed(true, true, now - 1000, now, true),
+            "busy beats force"
+        );
     }
 
     #[test]

@@ -89,7 +89,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/incoming.rs              message-event folding, unread/receipt rules, receipt batches
   src/reactions.rs             reaction toggle, live-event fold, own-pill replace
   src/export.rs                chat-export parsing and import merge plan
-  src/history.rs               on-demand history anchors and re-sync order
+  src/history.rs               history anchors, re-sync order, gate and progress
   src/screens.rs               channels panel, community screen, starred messages
   src/status.rs                status rail list, story viewer shell, views list,
                                viewer chrome, step targets, view receipts, healing
@@ -100,7 +100,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/scroll.rs                scroll metrics, event plan, visible anchor, disc offset
   src/viewer.rs                media viewer chrome, video player, filmstrip
   src/stickers.rs              sticker picker grid, cells and empty states
-  src/sidebar.rs               chat list: filters, pin order, communities, search
+  src/sidebar.rs               chat list: filters, pin order, communities, search, rail badges
 crates/wa-core/                protocol session layer (no Tauri dependency)
   src/lib.rs                   Session struct + module wiring
   src/events.rs                protocol event -> UiEvent translation

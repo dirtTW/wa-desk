@@ -51,7 +51,10 @@ pub use composer::{EmojiPanel, StatusPalette};
 pub use context::{ContextLine, ContextMessage, MediaLimits, StickerCandidate};
 pub use emoji::{EmojiGroupView, EmojiItem};
 pub use export::{ExistingMessage, ExportMessage, ImportPlan};
-pub use history::{AnchorRequest, HistoryChat};
+pub use history::{
+    AnchorRequest, HistoryChat, SyncConstants, SyncProgress, sync_allowed, sync_constants,
+    sync_progress,
+};
 pub use html::{avatar, escape, icon, icon_with_class, initials};
 pub use incoming::{Decision, DuplicatePlan, IncomingView, UnreadRule};
 pub use labels::{clock_label, day_of, format_followers, group_member_count, stamp_of};

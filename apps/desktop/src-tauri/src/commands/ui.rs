@@ -297,6 +297,42 @@ pub fn ui_pcm_sample(sample: f64) -> i16 {
     wa_ui::calls::pcm_i16(sample as f32)
 }
 
+/// The rail's notification badges (unread chats pill + status dot).
+#[tauri::command]
+pub fn ui_rail_badges(
+    chats: Vec<wa_ui::sidebar::RailChatView>,
+    show_deleted: bool,
+    status_unseen: usize,
+    me_jid: String,
+    me_lid: String,
+) -> wa_ui::sidebar::RailBadges {
+    wa_ui::sidebar::rail_badges(&chats, show_deleted, status_unseen, &me_jid, &me_lid)
+}
+
+/// The history re-sync progress line (`3/8`, 38 %, `History refreshed`).
+#[tauri::command]
+pub fn ui_sync_progress(done: usize, total: usize) -> wa_ui::history::SyncProgress {
+    wa_ui::history::sync_progress(done, total)
+}
+
+/// Whether a history re-sync may start (busy/offline/once-a-day rules).
+#[tauri::command]
+pub fn ui_sync_allowed(
+    syncing: bool,
+    connected: bool,
+    last_at: i64,
+    now: i64,
+    force: bool,
+) -> bool {
+    wa_ui::history::sync_allowed(syncing, connected, last_at, now, force)
+}
+
+/// The re-sync batch size and window.
+#[tauri::command]
+pub fn ui_history_sync_constants() -> wa_ui::history::SyncConstants {
+    wa_ui::history::sync_constants()
+}
+
 /// The group-info subtitle (`Group - 34 members`).
 #[tauri::command]
 pub fn ui_group_member_count(count: usize) -> String {

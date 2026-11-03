@@ -684,7 +684,7 @@ async function handleEvent(event) {
       break;
 
     case "history_sync_progress":
-      showSyncProgress(event.done, event.total);
+      await showSyncProgress(event.done, event.total);
       if (event.done >= event.total) hideSyncProgress(1500);
       break;
 

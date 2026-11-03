@@ -4,6 +4,34 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.39] — 2026-11-03
+
+- **The history re-sync rules moved to Rust (`wa_ui::history`).**
+  - `sync_progress(done, total)` → `{ percent, text, count, complete }`: the bar
+    fill (rounded, capped at 100), `Syncing chat history… 3/8`, then
+    `History refreshed`, and an empty counter for an empty batch. A late event
+    can no longer push the bar past 100 %; `showSyncProgress` is async and only
+    paints.
+  - `sync_allowed(syncing, connected, last_at, now, force)` — the gate that used
+    to be three inline conditions: never while a re-sync runs or offline, and at
+    most once a day unless forced (a force still loses to "busy").
+  - `HISTORY_SYNC_BATCH` (8) and `HISTORY_SYNC_WINDOW_MS` (24 h) are Rust
+    constants mirrored at boot via `ui_history_sync_constants`, so the pacing
+    knobs live in one place.
+  Commands `ui_sync_progress`, `ui_sync_allowed`, `ui_history_sync_constants`.
+- **The rail notification badges are Rust (`wa_ui::sidebar::rail_badges`).**
+  Which chats count toward the pill (channels, the account's own chat and hidden
+  deleted chats are skipped), the 99 cap, the `dot` for unseen stories and the
+  change-guard key all come from one call; `updateRailBadges` only applies it.
+  Command `ui_rail_badges`.
+- 3 new `wa-ui` unit tests (210 total, plus 3 contract) and a
+  history-sync/rail-badges CDP e2e section: the five progress states, the six
+  gate outcomes plus the constants, the badge filtering/cap, and a live pass
+  that paints `38%` → `100%` and shows a pill matching the store's unread count.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.38] — 2026-11-03
 
 - **The group-screen rules moved to Rust.**

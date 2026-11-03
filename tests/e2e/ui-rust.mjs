@@ -488,6 +488,135 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# history sync + rail badges (rust)");
+const syncRail = await page.evaluate(async () => {
+  const progress = {
+    start: await invoke("ui_sync_progress", { done: 0, total: 8 }),
+    mid: await invoke("ui_sync_progress", { done: 3, total: 8 }),
+    done: await invoke("ui_sync_progress", { done: 8, total: 8 }),
+    empty: await invoke("ui_sync_progress", { done: 0, total: 0 }),
+    late: await invoke("ui_sync_progress", { done: 9, total: 8 }),
+  };
+  const now = Date.now();
+  const gate = {
+    never: await invoke("ui_sync_allowed", { syncing: false, connected: true, lastAt: 0, now, force: false }),
+    busy: await invoke("ui_sync_allowed", { syncing: true, connected: true, lastAt: 0, now, force: false }),
+    offline: await invoke("ui_sync_allowed", { syncing: false, connected: false, lastAt: 0, now, force: false }),
+    recent: await invoke("ui_sync_allowed", { syncing: false, connected: true, lastAt: now - 1000, now, force: false }),
+    old: await invoke("ui_sync_allowed", {
+      syncing: false,
+      connected: true,
+      lastAt: now - 25 * 60 * 60 * 1000,
+      now,
+      force: false,
+    }),
+    forced: await invoke("ui_sync_allowed", { syncing: false, connected: true, lastAt: now - 1000, now, force: true }),
+  };
+  const constants = await invoke("ui_history_sync_constants");
+
+  const chat = (jid, unread, deleted = false) => ({ jid, unread, deleted });
+  const chats = [
+    chat("111@s.whatsapp.net", 3),
+    chat("222@s.whatsapp.net", 1),
+    chat("444@newsletter", 5),
+    chat("555@s.whatsapp.net", 2, true),
+  ];
+  const badges = {
+    hidden: await invoke("ui_rail_badges", {
+      chats,
+      showDeleted: false,
+      statusUnseen: 0,
+      meJid: state.meJid || "",
+      meLid: state.meLid || "",
+    }),
+    shown: await invoke("ui_rail_badges", {
+      chats,
+      showDeleted: true,
+      statusUnseen: 2,
+      meJid: state.meJid || "",
+      meLid: state.meLid || "",
+    }),
+    many: await invoke("ui_rail_badges", {
+      chats: Array.from({ length: 120 }, (_, i) => chat(`${i}@g.us`, 1)),
+      showDeleted: false,
+      statusUnseen: 0,
+      meJid: "",
+      meLid: "",
+    }),
+  };
+
+  // Live: the progress bar paints from Rust, then the rail pill from the store.
+  await showSyncProgress(3, 8);
+  await new Promise((r) => setTimeout(r, 400));
+  const live = {
+    width: document.getElementById("sync-progress-fill").style.width,
+    text: document.getElementById("sync-progress-text").textContent,
+    count: document.getElementById("sync-progress-count").textContent,
+  };
+  await showSyncProgress(8, 8);
+  await new Promise((r) => setTimeout(r, 300));
+  live.doneText = document.getElementById("sync-progress-text").textContent;
+  live.doneWidth = document.getElementById("sync-progress-fill").style.width;
+  hideSyncProgress(50);
+  await new Promise((r) => setTimeout(r, 400));
+  live.hiddenAfter = document.getElementById("sync-progress").hidden;
+
+  railBadgeState = "";
+  await updateRailBadges();
+  await new Promise((r) => setTimeout(r, 400));
+  const pill = document.querySelector("#rail-chats .rail-badge");
+  live.pill = pill ? pill.textContent : null;
+  live.pillIsCount = pill ? pill.classList.contains("rail-count") : false;
+  live.unreadChats = [...state.chats.values()].filter(
+    (entry) =>
+      !String(entry.jid).endsWith("@newsletter") && (entry.unread || 0) > 0 && !entry.deleted,
+  ).length;
+  return { progress, gate, constants, badges, live };
+});
+check(
+  "the re-sync progress line renders",
+  syncRail.progress.start.percent === 0 &&
+    syncRail.progress.start.count === "0/8" &&
+    syncRail.progress.mid.percent === 38 &&
+    syncRail.progress.done.text === "History refreshed" &&
+    syncRail.progress.done.percent === 100 &&
+    syncRail.progress.empty.count === "" &&
+    syncRail.progress.late.percent === 100,
+  JSON.stringify(syncRail.progress),
+);
+check(
+  "the re-sync gate is once a day unless forced",
+  syncRail.gate.never &&
+    !syncRail.gate.busy &&
+    !syncRail.gate.offline &&
+    !syncRail.gate.recent &&
+    syncRail.gate.old &&
+    syncRail.gate.forced &&
+    syncRail.constants.batch === 8 &&
+    syncRail.constants.window_ms === 86400000,
+  JSON.stringify(syncRail.gate),
+);
+check(
+  "rail badges skip channels, self and hidden deleted chats",
+  syncRail.badges.hidden.chats_text === "2" &&
+    syncRail.badges.hidden.key === "2|" &&
+    syncRail.badges.shown.chats_text === "3" &&
+    syncRail.badges.shown.status_text === "dot" &&
+    syncRail.badges.many.chats_text === "99",
+  JSON.stringify(syncRail.badges.hidden),
+);
+check(
+  "the live progress bar and rail pill render",
+  syncRail.live.width === "38%" &&
+    syncRail.live.count === "3/8" &&
+    syncRail.live.doneWidth === "100%" &&
+    syncRail.live.doneText === "History refreshed" &&
+    syncRail.live.hiddenAfter &&
+    syncRail.live.pillIsCount &&
+    Number(syncRail.live.pill) === Math.min(syncRail.live.unreadChats, 99),
+  JSON.stringify(syncRail.live),
+);
+
 console.log("\n# group plans (rust)");
 const groupPlans = await page.evaluate(async () => {
   const counts = [

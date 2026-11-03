@@ -145,11 +145,16 @@ function maybePageOlderMessages() {
 // The supported primitive is the per-chat on-demand request, so a re-sync is a
 // paced batch of those, never a burst of hundreds at once.
 const HISTORY_SYNC_KEY = "wadesk.history.sync";
-const HISTORY_SYNC_WINDOW_MS = 24 * 60 * 60 * 1000;
-// Deliberately small: every entry is a peer message to the phone. A large
-// burst is indistinguishable from spam, so a re-sync asks for a handful and
-// the rest load when the user opens them.
-const HISTORY_SYNC_BATCH = 8;
+// The window and the batch size come from wa_ui::history; these are the
+// boot-time defaults until the constants land.
+let HISTORY_SYNC_WINDOW_MS = 24 * 60 * 60 * 1000;
+let HISTORY_SYNC_BATCH = 8;
+invoke("ui_history_sync_constants")
+  .then((constants) => {
+    HISTORY_SYNC_WINDOW_MS = constants.window_ms;
+    HISTORY_SYNC_BATCH = constants.batch;
+  })
+  .catch(() => {});
 
 function historySyncMeta() {
   try {
@@ -173,16 +178,21 @@ let historySyncing = false;
 // instead of leaving the sidebar looking stuck.
 let syncProgressHideTimer = null;
 
-function showSyncProgress(done, total) {
+async function showSyncProgress(done, total) {
   const box = $("sync-progress");
   if (!box) return;
   clearTimeout(syncProgressHideTimer);
   box.hidden = false;
-  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-  $("sync-progress-fill").style.width = `${pct}%`;
-  $("sync-progress-text").textContent =
-    total > 0 && done >= total ? "History refreshed" : "Syncing chat history…";
-  $("sync-progress-count").textContent = total > 0 ? `${done}/${total}` : "";
+  // The bar fill percentage, the copy and the counter are
+  // wa_ui::history::sync_progress.
+  const plan = await invoke("ui_sync_progress", { done, total }).catch(() => ({
+    percent: 0,
+    text: "Syncing chat history…",
+    count: "",
+  }));
+  $("sync-progress-fill").style.width = `${plan.percent}%`;
+  $("sync-progress-text").textContent = plan.text;
+  $("sync-progress-count").textContent = plan.count;
 }
 
 function hideSyncProgress(delay = 1200) {
@@ -240,9 +250,14 @@ async function chatsForHistorySync(limit = HISTORY_SYNC_BATCH) {
 }
 
 async function syncChatHistoryBatch(chats, force = false) {
-  if (historySyncing || !state.connected) return 0;
-  const meta = historySyncMeta();
-  if (!force && meta && Date.now() - meta.at < HISTORY_SYNC_WINDOW_MS) return 0;
+  const allowed = await invoke("ui_sync_allowed", {
+    syncing: historySyncing,
+    connected: Boolean(state.connected),
+    lastAt: historySyncMeta()?.at || 0,
+    now: Date.now(),
+    force: Boolean(force),
+  }).catch(() => false);
+  if (!allowed) return 0;
 
   const targets = (chats && chats.length ? chats : await chatsForHistorySync())
     .filter((chat) => chat && !chat.deleted)
@@ -250,7 +265,7 @@ async function syncChatHistoryBatch(chats, force = false) {
   if (!targets.length) return 0;
 
   historySyncing = true;
-  showSyncProgress(0, targets.length);
+  await showSyncProgress(0, targets.length);
   try {
     const requests = await Promise.all(targets.map(historyAnchorRequest));
     const sent = await queueHistoryRequest(() =>
