@@ -672,6 +672,24 @@ pub fn ui_copy_text(text: String) -> Option<String> {
     wa_ui::chat_actions::copy_text(&text)
 }
 
+/// Everything the document viewer / file card needs for one attachment.
+#[tauri::command]
+pub fn ui_document_summary(
+    file_name: String,
+    mime: String,
+    size: u64,
+    pages: i64,
+    fallback_text: String,
+) -> wa_ui::chat::DocumentSummary {
+    wa_ui::chat::document_summary(&file_name, &mime, size, pages, &fallback_text)
+}
+
+/// A download failure turned into actionable copy.
+#[tauri::command]
+pub fn ui_friendly_media_error(text: String) -> String {
+    wa_ui::media::friendly_error(&text)
+}
+
 /// The status composer's send-button state.
 #[tauri::command]
 pub fn ui_can_post_text(text: String) -> bool {

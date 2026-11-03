@@ -1454,6 +1454,73 @@ pub struct ChannelReactionRow {
     pub count: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentSummary {
+    pub name: String,
+    pub ext: String,
+    /// `2 pages · PDF · 2.4 MB`
+    pub meta: String,
+    /// The badge tone class (`pdf`, `word`, `sheet`, …).
+    pub tone: String,
+    /// `PDF` (at most 5 chars, `FILE` when unknown).
+    pub badge_label: String,
+    /// Types the in-app viewer can show.
+    pub previewable: bool,
+}
+
+/// Everything the document viewer and the file card need for one attachment.
+pub fn document_summary(
+    file_name: &str,
+    mime: &str,
+    size: u64,
+    pages: i64,
+    fallback_text: &str,
+) -> DocumentSummary {
+    let message = crate::text::MessageRow {
+        text: fallback_text.to_string(),
+        document: Some(crate::text::DocumentRow {
+            name: file_name.to_string(),
+            mime: mime.to_string(),
+            size,
+            pages,
+            thumb: None,
+        }),
+        ..Default::default()
+    };
+    let info = document_info(&message);
+    let meta = document_meta(&message);
+    let tone = doc_tone(&info.ext).to_string();
+    let badge_label = if info.ext.is_empty() {
+        "FILE".to_string()
+    } else {
+        info.ext.to_uppercase().chars().take(5).collect()
+    };
+    let previewable = matches!(
+        info.ext.as_str(),
+        "pdf"
+            | "png"
+            | "jpg"
+            | "jpeg"
+            | "gif"
+            | "webp"
+            | "bmp"
+            | "txt"
+            | "csv"
+            | "log"
+            | "md"
+            | "json"
+            | "xml"
+    );
+    DocumentSummary {
+        name: info.name,
+        ext: info.ext,
+        meta,
+        tone,
+        badge_label,
+        previewable,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1719,6 +1786,35 @@ mod tests {
         other.kind = "other".into();
         let out = render(&make_request(vec![other]));
         assert!(out.html.contains("Unsupported message"));
+    }
+
+    #[test]
+    fn document_summary_matches_the_file_card() {
+        let pdf = document_summary("report.pdf", "application/pdf", 2_500_000, 2, "");
+        assert_eq!(pdf.name, "report.pdf");
+        assert_eq!(pdf.ext, "pdf");
+        assert_eq!(pdf.meta, "2 pages · PDF · 2.4 MB");
+        assert_eq!(pdf.tone, "pdf");
+        assert_eq!(pdf.badge_label, "PDF");
+        assert!(pdf.previewable);
+
+        // No name: the MIME type supplies the extension and the name.
+        let unnamed = document_summary("", "image/png", 10, 0, "");
+        assert_eq!(unnamed.name, "document.png");
+        assert_eq!(unnamed.ext, "png");
+        assert!(unnamed.previewable);
+
+        // Unknown types are not previewable and say FILE.
+        let other = document_summary("archive.bin", "", 0, 0, "");
+        assert_eq!(other.tone, "plain");
+        assert_eq!(other.badge_label, "BIN");
+        assert!(!other.previewable);
+        assert_eq!(other.meta, "BIN");
+
+        // A caption-less bubble falls back to the message text for its name.
+        let from_text = document_summary("", "", 0, 1, "notes.txt");
+        assert_eq!(from_text.name, "notes.txt");
+        assert_eq!(from_text.meta, "1 page · TXT");
     }
 
     #[test]

@@ -460,6 +460,94 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# document summary + media errors (rust)");
+const docCheck = await page.evaluate(async () => {
+  const pdf = await invoke("ui_document_summary", {
+    fileName: "report.pdf",
+    mime: "application/pdf",
+    size: 2500000,
+    pages: 2,
+    fallbackText: "",
+  });
+  const unnamed = await invoke("ui_document_summary", {
+    fileName: "",
+    mime: "image/png",
+    size: 10,
+    pages: 0,
+    fallbackText: "",
+  });
+  const other = await invoke("ui_document_summary", {
+    fileName: "archive.bin",
+    mime: "",
+    size: 0,
+    pages: 0,
+    fallbackText: "",
+  });
+  const errors = [
+    await invoke("ui_friendly_media_error", { text: "HTTP 404" }),
+    await invoke("ui_friendly_media_error", { text: "the download timed out" }),
+    await invoke("ui_friendly_media_error", { text: "boom" }),
+  ];
+
+  // Live: a real document opens in the viewer with the Rust summary.
+  const chat = [...state.chats.values()].find((entry) =>
+    entry.messages.some((m) => m.kind === "document"),
+  );
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 1200));
+    const message = chat.messages.find((m) => m.kind === "document");
+    const summary = await documentSummary(message);
+    await openDocumentViewer(message.id);
+    await new Promise((r) => setTimeout(r, 900));
+    live = {
+      name: document.getElementById("doc-viewer-name").textContent,
+      badge: document.getElementById("doc-viewer-ext").textContent,
+      className: document.getElementById("doc-viewer-ext").className,
+      summaryName: summary.name,
+      previewable: summary.previewable,
+    };
+    document.getElementById("document-viewer").hidden = true;
+  }
+  return { pdf, unnamed, other, errors, live };
+});
+check(
+  "the document summary builds the file card line",
+  docCheck.pdf.name === "report.pdf" &&
+    docCheck.pdf.meta === "2 pages · PDF · 2.4 MB" &&
+    docCheck.pdf.tone === "pdf" &&
+    docCheck.pdf.badge_label === "PDF" &&
+    docCheck.pdf.previewable,
+  JSON.stringify(docCheck.pdf),
+);
+check(
+  "a nameless attachment takes its extension from the mime",
+  docCheck.unnamed.name === "document.png" && docCheck.unnamed.ext === "png",
+  docCheck.unnamed.name,
+);
+check(
+  "unknown types are not previewable",
+  docCheck.other.tone === "plain" && docCheck.other.badge_label === "BIN" && !docCheck.other.previewable,
+  JSON.stringify(docCheck.other),
+);
+check(
+  "download errors are explained",
+  docCheck.errors[0].includes("no longer serves") &&
+    docCheck.errors[1].includes("timed out") &&
+    docCheck.errors[2] === "boom",
+  docCheck.errors.join(" | "),
+);
+if (docCheck.live) {
+  check(
+    "a live document viewer uses the Rust summary",
+    docCheck.live.name === docCheck.live.summaryName &&
+      docCheck.live.badge.length > 0 &&
+      docCheck.live.className.startsWith("doc-badge doc-"),
+    `${docCheck.live.badge} · ${docCheck.live.className}`,
+  );
+}
+
 console.log("\n# message menu dispatch + composer rules (rust)");
 const menuActions = await page.evaluate(async () => {
   const plan = (action, hasSender) =>

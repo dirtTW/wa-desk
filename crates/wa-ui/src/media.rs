@@ -73,6 +73,21 @@ pub fn download_action(status: &str) -> DownloadAction {
     }
 }
 
+/// A download failure turned into something a person can act on.
+pub fn friendly_error(text: &str) -> String {
+    let lower = text.to_lowercase();
+    let gone = ["403", "404", "410"]
+        .iter()
+        .any(|code| lower.contains(code));
+    if gone {
+        return "WhatsApp no longer serves this file. Ask the sender to resend it.".to_string();
+    }
+    if lower.contains("timed out") || lower.contains("too long") || lower.contains("timeout") {
+        return "The download timed out. Check your connection and try again.".to_string();
+    }
+    text.to_string()
+}
+
 /// How many entries an LRU-style map must drop to get back under `max`.
 pub fn cache_overflow(len: usize, max: usize) -> usize {
     len.saturating_sub(max)
@@ -176,6 +191,15 @@ mod tests {
         assert_eq!(download_action("ready"), DownloadAction::Skip);
         assert_eq!(download_action("error"), DownloadAction::Start);
         assert_eq!(download_action(""), DownloadAction::Start);
+    }
+
+    #[test]
+    fn download_errors_are_explained() {
+        assert!(friendly_error("HTTP 404").contains("no longer serves"));
+        assert!(friendly_error("status 410").contains("no longer serves"));
+        assert!(friendly_error("the download timed out").contains("timed out"));
+        assert!(friendly_error("taking too long").contains("timed out"));
+        assert_eq!(friendly_error("boom"), "boom");
     }
 
     #[test]

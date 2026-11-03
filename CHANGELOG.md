@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.33] — 2026-11-03
+
+- **The document file-card helpers moved to Rust (and the dead ones are gone).**
+  `wa_ui::chat::document_summary` returns the name, extension, tone, badge label,
+  `previewable` flag and the `2 pages · PDF · 2.4 MB` line for one attachment;
+  `ui_document_summary` backs the viewer and the remaining lookups.
+  `media-ui.js` lost `DOC_MIME_EXTENSIONS`, `DOC_TONES`, `DOC_PREVIEWABLE`,
+  `extensionOf`, `documentInfo`, `documentBadge`, `formatBytes`, `documentMeta`
+  and `documentCard` — the last three were already dead because
+  `wa_ui::chat::render` draws the card and its actions. `media-ui.js` is down to
+  **833 lines** (from 925).
+- **Download errors are explained in Rust.** `wa_ui::media::friendly_error`
+  turns a 403/404/410 into "WhatsApp no longer serves this file…" and a timeout
+  into "The download timed out…", leaving anything else untouched
+  (`ui_friendly_media_error`).
+- 2 new `wa-ui` unit tests (194 total, plus 3 contract) and a document-summary
+  CDP e2e section: the PDF card line, the mime-derived name, a non-previewable
+  type, the three error mappings and a live document viewer opening on a real
+  `.xlsx` with the Rust badge (`doc-sheet`).
+
 ## [0.2.0-rc.32] — 2026-11-03
 
 - **Fixed: the delete dialog never opened.** `askDelete` sent `self_chat` while

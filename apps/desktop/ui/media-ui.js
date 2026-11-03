@@ -387,160 +387,30 @@ let mediaObserver = null;
 
 /* --------------------------------------------------------- document cards */
 
-// Badge colour per extension, mirroring WhatsApp's file cards.
-const DOC_TONES = {
-  pdf: "pdf",
-  doc: "word",
-  docx: "word",
-  odt: "word",
-  rtf: "word",
-  pages: "word",
-  xls: "sheet",
-  xlsx: "sheet",
-  csv: "sheet",
-  ods: "sheet",
-  ppt: "slides",
-  pptx: "slides",
-  odp: "slides",
-  zip: "archive",
-  rar: "archive",
-  "7z": "archive",
-  gz: "archive",
-  tar: "archive",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  gif: "image",
-  webp: "image",
-  bmp: "image",
-  heic: "image",
-  vsd: "vector",
-  vsdx: "vector",
-  svg: "vector",
-  ai: "vector",
-  dwg: "vector",
-  dxf: "vector",
-  txt: "plain",
-  log: "plain",
-  md: "plain",
-  json: "plain",
-  xml: "plain",
-  mp3: "audio",
-  wav: "audio",
-  m4a: "audio",
-  ogg: "audio",
-  mp4: "video",
-  mov: "video",
-  mkv: "video",
-  avi: "video",
-};
 
-const DOC_MIME_EXTENSIONS = {
-  "application/pdf": "pdf",
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-  "application/msword": "doc",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-  "application/vnd.ms-excel": "xls",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-  "application/vnd.ms-powerpoint": "ppt",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-  "application/zip": "zip",
-  "text/csv": "csv",
-  "text/plain": "txt",
-};
 
-const DOC_PREVIEWABLE = ["pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "txt", "csv", "log", "md", "json", "xml"];
 
-function extensionOf(name) {
-  const match = /\.([A-Za-z0-9]{1,8})$/.exec(String(name || "").trim());
-  return match ? match[1].toLowerCase() : "";
-}
-
-function documentInfo(message) {
+// The file name, badge label, tone and size/pages line are wa_ui::chat's rules.
+async function documentSummary(message) {
   const doc = message.document || {};
-  let name = String(doc.name || message.text || "").trim();
-  let ext = extensionOf(name);
-  if (!ext) {
-    ext = DOC_MIME_EXTENSIONS[String(doc.mime || "").toLowerCase()] || "";
-    if (ext) name = `${name || "document"}.${ext}`;
-  }
-  return { name: name || "Document", ext: ext || "" };
+  return invoke("ui_document_summary", {
+    fileName: String(doc.name || ""),
+    mime: String(doc.mime || ""),
+    size: Number(doc.size) || 0,
+    pages: Number(doc.pages) || 0,
+    fallbackText: String(message.text || ""),
+  }).catch(() => ({
+    name: "Document",
+    ext: "",
+    meta: "",
+    tone: "plain",
+    badge_label: "FILE",
+    previewable: false,
+  }));
 }
 
-function formatBytes(bytes) {
-  const value = Number(bytes) || 0;
-  if (value <= 0) return "";
-  const units = ["B", "kB", "MB", "GB"];
-  let size = value;
-  let unit = 0;
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit += 1;
-  }
-  return `${size.toFixed(size >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-function documentMeta(message) {
-  const doc = message.document || {};
-  const { ext } = documentInfo(message);
-  const parts = [];
-  if (doc.pages > 0) parts.push(doc.pages === 1 ? "1 page" : `${doc.pages} pages`);
-  if (ext) parts.push(ext.toUpperCase());
-  const size = formatBytes(doc.size);
-  if (size) parts.push(size);
-  return parts.join(" · ");
-}
-
-function documentBadge(ext, extra = "") {
-  const tone = DOC_TONES[ext] || "plain";
-  const label = (ext || "file").toUpperCase().slice(0, 5);
-  return `<span class="doc-badge doc-${tone} ${extra}">${escapeHtml(label)}</span>`;
-}
-
-/// WhatsApp-Web style file card: a full-width preview thumbnail, the badge,
-/// the file name with its extension and the size/pages line. The caption and
-/// timestamp live in the footer row rendered by `chat-render.js`.
-function documentCard(message) {
-  const { name, ext } = documentInfo(message);
-  const doc = message.document || {};
-  const meta = documentMeta(message);
-  // Embedded JPEG first, then a shell-generated preview of a local file.
-  const preview = doc.thumb || documentThumbs.get(message.id) || "";
-  const thumb = preview
-    ? `<img class="doc-thumb" src="${escapeHtml(preview)}" alt="" loading="lazy" />`
-    : "";
-  const id = escapeHtml(message.id);
-  return `${thumb ? `<div class="doc-preview">${thumb}</div>` : ""}
-    <div class="doc-card" data-doc-message="${id}" data-doc-name="${escapeHtml(name)}">
-      <div class="doc-main">
-        ${documentBadge(ext)}
-        <div class="doc-text">
-          <div class="doc-name" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
-          ${meta ? `<div class="doc-meta">${escapeHtml(meta)}</div>` : ""}
-        </div>
-      </div>
-    </div>`;
-}
-
-/// View / Save as row; rendered before the timestamp so it sits at the bottom of
-/// the bubble like WhatsApp's file card. Types that cannot be previewed in the
-/// app get a single Download button, exactly like WhatsApp Web.
-function documentActions(message) {
-  const { name, ext } = documentInfo(message);
-  const id = escapeHtml(message.id);
-  const save = `<button type="button" data-doc-action="save" data-doc-id="${id}" data-doc-name="${escapeHtml(
-    name,
-  )}">`;
-  if (!DOC_PREVIEWABLE.includes(ext)) {
-    return `<div class="doc-actions">${save}Download</button></div>`;
-  }
-  return `<div class="doc-actions">
-      <button type="button" data-doc-action="view" data-doc-id="${id}">View</button>
-      ${save}Save as&hellip;</button>
-    </div>`;
+function documentBadgeHtml(summary, extra = "") {
+  return `<span class="doc-badge doc-${summary.tone} ${extra}">${escapeHtml(summary.badge_label)}</span>`;
 }
 
 // Chats cached before the file card existed have no document metadata. Ask the
@@ -603,13 +473,14 @@ function findMessageById(id) {
 async function openDocumentViewer(id) {
   const message = findMessageById(id);
   if (!message) return;
-  const { name, ext } = documentInfo(message);
+  const summary = await documentSummary(message);
+  const name = summary.name;
   const layer = $("document-viewer");
   const body = $("doc-viewer-body");
   documentViewerMessage = message;
   $("doc-viewer-name").textContent = name;
-  $("doc-viewer-ext").textContent = (ext || "file").toUpperCase().slice(0, 5);
-  $("doc-viewer-ext").className = `doc-badge doc-${DOC_TONES[ext] || "plain"}`;
+  $("doc-viewer-ext").textContent = summary.badge_label;
+  $("doc-viewer-ext").className = `doc-badge doc-${summary.tone}`;
   $("doc-viewer-save").dataset.docId = message.id;
   $("doc-viewer-save").dataset.docName = name;
   $("doc-viewer-open").dataset.docId = message.id;
@@ -646,7 +517,7 @@ async function openDocumentViewer(id) {
 }
 
 /// PDFs and photos render in place; anything else gets the file-card fallback.
-function showDocumentPreview(url, ext, name) {
+async function showDocumentPreview(url, ext, name) {
   const body = $("doc-viewer-body");
   if (ext === "pdf") {
     body.innerHTML = `<iframe class="doc-frame" src="${escapeHtml(
@@ -655,7 +526,16 @@ function showDocumentPreview(url, ext, name) {
   } else if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
     body.innerHTML = `<img class="doc-image" src="${escapeHtml(url)}" alt="${escapeHtml(name)}" />`;
   } else {
-    body.innerHTML = `<div class="doc-plain">${documentBadge(ext)}
+    const badge = await invoke("ui_document_summary", {
+    fileName: name || "",
+    mime: "",
+    size: 0,
+    pages: 0,
+    fallbackText: "",
+  })
+    .then((summary) => documentBadgeHtml(summary))
+    .catch(() => "");
+  body.innerHTML = `<div class="doc-plain">${badge}
         <p>This file type cannot be previewed inside WA Desk.</p>
         <p class="muted">Open it with the default app, or save a copy with Save as&hellip;.</p>
       </div>`;
@@ -693,7 +573,7 @@ async function saveDocument(id, name) {
     const saved = String(path).split(/[\\/]/).pop();
     toast(`Saved ${saved} to Downloads\\WA Desk`);
   } catch (err) {
-    toast(friendlyMediaError(err));
+    toast(await friendlyMediaError(err));
   } finally {
     for (const button of buttons) {
       button.disabled = false;
@@ -706,22 +586,18 @@ async function saveDocument(id, name) {
 }
 
 /// WhatsApp expires CDN paths; say so instead of showing a raw status code.
-function friendlyMediaError(err) {
-  const text = String(err);
-  if (/\b(403|404|410)\b/.test(text)) {
-    return "WhatsApp no longer serves this file. Ask the sender to resend it.";
-  }
-  if (/timed out|too long|timeout/i.test(text)) {
-    return "The download timed out. Check your connection and try again.";
-  }
-  return text;
+// The actionable copy comes from wa_ui::media::friendly_error.
+async function friendlyMediaError(err) {
+  return invoke("ui_friendly_media_error", { text: String(err) }).catch(() =>
+    String(err),
+  );
 }
 
 async function openDocumentExternally(id) {
   try {
     await invoke("open_media", { id });
   } catch (err) {
-    toast(friendlyMediaError(err));
+    toast(await friendlyMediaError(err));
   }
 }
 
@@ -729,7 +605,7 @@ async function revealDocument(id) {
   try {
     await invoke("reveal_media", { id });
   } catch (err) {
-    toast(friendlyMediaError(err));
+    toast(await friendlyMediaError(err));
   }
 }
 
