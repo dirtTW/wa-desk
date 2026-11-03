@@ -2,6 +2,16 @@
 
 /* --------------------------------------------------------- video posters */
 
+// Drop the oldest entries until the map is back under its budget. The list of
+// keys to remove is decided by wa_ui::media::evictions.
+async function evict(map, max) {
+  if (map.size <= max) return;
+  const keys = await invoke("ui_evictions", { keys: [...map.keys()], max }).catch(
+    () => [],
+  );
+  for (const key of keys) map.delete(key);
+}
+
 // The cache budgets and timeouts come from wa_ui::context.
 const mediaLimits = {
   max_thumbs: 240,
@@ -56,12 +66,8 @@ function ensureThumb(id) {
     .then((data) => {
       if (!data) return;
       state.thumbs.set(id, data);
-      while (state.thumbs.size > mediaLimits.max_thumbs) {
-        const oldest = state.thumbs.keys().next().value;
-        if (oldest === undefined) break;
-        state.thumbs.delete(oldest);
-      }
-      applyThumb(id);
+      // Which entries to drop (oldest insertions) is wa_ui::media::evictions.
+      evict(state.thumbs, mediaLimits.max_thumbs).then(() => applyThumb(id));
     })
     .catch(() => {})
     .finally(() => state.thumbPending.delete(id));
@@ -167,12 +173,7 @@ function captureVideoPoster(id) {
         const data = canvas.toDataURL("image/jpeg", mediaLimits.poster_quality);
         if (data && data.startsWith("data:image/")) {
           state.videoPosters.set(id, data);
-          while (state.videoPosters.size > mediaLimits.max_video_posters) {
-            const oldest = state.videoPosters.keys().next().value;
-            if (oldest === undefined) break;
-            state.videoPosters.delete(oldest);
-          }
-          applyThumb(id);
+          evict(state.videoPosters, mediaLimits.max_video_posters).then(() => applyThumb(id));
         }
       } catch {
         /* the asset scheme may not allow canvas readback; keep the play tile */
@@ -761,50 +762,64 @@ function ensureMediaObserver() {
   return mediaObserver;
 }
 
-function hydrateMedia(box) {
+async function hydrateMedia(box) {
   const observer = ensureMediaObserver();
   // Only placeholder boxes need hydrating. Already-rendered <img>/<video>
   // elements carry data-media-id too, and re-hydrating them used to replace a
   // cached video with an <img src="*.mp4"> (a broken "Media" tile).
-  for (const node of box.querySelectorAll(".media-box[data-media-id]")) {
-    // Failed tiles wait for an explicit tap; never re-fetch them on render.
-    if (node.dataset.failed) continue;
+  const nodes = [...box.querySelectorAll(".media-box[data-media-id]")];
+  if (!nodes.length) return;
+  const channel = isChannelJid(state.active);
+  // One batched question: what does each tile need? (wa_ui::media::hydrate_plan)
+  const plan = await invoke("ui_hydrate_plan", {
+    nodes: nodes.map((node) => ({
+      status: state.media.get(node.dataset.mediaId)?.status || "",
+      failed: Boolean(node.dataset.failed),
+      kind: node.dataset.mediaKind || "image",
+      channel,
+    })),
+  }).catch(() => []);
+  if (!plan.length) return;
+
+  nodes.forEach((node, index) => {
+    const action = plan[index];
     const id = node.dataset.mediaId;
     const kind = node.dataset.mediaKind || "image";
-    const cached = state.media.get(id);
-    if (cached?.status === "ready" && cached.url) {
-      // The Rust renderer paints ready media; this DOM is stale.
-      scheduleChatRender();
-      continue;
-    }
-    if (kind === "video") {
-      ensureThumb(id);
-      // Channel posts behave like the desktop app: the poster and clip load as
-      // soon as the card is visible, no tap needed. Chats keep tap-to-play so a
-      // long video never downloads by accident.
-      if (isChannelJid(state.active)) {
+    switch (action) {
+      case "skip":
+        return;
+      case "repaint":
+        // The Rust renderer paints ready media; this DOM is stale.
+        scheduleChatRender();
+        return;
+      case "tap_to_load":
+        ensureThumb(id);
+        node.addEventListener("click", () => {
+          viewerPendingId = id;
+          loadMedia(id, kind, node);
+        });
+        return;
+      case "retry_tap":
+        node.addEventListener("click", () => {
+          state.media.delete(id);
+          node.classList.remove("error");
+          loadMedia(id, kind, node);
+        });
+        return;
+      default:
+        if (kind === "video") ensureThumb(id);
         observer.observe(node);
-        continue;
-      }
-      node.addEventListener("click", () => {
-        viewerPendingId = id;
-        loadMedia(id, kind, node);
-      });
-    } else if (node.classList.contains("error")) {
-      node.addEventListener("click", () => {
-        state.media.delete(id);
-        node.classList.remove("error");
-        loadMedia(id, kind, node);
-      });
-    } else {
-      observer.observe(node);
     }
-  }
+  });
 }
 
 async function loadMedia(id, kind, node) {
   if (!id || !node || !node.isConnected) return;
-  if (state.media.get(id)?.status === "loading") return;
+  // "loading" and "ready" both skip; the rule is wa_ui::media::download_action.
+  const action = await invoke("ui_download_action", {
+    status: state.media.get(id)?.status || "",
+  }).catch(() => "start");
+  if (action === "skip") return;
   state.media.set(id, { status: "loading" });
   node.classList.add("loading");
   armMediaWatchdog(id, kind);
@@ -978,12 +993,10 @@ function hydrateLinkThumbs(box) {
     if (linkThumbPending.has(id)) continue;
     linkThumbPending.add(id);
     invoke("link_thumbnail", { id })
-      .then((data) => {
+      .then(async (data) => {
         if (data) {
           state.thumbs.set(`link:${id}`, data);
-          while (state.thumbs.size > mediaLimits.max_thumbs) {
-            state.thumbs.delete(state.thumbs.keys().next().value);
-          }
+          await evict(state.thumbs, mediaLimits.max_thumbs);
           apply(data);
         }
       })

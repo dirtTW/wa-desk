@@ -145,13 +145,19 @@ function exitSelection() {
   renderChat();
 }
 
-function toggleSelection(id) {
+async function toggleSelection(id) {
   if (!state.selecting || !id) return;
-  if (state.selected.has(id)) state.selected.delete(id);
-  else state.selected.add(id);
+  // Add/remove, the checked state and the "emptied -> leave select mode" rule
+  // are decided by wa_ui::actions::toggle_selection.
+  const plan = await invoke("ui_toggle_selection", {
+    selected: [...state.selected],
+    id,
+  }).catch(() => null);
+  if (!plan) return;
+  state.selected = new Set(plan.selected);
   const node = document.querySelector(`#messages [data-id="${CSS.escape(id)}"]`);
-  if (node) node.classList.toggle("selected", state.selected.has(id));
-  if (state.selected.size === 0) {
+  if (node) node.classList.toggle("selected", plan.checked);
+  if (plan.exit) {
     exitSelection();
     return;
   }

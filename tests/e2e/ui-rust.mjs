@@ -460,6 +460,115 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# media hydration + selection (rust)");
+const hydration = await page.evaluate(async () => {
+  const node = (status, kind, failed = false, channel = false) => ({ status, kind, failed, channel });
+  const plan = await invoke("ui_hydrate_plan", {
+    nodes: [
+      node("", "image"),
+      node("", "video"),
+      node("ready", "image"),
+      node("error", "image"),
+      node("", "video", false, true),
+      node("", "image", true),
+    ],
+  });
+  const download = {
+    loading: await invoke("ui_download_action", { status: "loading" }),
+    ready: await invoke("ui_download_action", { status: "ready" }),
+    error: await invoke("ui_download_action", { status: "error" }),
+    none: await invoke("ui_download_action", { status: "" }),
+  };
+  const evictions = await invoke("ui_evictions", { keys: ["a", "b", "c", "d"], max: 2 });
+  const select = {
+    add: await invoke("ui_toggle_selection", { selected: [], id: "m1" }),
+    second: await invoke("ui_toggle_selection", { selected: ["m1"], id: "m2" }),
+    removeOne: await invoke("ui_toggle_selection", { selected: ["m1", "m2"], id: "m1" }),
+    empty: await invoke("ui_toggle_selection", { selected: ["m2"], id: "m2" }),
+  };
+
+  // Live: a chat with undownloaded media must still hydrate a tile.
+  const chat = [...state.chats.values()].find((entry) =>
+    entry.messages.some((m) => (m.kind === "image" || m.kind === "video") && !state.media.has(m.id)),
+  );
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 1200));
+    const tiles = document.querySelectorAll("#messages .media-box[data-media-id]").length;
+    const before = state.media.size;
+    const box = document.querySelector("#messages .media-box[data-media-id].media-box:not(.error)");
+    if (box) await loadMedia(box.dataset.mediaId, box.dataset.mediaKind || "image", box);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      if (state.media.size > before) break;
+    }
+    live = {
+      tiles,
+      started: state.media.size > before,
+      ready: document.querySelectorAll("#messages .media-image img, #messages .media-video").length,
+    };
+  }
+
+  // Live selection through the real handlers.
+  startSelection({ id: "x" });
+  await new Promise((r) => setTimeout(r, 200));
+  await toggleSelection("y");
+  await new Promise((r) => setTimeout(r, 250));
+  const liveSelect = {
+    size: state.selected.size,
+    label: document.getElementById("select-count").textContent,
+  };
+  await toggleSelection("x");
+  await toggleSelection("y");
+  await new Promise((r) => setTimeout(r, 300));
+  const liveExit = {
+    selecting: state.selecting,
+    barHidden: document.getElementById("select-bar").hidden,
+  };
+  return { plan, download, evictions, select, live, liveSelect, liveExit };
+});
+check(
+  "the hydrate plan matches every tile state",
+  hydration.plan.join(",") === "observe,tap_to_load,repaint,retry_tap,observe,skip",
+  hydration.plan.join(","),
+);
+check(
+  "downloads skip in-flight and cached media",
+  hydration.download.loading === "skip" && hydration.download.ready === "skip" && hydration.download.error === "start",
+  JSON.stringify(hydration.download),
+);
+check(
+  "evictions drop the oldest keys",
+  hydration.evictions.join(",") === "a,b",
+  hydration.evictions.join(","),
+);
+check(
+  "the selection toggle adds, removes and ends",
+  hydration.select.add.checked &&
+    hydration.select.second.selected.length === 2 &&
+    hydration.select.removeOne.selected.join(",") === "m2" &&
+    hydration.select.empty.exit,
+  JSON.stringify(hydration.select.empty),
+);
+if (hydration.live) {
+  check(
+    "live media hydration starts a download",
+    hydration.live.tiles > 0 && hydration.live.started,
+    JSON.stringify(hydration.live),
+  );
+}
+check(
+  "the live selection bar tracks the set",
+  hydration.liveSelect.size === 2 && hydration.liveSelect.label === "2 selected",
+  hydration.liveSelect.label,
+);
+check(
+  "toggling the last selection exits select mode",
+  hydration.liveExit.selecting === false && hydration.liveExit.barHidden,
+  JSON.stringify(hydration.liveExit),
+);
+
 console.log("\n# status views + draft stack (rust)");
 const viewsDrafts = await page.evaluate(async () => {
   const fresh = await invoke("ui_status_note_view", {

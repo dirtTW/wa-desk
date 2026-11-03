@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.23] — 2026-11-03
+
+- **Media-hydration decisions moved to Rust.** `wa_ui::media` answers, for each
+  rendered tile, what `hydrateMedia` must do: `skip` (a failed tile waits for a
+  tap), `repaint` (cached and ready — the Rust renderer owns the markup),
+  `retry_tap`, `tap_to_load` (chat videos never autoload a long clip) or
+  `observe` (images, channel videos, audio, documents). One batched
+  `ui_hydrate_plan` call covers a whole repaint instead of a rule chain per
+  tile. `ui_download_action` refuses a start while a tile is `loading` **or**
+  already `ready`, and `ui_evictions` lists the oldest cache keys an eviction
+  pass drops (thumbnails 240, sampled posters 120).
+- **The multi-select toggle is Rust.** `wa_ui::actions::toggle_selection`
+  returns the new set, whether the toggled bubble ended up selected and whether
+  the set emptied (which ends select mode) — `ui_toggle_selection`.
+- Commands: `ui_hydrate_plan`, `ui_download_action`, `ui_evictions`,
+  `ui_toggle_selection`.
+- 7 new `wa-ui` unit tests (166 total, plus 3 contract) and a
+  media-hydration/selection CDP e2e section: the six-action plan, the download
+  guard, the eviction list, the toggle sequences, and the live paths (127 tiles
+  hydrate a download; the bar reads `2 selected`; the last toggle exits).
+
 ## [0.2.0-rc.22] — 2026-11-03
 
 - **Status view receipts and interaction healing moved to Rust.**

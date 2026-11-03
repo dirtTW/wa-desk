@@ -229,6 +229,45 @@ pub fn send_plan(is_channel: bool, has_draft: bool, editing: bool, text: &str) -
     }
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SelectionToggle {
+    /// The new selection, in insertion order.
+    pub selected: Vec<String>,
+    /// The selection became empty, so multi-select mode ends.
+    pub exit: bool,
+    /// The toggled bubble ended up selected.
+    pub checked: bool,
+}
+
+/// Add/remove one message id from the multi-select set. Toggling the last one
+/// out ends select mode (WhatsApp keeps the bar until you leave it manually with
+/// more than one item).
+pub fn toggle_selection(selected: &[String], id: &str) -> SelectionToggle {
+    if id.is_empty() {
+        return SelectionToggle {
+            selected: selected.to_vec(),
+            exit: false,
+            checked: false,
+        };
+    }
+    let mut next: Vec<String> = selected.to_vec();
+    let checked = match next.iter().position(|entry| entry == id) {
+        Some(index) => {
+            next.remove(index);
+            false
+        }
+        None => {
+            next.push(id.to_string());
+            true
+        }
+    };
+    SelectionToggle {
+        exit: next.is_empty(),
+        selected: next,
+        checked,
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DraftFile {
     #[serde(default)]
@@ -387,6 +426,30 @@ mod tests {
             Some("File is too large - 48 MB is the limit.")
         );
         assert_eq!(huge.kind, "image");
+    }
+
+    #[test]
+    fn selection_toggles_and_ends_when_empty() {
+        let first = toggle_selection(&[], "a");
+        assert_eq!(first.selected, vec!["a".to_string()]);
+        assert!(first.checked);
+        assert!(!first.exit);
+
+        let second = toggle_selection(&first.selected, "b");
+        assert_eq!(second.selected, vec!["a".to_string(), "b".to_string()]);
+        assert!(second.checked && !second.exit);
+
+        let removed = toggle_selection(&second.selected, "a");
+        assert_eq!(removed.selected, vec!["b".to_string()]);
+        assert!(!removed.checked && !removed.exit);
+
+        let last = toggle_selection(&removed.selected, "b");
+        assert!(last.selected.is_empty());
+        assert!(last.exit, "toggling the last item out ends select mode");
+
+        let noop = toggle_selection(&["a".to_string()], "");
+        assert_eq!(noop.selected, vec!["a".to_string()]);
+        assert!(!noop.exit && !noop.checked);
     }
 
     #[test]

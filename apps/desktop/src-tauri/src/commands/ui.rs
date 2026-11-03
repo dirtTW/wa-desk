@@ -151,6 +151,30 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// What `hydrateMedia` should do with each rendered media tile.
+#[tauri::command]
+pub fn ui_hydrate_plan(nodes: Vec<wa_ui::media::HydrateInput>) -> Vec<wa_ui::media::HydrateAction> {
+    wa_ui::media::hydrate_plan(&nodes)
+}
+
+/// Whether a media download may start.
+#[tauri::command]
+pub fn ui_download_action(status: String) -> wa_ui::media::DownloadAction {
+    wa_ui::media::download_action(&status)
+}
+
+/// Which thumbnail/poster keys an eviction pass drops (oldest first).
+#[tauri::command]
+pub fn ui_evictions(keys: Vec<String>, max: usize) -> Vec<String> {
+    wa_ui::media::evictions(&keys, max)
+}
+
+/// Add/remove one id from the multi-select set.
+#[tauri::command]
+pub fn ui_toggle_selection(selected: Vec<String>, id: String) -> wa_ui::actions::SelectionToggle {
+    wa_ui::actions::toggle_selection(&selected, &id)
+}
+
 /// Whether a status "view" receipt should be recorded, and the viewer row.
 #[tauri::command]
 pub fn ui_status_note_view(

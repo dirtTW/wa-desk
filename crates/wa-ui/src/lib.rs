@@ -22,6 +22,7 @@ pub mod html;
 pub mod icons_data;
 pub mod incoming;
 pub mod labels;
+pub mod media;
 pub mod menus;
 pub mod picker;
 pub mod screens;
@@ -52,6 +53,7 @@ pub use history::{AnchorRequest, HistoryChat};
 pub use html::{avatar, escape, icon, icon_with_class, initials};
 pub use incoming::{Decision, DuplicatePlan, IncomingView, UnreadRule};
 pub use labels::{clock_label, day_of, format_followers, stamp_of};
+pub use media::{DownloadAction, HydrateAction, HydrateInput};
 pub use menus::{
     ChatMenuInput, ChatMenuOutput, DeleteConfirmOutput, MessageMenuInput, MessageMenuOutput,
 };
