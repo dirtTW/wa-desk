@@ -142,6 +142,34 @@ jobs:
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path latest.json -Encoding utf8
           Write-Output '----- latest.json -----'
           Get-Content latest.json
+      # `/releases/latest` skips pre-releases, so the RC channel needs a URL
+      # that is stable across them: keep the manifest on a `latest` branch.
+      - name: Publish latest.json to the `latest` branch
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $repo = $env:GITHUB_REPOSITORY
+          $content = [Convert]::ToBase64String([IO.File]::ReadAllBytes('latest.json'))
+          # Only accept a real 40-char sha; a 404 prints JSON that would
+          # otherwise be treated as one.
+          $fileSha = gh api "repos/$repo/contents/latest.json?ref=latest" --jq '.sha' 2>$null |
+            Where-Object { $_ -match '^[0-9a-f]{40}$' } | Select-Object -First 1
+          if (-not $fileSha) {
+            $base = gh api "repos/$repo/commits/$env:GITHUB_REF_NAME" --jq '.sha'
+            gh api --method POST "repos/$repo/git/refs" -f ref='refs/heads/latest' -f "sha=$base" 2>$null |
+              Out-Null
+            Write-Output "created the latest branch from $base"
+          }
+          $args = @(
+            '--method', 'PUT', "repos/$repo/contents/latest.json",
+            '-f', "message=latest.json for $env:GITHUB_REF_NAME",
+            '-f', "content=$content",
+            '-f', 'branch=latest'
+          )
+          if ($fileSha) { $args += @('-f', "sha=$fileSha") }
+          gh api @args --jq '.commit.sha'
+          Write-Output "published latest.json to the latest branch"
       - name: Push the artifacts to the release
         shell: pwsh
         env:

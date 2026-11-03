@@ -4,6 +4,15 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.1.0-rc.6] — 2026-11-03
+
+- **The update channel now works for pre-releases.** GitHub's
+  `/releases/latest` deliberately skips pre-releases, so the endpoint added in
+  rc.5 answered **404** and every check failed. The release job now also
+  publishes `latest.json` to a `latest` branch, and
+  `plugins.updater.endpoints` lists that raw URL first, falling back to the
+  release asset for builds that are not pre-releases.
+
 ## [0.1.0-rc.5] — 2026-11-03
 
 - **In-app updates.** Settings → Account gained an **Updates** row. *Check for
@@ -665,6 +674,7 @@ Everything below is part of this release.
 
 <!-- Version comparison links. The earlier pre-release tags were removed, so the
      diffs are anchored on their release commits. -->
+[0.1.0-rc.6]: https://github.com/dirtTW/wa-desk/compare/v0.1.0-rc.5...v0.1.0-rc.6
 [0.1.0-rc.5]: https://github.com/dirtTW/wa-desk/compare/v0.1.0-rc.4...v0.1.0-rc.5
 [0.1.0-rc.4]: https://github.com/dirtTW/wa-desk/compare/v0.1.0-rc.3...v0.1.0-rc.4
 [0.1.0-rc.3]: https://github.com/dirtTW/wa-desk/compare/68a19c0...v0.1.0-rc.3
