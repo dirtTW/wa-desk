@@ -418,7 +418,7 @@ pub fn peer_fold_plan(plan: &[AliasLookup], chats: &[AliasChat]) -> AliasPlan {
     out
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ContactChatView {
     #[serde(default)]
     pub jid: String,
@@ -430,6 +430,42 @@ pub struct ContactChatView {
     /// Distinct sender JIDs already seen in this chat.
     #[serde(default)]
     pub senders: Vec<String>,
+}
+
+/// A chat as the webview holds it, before the contact plan needs its view.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ContactChatInput {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub senders: Vec<String>,
+}
+
+/// Reduce the chat store to what `contact_plan` needs, marking the account's own
+/// chat with the same JID rule the rest of the UI uses (`is_self_jid` compares
+/// user parts, so a device suffix does not hide it).
+pub fn contact_chat_views(
+    chats: &[ContactChatInput],
+    me_jid: &str,
+    me_lid: &str,
+) -> Vec<ContactChatView> {
+    chats
+        .iter()
+        .map(|chat| {
+            let mut senders = chat.senders.clone();
+            senders.retain(|sender| !sender.is_empty());
+            senders.sort();
+            senders.dedup();
+            ContactChatView {
+                jid: chat.jid.clone(),
+                name: chat.name.clone(),
+                is_self: crate::text::is_self_jid(&chat.jid, me_jid, me_lid),
+                senders,
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -774,6 +810,43 @@ mod tests {
         b.deleted = false;
         let plan = merge_plan(&[a, b]);
         assert!(!plan.ops[0].deleted);
+    }
+
+    #[test]
+    fn contact_views_mark_the_own_chat_and_dedupe_senders() {
+        let chats = vec![
+            ContactChatInput {
+                jid: "62111@s.whatsapp.net".into(),
+                name: "Me".into(),
+                senders: vec![
+                    "a@s.whatsapp.net".into(),
+                    "a@s.whatsapp.net".into(),
+                    String::new(),
+                ],
+            },
+            ContactChatInput {
+                jid: "62111:7@lid".into(),
+                name: "Me (LID)".into(),
+                senders: Vec::new(),
+            },
+            ContactChatInput {
+                jid: "6285@s.whatsapp.net".into(),
+                name: "Budi".into(),
+                senders: vec!["6285@s.whatsapp.net".into()],
+            },
+        ];
+        let views = contact_chat_views(&chats, "62111@s.whatsapp.net", "62111:7@lid");
+        assert_eq!(views.len(), 3);
+        // The same number with a device suffix is still our own chat.
+        assert!(views[0].is_self);
+        assert!(views[1].is_self, "the LID form resolves to the same user");
+        assert!(!views[2].is_self);
+        assert_eq!(
+            views[0].senders,
+            vec!["a@s.whatsapp.net".to_string()],
+            "deduped"
+        );
+        assert!(views[1].senders.is_empty());
     }
 
     #[test]

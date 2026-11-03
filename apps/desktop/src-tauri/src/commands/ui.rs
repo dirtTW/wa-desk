@@ -109,18 +109,6 @@ pub fn ui_unread_rule(active: bool, from_me: bool) -> wa_ui::incoming::UnreadRul
     wa_ui::incoming::unread_rule(active, from_me)
 }
 
-/// The delivery status a sent message starts with.
-#[tauri::command]
-pub fn ui_self_chat_status(is_self_chat: bool) -> String {
-    wa_ui::incoming::self_chat_status(is_self_chat).to_string()
-}
-
-/// The newest optimistic bubble index.
-#[tauri::command]
-pub fn ui_newest_pending(flags: Vec<bool>) -> Option<usize> {
-    wa_ui::incoming::newest_pending(&flags)
-}
-
 /// Whether an AI reply is already shown as an echo.
 #[tauri::command]
 pub fn ui_ai_echo(messages: Vec<(bool, String, i64)>, text: String, now: i64) -> bool {
@@ -541,6 +529,27 @@ pub fn ui_draft_plan(
     files: Vec<wa_ui::actions::DraftFile>,
 ) -> wa_ui::actions::DraftPlan {
     wa_ui::actions::draft_plan(existing, &files)
+}
+
+/// The chat views `ui_contact_plan` needs (own chat flagged, senders deduped).
+#[tauri::command]
+pub fn ui_contact_chat_views(
+    chats: Vec<wa_ui::state::ContactChatInput>,
+    me_jid: String,
+    me_lid: String,
+) -> Vec<wa_ui::state::ContactChatView> {
+    wa_ui::state::contact_chat_views(&chats, &me_jid, &me_lid)
+}
+
+/// Fold a `sent` echo into the newest optimistic bubble.
+#[tauri::command]
+pub fn ui_sent_plan(
+    entries: Vec<wa_ui::incoming::SentEntry>,
+    id: String,
+    timestamp: i64,
+    is_self_chat: bool,
+) -> Option<wa_ui::incoming::SentPlan> {
+    wa_ui::incoming::sent_plan(&entries, &id, timestamp, is_self_chat)
 }
 
 /// Star / unstar a message (participant only for someone else's message).

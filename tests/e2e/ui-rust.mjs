@@ -488,6 +488,117 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# contact views + sent echo (rust)");
+const sentViews = await page.evaluate(async () => {
+  const me = state.meJid || "62111@s.whatsapp.net";
+  const views = await invoke("ui_contact_chat_views", {
+    chats: [
+      { jid: me, name: "Me", senders: ["a@s.whatsapp.net", "a@s.whatsapp.net", ""] },
+      { jid: me.replace("@", ":7@"), name: "Me suffixed", senders: [] },
+      { jid: "6285@s.whatsapp.net", name: "Budi", senders: ["6285@s.whatsapp.net"] },
+    ],
+    meJid: me,
+    meLid: state.meLid || "",
+  });
+  const entry = (pending, timestamp) => ({ pending, timestamp });
+  const sent = {
+    newest: await invoke("ui_sent_plan", {
+      entries: [entry(false, 10), entry(true, 20), entry(false, 30)],
+      id: "3EB0",
+      timestamp: 40,
+      isSelfChat: false,
+    }),
+    delayed: await invoke("ui_sent_plan", {
+      entries: [entry(false, 10), entry(true, 20), entry(false, 30)],
+      id: "3EB1",
+      timestamp: 15,
+      isSelfChat: false,
+    }),
+    selfChat: await invoke("ui_sent_plan", {
+      entries: [entry(true, 20)],
+      id: "3EB2",
+      timestamp: 0,
+      isSelfChat: true,
+    }),
+    none: await invoke("ui_sent_plan", {
+      entries: [entry(false, 10)],
+      id: "3EB3",
+      timestamp: 11,
+      isSelfChat: false,
+    }),
+  };
+
+  // Live: addSent folds a staged pending bubble into a probe chat.
+  const jid = "999888777@s.whatsapp.net";
+  state.chats.delete(jid);
+  await addIncoming({
+    id: "probe-sent-1",
+    chat: jid,
+    chat_name: "Probe",
+    is_group: false,
+    from_me: false,
+    timestamp: Date.now() - 5000,
+    kind: "text",
+    text: "older",
+  });
+  const chat = state.chats.get(jid);
+  chat.messages.push({
+    id: "local-1",
+    chat: jid,
+    from_me: true,
+    text: "hi",
+    kind: "text",
+    timestamp: Date.now(),
+    pending: true,
+  });
+  await addSent({ chat: jid, id: "server-1", timestamp: Date.now() + 1000 });
+  const last = chat.messages[chat.messages.length - 1];
+  const live = {
+    id: last.id,
+    pending: Boolean(last.pending),
+    status: last.status,
+    isLast: chat.last === last,
+  };
+  state.chats.delete(jid);
+  renderChatList();
+  return { views, sent, live };
+});
+check(
+  "contact views flag the own chat and dedupe senders",
+  sentViews.views.length === 3 &&
+    sentViews.views[0].is_self &&
+    sentViews.views[0].senders.length === 1 &&
+    sentViews.views[1].is_self &&
+    sentViews.views[1].senders.length === 0 &&
+    !sentViews.views[2].is_self,
+  JSON.stringify(sentViews.views.map((view) => [view.is_self, view.senders.length])),
+);
+check(
+  "a sent echo folds into the newest pending bubble",
+  sentViews.sent.newest.index === 1 &&
+    sentViews.sent.newest.id === "3EB0" &&
+    sentViews.sent.newest.timestamp === 40 &&
+    sentViews.sent.newest.set_last,
+  JSON.stringify(sentViews.sent.newest),
+);
+check(
+  "a delayed echo keeps the sidebar order",
+  sentViews.sent.delayed.timestamp === 15 &&
+    !sentViews.sent.delayed.set_last &&
+    sentViews.sent.selfChat.status === "delivered" &&
+    sentViews.sent.selfChat.timestamp === 20 &&
+    sentViews.sent.none === null,
+  JSON.stringify(sentViews.sent.delayed),
+);
+check(
+  "the live sent echo completes the bubble",
+  sentViews.live.id === "server-1" &&
+    !sentViews.live.pending &&
+    sentViews.live.status === "sent" &&
+    sentViews.live.isLast,
+  JSON.stringify(sentViews.live),
+);
+
 console.log("\n# star + mute + contact gate (rust)");
 const starMute = await page.evaluate(async () => {
   const star = {

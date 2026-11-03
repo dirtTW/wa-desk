@@ -4,6 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.42] — 2026-11-03
+
+- **The contact-plan views and the sent-echo fold moved to Rust.**
+  - `wa_ui::state::contact_chat_views(chats, me_jid, me_lid)` builds what
+    `ui_contact_plan` consumes: the own chat flagged with `is_self_jid` (user-part
+    comparison, so a device suffix no longer hides it — the old code compared the
+    raw strings) and each chat's sender list deduped/cleaned. `contactChatViews`
+    is async and both call sites await it.
+  - `wa_ui::incoming::sent_plan(entries, id, timestamp, is_self_chat)` folds the
+    `sent` echo into the newest optimistic bubble: the server id, the event's
+    timestamp (or the bubble's own when the event has none), the delivery state
+    (`delivered` in "Message yourself"), and **`set_last`** — the chat's last row
+    only moves when this is the newest message, so a delayed echo can no longer
+    reorder the sidebar. It replaced `ui_newest_pending` + `ui_self_chat_status`,
+    which are deleted along with the now-unused `newest_pending` helper.
+  Commands `ui_contact_chat_views`, `ui_sent_plan` (171; `ui_newest_pending` and
+  `ui_self_chat_status` removed).
+- 2 new `wa-ui` unit tests (216 total, plus 3 contract) and a
+  contact-view/sent-echo CDP e2e section: the own-chat flag including a suffixed
+  jid, deduped senders, the newest vs delayed echo, the self-chat delivery state,
+  and a live `addSent` that completes a staged pending bubble.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.41] — 2026-11-03
 
 - **Star, mute and the contact-sync gate moved to Rust.**

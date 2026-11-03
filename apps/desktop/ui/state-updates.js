@@ -13,21 +13,20 @@ function contactNameFor(jid) {
 // after the chats were already drawn, so patch chats, senders and the list.
 // Which chats and sender bubbles take a saved name is decided by
 // wa_ui::state::contact_rename_plan; this applies the plan.
-function contactChatViews() {
-  const views = [];
-  for (const chat of state.chats.values()) {
-    const senders = new Set();
-    for (const message of chat.messages) {
-      if (message.sender) senders.add(message.sender);
-    }
-    views.push({
-      jid: chat.jid,
+async function contactChatViews() {
+  // The own-chat flag (a device suffix must not hide it) and the deduped sender
+  // list are wa_ui::state::contact_chat_views.
+  return invoke("ui_contact_chat_views", {
+    chats: [...state.chats.values()].map((chat) => ({
+      jid: chat.jid || "",
       name: chat.name || "",
-      is_self: chat.jid === state.meJid || chat.jid === state.meLid,
-      senders: [...senders],
-    });
-  }
-  return views;
+      senders: [
+        ...new Set((chat.messages || []).map((message) => message.sender).filter(Boolean)),
+      ],
+    })),
+    meJid: state.meJid || "",
+    meLid: state.meLid || "",
+  }).catch(() => []);
 }
 
 function applyContactPlan(plan) {
@@ -56,7 +55,8 @@ function flushContactPlan() {
   const updates = [...pendingContactUpdates];
   pendingContactUpdates.clear();
   if (!updates.length) return;
-  invoke("ui_contact_plan", { updates, chats: contactChatViews() })
+  contactChatViews()
+    .then((chats) => invoke("ui_contact_plan", { updates, chats }))
     .then((plan) => {
       if (applyContactPlan(plan)) scheduleContactRender();
     })
@@ -96,7 +96,7 @@ async function loadContacts() {
     }
     const plan = await invoke("ui_contact_plan", {
       updates,
-      chats: contactChatViews(),
+      chats: await contactChatViews(),
     }).catch(() => null);
     if (applyContactPlan(plan)) scheduleContactRender();
   } catch (err) {
@@ -591,21 +591,26 @@ async function addSent({ chat, id, timestamp }) {
   const entry = state.chats.get(chat);
   if (!entry) return;
 
-  const index = await invoke("ui_newest_pending", {
-    flags: entry.messages.map((m) => Boolean(m.pending)),
-  }).catch(() => null);
-  const pending = index === null || index === undefined ? null : entry.messages[index];
-  if (pending) {
-    pending.id = id;
-    pending.timestamp = timestamp || pending.timestamp;
-    pending.pending = false;
+  // The newest pending bubble, the delivery state and whether the chat's last
+  // row follows are wa_ui::incoming::sent_plan.
+  const plan = await invoke("ui_sent_plan", {
+    entries: entry.messages.map((message) => ({
+      pending: Boolean(message.pending),
+      timestamp: message.timestamp || 0,
+    })),
+    id,
+    timestamp: timestamp || 0,
     // The primary phone owns a "Message yourself" chat, so everything sent
     // there is delivered the moment it lands (grey double tick).
-    const status = await invoke("ui_self_chat_status", {
-      isSelfChat: isSelfJid(chat) || isSelfJid(entry.jid),
-    }).catch(() => "sent");
-    pending.status = status;
-    entry.last = pending;
+    isSelfChat: isSelfJid(chat) || isSelfJid(entry.jid),
+  }).catch(() => null);
+  const pending = plan ? entry.messages[plan.index] : null;
+  if (plan && pending) {
+    pending.id = plan.id;
+    pending.timestamp = plan.timestamp;
+    pending.pending = false;
+    pending.status = plan.status;
+    if (plan.set_last) entry.last = pending;
   }
 
   renderChatList();

@@ -190,6 +190,54 @@ pub fn receipt_plan(ids: &[String], incoming: &str, messages: &[ReceiptMessage])
         .collect()
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SentEntry {
+    #[serde(default)]
+    pub pending: bool,
+    #[serde(default)]
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SentPlan {
+    /// The optimistic bubble that becomes this message.
+    pub index: usize,
+    pub id: String,
+    /// The event's timestamp, or the bubble's own when the event has none.
+    pub timestamp: i64,
+    /// `delivered` in "Message yourself", otherwise `sent`.
+    pub status: &'static str,
+    /// Nothing newer exists, so the chat's last row follows this message.
+    pub set_last: bool,
+}
+
+/// Fold the `sent` echo of our own message into its optimistic bubble. A
+/// delayed echo of an older message must not reorder the sidebar, so the chat's
+/// last row only moves when this is the newest message.
+pub fn sent_plan(
+    entries: &[SentEntry],
+    id: &str,
+    timestamp: i64,
+    is_self_chat: bool,
+) -> Option<SentPlan> {
+    if id.is_empty() {
+        return None;
+    }
+    let index = entries.iter().rposition(|entry| entry.pending)?;
+    let effective = if timestamp > 0 {
+        timestamp
+    } else {
+        entries[index].timestamp
+    };
+    Some(SentPlan {
+        index,
+        id: id.to_string(),
+        timestamp: effective,
+        status: self_chat_status(is_self_chat),
+        set_last: entries.iter().all(|entry| entry.timestamp <= effective),
+    })
+}
+
 /// Everything we send in "Message yourself" is delivered immediately (the phone
 /// owns that chat), so the bubble starts on the grey double tick.
 pub fn self_chat_status(is_self_chat: bool) -> &'static str {
@@ -202,11 +250,6 @@ pub fn is_ai_echo(messages: &[(bool, String, i64)], text: &str, now: i64) -> boo
     messages.iter().any(|(from_me, body, timestamp)| {
         *from_me && body == text && (timestamp - now).abs() < 3_000
     })
-}
-
-/// The newest optimistic bubble (`pending: true`), for a send echo.
-pub fn newest_pending(flags: &[bool]) -> Option<usize> {
-    flags.iter().rposition(|pending| *pending)
 }
 
 #[cfg(test)]
@@ -306,6 +349,38 @@ mod tests {
     }
 
     #[test]
+    fn the_sent_echo_folds_into_the_newest_pending_bubble() {
+        let chat = |pending: bool, timestamp: i64| SentEntry { pending, timestamp };
+        let entries = vec![chat(false, 10), chat(true, 20), chat(false, 30)];
+
+        // The newest pending bubble takes the server id and the event's time.
+        let plan = sent_plan(&entries, "3EB0", 40, false).unwrap();
+        assert_eq!(plan.index, 1);
+        assert_eq!(plan.id, "3EB0");
+        assert_eq!(plan.timestamp, 40, "the event's timestamp wins");
+        assert_eq!(plan.status, "sent");
+        assert!(plan.set_last, "40 is newer than everything");
+
+        // A delayed echo of an older message keeps the chat's last row.
+        let late = sent_plan(&entries, "3EB1", 15, false).unwrap();
+        assert_eq!(late.timestamp, 15);
+        assert!(!late.set_last, "30 is newer, so the sidebar order is kept");
+
+        // No timestamp in the event: the bubble keeps its own.
+        assert_eq!(sent_plan(&entries, "3EB2", 0, false).unwrap().timestamp, 20);
+
+        // "Message yourself" counts as delivered from the start.
+        assert_eq!(
+            sent_plan(&entries, "3EB3", 41, true).unwrap().status,
+            "delivered"
+        );
+
+        // Nothing pending, or no id: nothing to fold.
+        assert!(sent_plan(&[chat(false, 10)], "3EB4", 11, false).is_none());
+        assert!(sent_plan(&entries, "", 11, false).is_none());
+    }
+
+    #[test]
     fn unread_rules() {
         assert!(unread_rule(false, false).increment);
         assert!(!unread_rule(false, false).clear);
@@ -370,13 +445,6 @@ mod tests {
         );
         assert!(receipt_plan(&ids, "sent", &messages).is_empty());
         assert!(receipt_plan(&[], "read", &messages).is_empty());
-    }
-
-    #[test]
-    fn newest_pending_is_the_last_one() {
-        assert_eq!(newest_pending(&[false, true, false, true]), Some(3));
-        assert_eq!(newest_pending(&[false, false]), None);
-        assert_eq!(newest_pending(&[]), None);
     }
 
     #[test]
