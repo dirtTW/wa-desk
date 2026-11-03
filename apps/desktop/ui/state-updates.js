@@ -102,7 +102,7 @@ function upsertChat({ chat, name, isGroup }) {
   return entry;
 }
 
-function addIncoming(message, history = false) {
+async function addIncoming(message, history = false) {
   const channel = isChannelJid(message.chat);
   const entry = upsertChat({
     chat: message.chat,
@@ -133,21 +133,48 @@ function addIncoming(message, history = false) {
       if (state.active === entry.jid) scheduleChatRender();
     }
   }
-  if (existing) {
-    // A key-only history stub can be followed by the body-carrying copy of the
-    // same id (the phone answers the placeholder resend with the full node).
-    // Upgrade it in place instead of dropping it, otherwise chats whose first
-    // sync only delivered keys (e.g. disappearing-message groups) stay blank.
-    // A `view_once` placeholder upgrades too when the wire later carries real
-    // inline content (multi-device lag) — the copy then renders like a normal
-    // kept media bubble on our client.
-    const isStub =
-      !String(existing.text || "").trim() &&
-      (!existing.kind || existing.kind === "text" || existing.kind === "unsupported" || existing.kind === "view_once");
-    const hasContent =
-      Boolean(String(message.text || "").trim()) ||
-      (message.kind && message.kind !== "text" && message.kind !== "unsupported");
-    if (isStub && hasContent) {
+  // The duplicate/upgrade/echo/unread rules are decided by wa_ui::incoming.
+  const incomingView = {
+    kind: message.kind || "text",
+    text: String(message.text || ""),
+    from_me: Boolean(message.from_me),
+    timestamp: message.timestamp || 0,
+    has_stats: Boolean(message.stats),
+    forwarded: Boolean(message.forwarded),
+    has_link_thumb: Boolean(message.link && (message.link.thumb || message.link.thumb_path)),
+  };
+  let echoIndex = null;
+  if (!existing && !history && message.from_me) {
+    const pendingMessages = entry.messages.filter((m) => m.pending);
+    echoIndex = await invoke("ui_pending_echo", {
+      candidates: pendingMessages.map((m) => ({
+        kind: m.kind || "text",
+        text: String(m.text || ""),
+        timestamp: m.timestamp || 0,
+      })),
+      message: incomingView,
+    }).catch(() => null);
+  }
+  const decision = await invoke("ui_incoming_classify", {
+    existing: existing
+      ? {
+          text: String(existing.text || ""),
+          kind: existing.kind || "",
+          has_stats: Boolean(existing.stats),
+          forwarded: Boolean(existing.forwarded),
+          has_link: Boolean(existing.link),
+          has_link_thumb: Boolean(
+            existing.link && (existing.link.thumb || existing.link.thumb_path),
+          ),
+        }
+      : null,
+    message: incomingView,
+    echo: echoIndex,
+  }).catch(() => ({ kind: "append" }));
+
+  if (existing && decision.kind === "duplicate") {
+    const plan = decision;
+    if (plan.upgrade) {
       Object.assign(existing, message, { pending: false });
       entry.messages.sort((a, b) => a.timestamp - b.timestamp);
       if (!entry.last || message.timestamp >= entry.last.timestamp) {
@@ -160,27 +187,21 @@ function addIncoming(message, history = false) {
     }
     // Channel counters (views/forwards/reactions) only arrive with the history
     // page while the post itself is usually already cached, so fold them in.
-    if (message.stats && !existing.stats) {
+    if (plan.fold_stats) {
       existing.stats = message.stats;
       scheduleSave();
       if (state.active === entry.jid) renderChat();
     }
     // A cached copy stored before the forwarded marker existed learns it when
     // the phone replays the same message.
-    if (message.forwarded && !existing.forwarded) {
+    if (plan.fold_forwarded) {
       existing.forwarded = true;
       scheduleSave();
       if (state.active === entry.jid) scheduleChatRender();
     }
     // A cached link preview stored before the CDN thumbnail was decoded gets
     // the fresh one (big channel images ride in `link.thumb_path`).
-    if (
-      message.link &&
-      (!existing.link ||
-        (!existing.link.thumb &&
-          !existing.link.thumb_path &&
-          (message.link.thumb || message.link.thumb_path)))
-    ) {
+    if (plan.fold_link) {
       existing.link = message.link;
       scheduleSave();
       if (state.active === entry.jid) scheduleChatRender();
@@ -189,16 +210,9 @@ function addIncoming(message, history = false) {
   }
 
   // Our own message echoed back: fold it into the optimistic bubble.
-  if (!history && message.from_me) {
-    const pending = [...entry.messages]
-      .reverse()
-      .find(
-        (m) =>
-          m.pending &&
-          m.kind === message.kind &&
-          (message.kind !== "text" || m.text === message.text) &&
-          message.timestamp - m.timestamp < 120_000,
-      );
+  if (!existing && decision.kind === "echo_pending") {
+    const pendingList = entry.messages.filter((m) => m.pending);
+    const pending = pendingList[decision.index];
     if (pending) {
       if (state.media.has(pending.id)) {
         const media = state.media.get(pending.id);
@@ -281,19 +295,21 @@ function addIncoming(message, history = false) {
     return;
   }
 
-  if (state.active === entry.jid) {
+  const active = state.active === entry.jid;
+  const rule = await invoke("ui_unread_rule", {
+    active,
+    fromMe: Boolean(message.from_me),
+  }).catch(() => ({ clear: active, increment: !active }));
+  if (rule.clear) entry.unread = 0;
+  if (rule.increment) entry.unread += 1;
+
+  if (active) {
     const wasAway = distanceFromBottom($("messages")) > SCROLL_BOTTOM_THRESHOLD;
-    entry.unread = 0;
     renderChat();
     if (wasAway && !message.from_me) setScrollLatestUnread(true);
     else updateScrollLatestButton();
     markRead(entry.jid);
-  } else if (message.from_me) {
-    // A message we sent from the phone (or another device) is not unread news:
-    // no badge bump, no notification, no "new message" affordance.
-    entry.unread = 0;
-  } else {
-    entry.unread += 1;
+  } else if (rule.increment) {
     // The toast itself fires from the Rust pump; this keeps Rust's mute set
     // fresh (mute expiries) at most once per burst.
     scheduleNotifySync();
@@ -453,18 +469,18 @@ async function syncAutostart() {
   }
 }
 
-function pushAiReply(chat, text, id) {
+async function pushAiReply(chat, text, id) {
   const entry = state.chats.get(chat);
   if (!entry || !text) return;
   const now = Date.now();
-  // Some accounts also echo the reply back; don't show it twice.
-  if (
-    entry.messages.some(
-      (m) => m.from_me && m.text === text && Math.abs(m.timestamp - now) < 3000,
-    )
-  ) {
-    return;
-  }
+  // Some accounts also echo the reply back; don't show it twice
+  // (wa_ui::incoming::is_ai_echo).
+  const echo = await invoke("ui_ai_echo", {
+    messages: entry.messages.map((m) => [Boolean(m.from_me), String(m.text || ""), m.timestamp || 0]),
+    text,
+    now,
+  }).catch(() => false);
+  if (echo) return;
   const message = {
     // The server's message id when the backend sends it along, so a later
     // revoke (someone deletes the AI reply for everyone) finds this bubble;
@@ -492,19 +508,24 @@ function pushAiReply(chat, text, id) {
   scheduleSave();
 }
 
-function addSent({ chat, id, timestamp }) {
+async function addSent({ chat, id, timestamp }) {
   const entry = state.chats.get(chat);
   if (!entry) return;
 
-  const pending = [...entry.messages].reverse().find((m) => m.pending);
+  const index = await invoke("ui_newest_pending", {
+    flags: entry.messages.map((m) => Boolean(m.pending)),
+  }).catch(() => null);
+  const pending = index === null || index === undefined ? null : entry.messages[index];
   if (pending) {
     pending.id = id;
     pending.timestamp = timestamp || pending.timestamp;
     pending.pending = false;
     // The primary phone owns a "Message yourself" chat, so everything sent
-    // there is delivered (and read) the moment it lands — the official
-    // client shows the grey double tick immediately.
-    if (isSelfJid(chat) || isSelfJid(entry.jid)) pending.status = "delivered";
+    // there is delivered the moment it lands (grey double tick).
+    const status = await invoke("ui_self_chat_status", {
+      isSelfChat: isSelfJid(chat) || isSelfJid(entry.jid),
+    }).catch(() => "sent");
+    pending.status = status;
     entry.last = pending;
   }
 

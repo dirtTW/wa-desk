@@ -84,6 +84,55 @@ pub fn ui_placeholder_name(jid: String, name: String) -> bool {
     wa_ui::text::is_placeholder_name(&jid, &name)
 }
 
+/// What a message event does to an existing chat.
+#[tauri::command]
+pub fn ui_incoming_classify(
+    existing: Option<wa_ui::incoming::ExistingView>,
+    message: wa_ui::incoming::IncomingView,
+    echo: Option<usize>,
+) -> wa_ui::incoming::Decision {
+    wa_ui::incoming::classify(existing.as_ref(), &message, echo)
+}
+
+/// The optimistic bubble an echoed own message belongs to.
+#[tauri::command]
+pub fn ui_pending_echo(
+    candidates: Vec<wa_ui::incoming::EchoView>,
+    message: wa_ui::incoming::IncomingView,
+) -> Option<usize> {
+    wa_ui::incoming::pending_echo(&candidates, &message)
+}
+
+/// Clear vs bump the unread badge for one incoming message.
+#[tauri::command]
+pub fn ui_unread_rule(active: bool, from_me: bool) -> wa_ui::incoming::UnreadRule {
+    wa_ui::incoming::unread_rule(active, from_me)
+}
+
+/// Whether a receipt may advance a message's status.
+#[tauri::command]
+pub fn ui_receipt_status(current: String, incoming: String) -> bool {
+    wa_ui::incoming::receipt_should_apply(&current, &incoming)
+}
+
+/// The delivery status a sent message starts with.
+#[tauri::command]
+pub fn ui_self_chat_status(is_self_chat: bool) -> String {
+    wa_ui::incoming::self_chat_status(is_self_chat).to_string()
+}
+
+/// The newest optimistic bubble index.
+#[tauri::command]
+pub fn ui_newest_pending(flags: Vec<bool>) -> Option<usize> {
+    wa_ui::incoming::newest_pending(&flags)
+}
+
+/// Whether an AI reply is already shown as an echo.
+#[tauri::command]
+pub fn ui_ai_echo(messages: Vec<(bool, String, i64)>, text: String, now: i64) -> bool {
+    wa_ui::incoming::is_ai_echo(&messages, &text, now)
+}
+
 /// Validate an attachment and classify it (image/video/document).
 #[tauri::command]
 pub fn ui_attachment_check(size: u64, mime: String) -> wa_ui::actions::AttachmentCheck {

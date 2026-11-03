@@ -63,12 +63,19 @@ if (rows > 0) {
 
 console.log("\n# sidebar search (rust)");
 if (rows > 0) {
-  const name = (await page.locator("#chat-list .chat-item strong").first().textContent())?.trim() || "a";
-  await page.fill("#search", name.slice(0, 4));
-  await page.waitForTimeout(600);
-  const marked = await page.locator("#chat-list .search-hit").count();
+  const name =
+    (await page.locator("#chat-list .chat-item strong").first().textContent())?.trim() || "a";
+  // Use the first word so casing/spacing edits during a repaint cannot make the
+  // needle miss; wait for the mark instead of a fixed sleep.
+  const needle = name.split(/\s+/)[0].slice(0, 6) || "a";
+  await page.fill("#search", needle);
+  let marked = 0;
+  for (let attempt = 0; attempt < 10 && marked === 0; attempt += 1) {
+    await page.waitForTimeout(200);
+    marked = await page.locator("#chat-list .search-hit").count();
+  }
   const section = await page.locator("#chat-list .search-section").count();
-  check("search highlights the match", marked > 0, `${marked} marks`);
+  check("search highlights the match", marked > 0, `${marked} marks for "${needle}"`);
   check("search keeps its section headers", section >= 1);
   await page.fill("#search", "");
   await page.waitForTimeout(600);
@@ -172,6 +179,91 @@ check(
   `${header.dms[0]?.name} · ${header.dms[0]?.sub}`,
 );
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
+
+console.log("\n# incoming rules (rust)");
+const incoming = await page.evaluate(async () => {
+  const jid = "999888777@s.whatsapp.net";
+  await addIncoming({
+    id: "probe-1",
+    chat: jid,
+    chat_name: "Probe",
+    is_group: false,
+    from_me: false,
+    timestamp: Date.now(),
+    kind: "text",
+    text: "hello probe",
+  });
+  const entry = state.chats.get(jid);
+  const unreadAfterFirst = entry?.unread;
+  await addIncoming({
+    id: "probe-1",
+    chat: jid,
+    chat_name: "Probe",
+    is_group: false,
+    from_me: false,
+    timestamp: Date.now(),
+    kind: "text",
+    text: "hello probe",
+    forwarded: true,
+    stats: { reactions: [], reaction_total: 0, forwards: 2, views: 5 },
+  });
+  const messagesAfterDuplicate = entry?.messages.length;
+  const folded = {
+    forwarded: Boolean(entry?.messages[0]?.forwarded),
+    stats: Boolean(entry?.messages[0]?.stats),
+  };
+  state.active = jid;
+  await addIncoming({
+    id: "probe-2",
+    chat: jid,
+    chat_name: "Probe",
+    is_group: false,
+    from_me: false,
+    timestamp: Date.now(),
+    kind: "text",
+    text: "second",
+  });
+  const unreadWhenActive = entry?.unread;
+  state.active = null;
+
+  const optimistic = {
+    id: "local-1",
+    chat: jid,
+    from_me: true,
+    pending: true,
+    kind: "text",
+    text: "mine",
+    timestamp: Date.now(),
+  };
+  entry.messages.push(optimistic);
+  await addSent({ chat: jid, id: "server-9", timestamp: Date.now() });
+
+  const receiptAdvance = await invoke("ui_receipt_status", { current: "sent", incoming: "delivered" });
+  const receiptRollback = await invoke("ui_receipt_status", { current: "read", incoming: "sent" });
+  const aiEcho = await invoke("ui_ai_echo", {
+    messages: [[true, "same", Date.now()]],
+    text: "same",
+    now: Date.now(),
+  });
+  state.chats.delete(jid);
+  return {
+    unreadAfterFirst,
+    messagesAfterDuplicate,
+    folded,
+    unreadWhenActive,
+    sentId: optimistic.id,
+    sentPending: Boolean(optimistic.pending),
+    receiptAdvance,
+    receiptRollback,
+    aiEcho,
+  };
+});
+check("incoming messages bump unread", incoming.unreadAfterFirst === 1);
+check("duplicates fold instead of appending", incoming.messagesAfterDuplicate === 1 && incoming.folded.forwarded && incoming.folded.stats, JSON.stringify(incoming.folded));
+check("the open chat clears its badge", incoming.unreadWhenActive === 0);
+check("a send echo folds into the optimistic bubble", incoming.sentId === "server-9" && !incoming.sentPending);
+check("receipts only advance", incoming.receiptAdvance && !incoming.receiptRollback);
+check("the AI echo guard works", incoming.aiEcho === true);
 
 console.log("\n# search + attachments (rust)");
 const searchAttach = await page.evaluate(async () => {

@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.14] — 2026-11-03
+
+- **Incoming-message application rules moved to Rust.** `wa_ui::incoming`
+  decides what a message event does: fold into an existing id (key-only stub
+  upgrade, channel stats, forwarded marker, link thumbnail), fold our own echo
+  into the newest optimistic bubble (same kind/text within two minutes), or
+  append. It also owns the unread rule (open chat clears, own messages clear,
+  background chats bump), receipt ordering (`sent < delivered < read`, so a
+  delayed `sent` cannot undo `read`), the "Message yourself" delivery status,
+  the newest-pending lookup and the AI echo guard (same text within 3 s).
+  Commands: `ui_incoming_classify`, `ui_pending_echo`, `ui_unread_rule`,
+  `ui_receipt_status`, `ui_self_chat_status`, `ui_newest_pending`, `ui_ai_echo`.
+- **Event handling is serialized.** `handleEvent` is async (it asks Rust how to
+  classify), and `main.js` now chains `wa:event` deliveries so two messages
+  cannot interleave their awaits.
+- 8 new `wa-ui` unit tests (124 total, plus 3 contract) and an incoming-rules
+  CDP e2e section: unread bump/clear, duplicate folding without appending,
+  send-echo folding, receipt advance-only and the AI echo guard. The sidebar
+  search check was also made repaint-safe (polls for the mark).
+
 ## [0.2.0-rc.13] — 2026-11-03
 
 - **Attachment validation and in-chat search planning moved to Rust.**

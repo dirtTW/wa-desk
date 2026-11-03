@@ -21,7 +21,12 @@ async function main() {
   $("input").spellcheck = Boolean(settingsPrefs.spellcheck);
   updateSendState();
 
-  await listen("wa:event", (e) => handleEvent(e.payload));
+  // Events are applied in order: handleEvent is async (it asks Rust how to
+  // classify each message), so chain them instead of letting them interleave.
+  let eventChain = Promise.resolve();
+  await listen("wa:event", (e) => {
+    eventChain = eventChain.then(() => handleEvent(e.payload)).catch(() => {});
+  });
   await listen("ai:reply", (e) => {
     if (e.payload && e.payload.chat) {
       pushAiReply(e.payload.chat, e.payload.text, e.payload.id);

@@ -624,11 +624,11 @@ async function handleEvent(event) {
       break;
 
     case "message":
-      addIncoming(event);
+      await addIncoming(event);
       break;
 
     case "history_message":
-      addIncoming(event, true);
+      await addIncoming(event, true);
       schedulePeerLookups(6000);
       break;
 
@@ -787,7 +787,7 @@ async function handleEvent(event) {
     }
 
     case "sent":
-      addSent(event);
+      await addSent(event);
       break;
 
     case "receipt": {
@@ -809,6 +809,11 @@ async function handleEvent(event) {
       const applied = new Set();
       for (const message of entry.messages) {
         if (ids.has(message.id) && message.status !== event.status) {
+          const apply = await invoke("ui_receipt_status", {
+            current: message.status || "sent",
+            incoming: event.status || "",
+          }).catch(() => false);
+          if (!apply) continue;
           message.status = event.status;
           changed = true;
         }
