@@ -488,6 +488,89 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# group dialog (rust, contacts.js removed)");
+const contactsFiles = await page.evaluate(async () => {
+  const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
+    node.getAttribute("src"),
+  );
+  const loadsContacts = scripts.some((src) => String(src).includes("contacts.js"));
+  const plans = {
+    create: await invoke("ui_group_modal", { mode: "create" }),
+    add: await invoke("ui_group_modal", { mode: "add" }),
+  };
+  const row = await invoke("ui_created_group_chat", {
+    jid: "123@g.us",
+    name: "Team",
+    now: 42,
+  });
+
+  // Live: both dialogs take their chrome from the plan.
+  await openGroupModal();
+  await new Promise((r) => setTimeout(r, 400));
+  const createState = {
+    title: document.getElementById("group-modal-title").textContent,
+    label: document.getElementById("group-create-label").textContent,
+    subjectVisible: !document.getElementById("group-subject-field").hidden,
+    rows: document.querySelectorAll("#group-contacts .group-contact").length,
+  };
+  const chat = [...state.chats.values()].find(
+    (entry) => entry.isGroup && !entry.jid.endsWith("@newsletter"),
+  );
+  let addState = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 700));
+    await openAddMembers();
+    await new Promise((r) => setTimeout(r, 400));
+    addState = {
+      title: document.getElementById("group-modal-title").textContent,
+      label: document.getElementById("group-create-label").textContent,
+      subjectHidden: document.getElementById("group-subject-field").hidden,
+    };
+  }
+  document.getElementById("group-modal").hidden = true;
+  document.getElementById("rail-chats").click();
+  return { scripts, loadsContacts, plans, row, createState, addState };
+});
+check(
+  "contacts.js is no longer loaded (20 JS files)",
+  !contactsFiles.loadsContacts && contactsFiles.scripts.length === 20,
+  `${contactsFiles.scripts.length} scripts, loadsContacts=${contactsFiles.loadsContacts}`,
+);
+check(
+  "the group dialog plan covers both modes",
+  contactsFiles.plans.create.title === "New group" &&
+    contactsFiles.plans.create.submit_label === "Create" &&
+    contactsFiles.plans.create.show_subject &&
+    contactsFiles.plans.create.success_toast === "Group created" &&
+    contactsFiles.plans.add.title === "Add members" &&
+    contactsFiles.plans.add.submit_label === "Add" &&
+    !contactsFiles.plans.add.show_subject &&
+    contactsFiles.plans.add.success_toast === "Members added",
+  JSON.stringify(contactsFiles.plans),
+);
+check(
+  "a created group starts empty and unread-free",
+  contactsFiles.row.isGroup === true &&
+    contactsFiles.row.unread === 0 &&
+    contactsFiles.row.lastTs === 42 &&
+    contactsFiles.row.messages.length === 0 &&
+    contactsFiles.row.last === null,
+  JSON.stringify(contactsFiles.row),
+);
+check(
+  "the live dialogs take their chrome from Rust",
+  contactsFiles.createState.title === "New group" &&
+    contactsFiles.createState.label === "Create" &&
+    contactsFiles.createState.subjectVisible &&
+    contactsFiles.createState.rows > 0 &&
+    (!contactsFiles.addState ||
+      (contactsFiles.addState.title === "Add members" &&
+        contactsFiles.addState.label === "Add" &&
+        contactsFiles.addState.subjectHidden)),
+  JSON.stringify({ create: contactsFiles.createState, add: contactsFiles.addState }),
+);
+
 console.log("\n# group info (rust, group-info.js removed)");
 const groupInfoFiles = await page.evaluate(async () => {
   const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
@@ -534,8 +617,8 @@ const groupInfoFiles = await page.evaluate(async () => {
   return { scripts, loadsGroupInfo, defined, confirms, live };
 });
 check(
-  "group-info.js is no longer loaded (21 JS files)",
-  !groupInfoFiles.loadsGroupInfo && groupInfoFiles.scripts.length === 21,
+  "group-info.js is no longer loaded (20 JS files)",
+  !groupInfoFiles.loadsGroupInfo && groupInfoFiles.scripts.length === 20,
   `${groupInfoFiles.scripts.length} scripts, loadsGroupInfo=${groupInfoFiles.loadsGroupInfo}`,
 );
 check(
@@ -594,11 +677,13 @@ const searchCheck = await page.evaluate(async () => {
     const hits = document.querySelectorAll("#messages .bubble.search-hit").length;
     const first = document.getElementById("chat-search-count").textContent;
     const activeFirst = document.querySelectorAll("#messages .bubble.search-active").length;
+    let secondIndex = -1;
     if (hits > 1) {
+      // Read the index the step lands on: the label can race a repaint.
       await scrollToChatSearchHit(chatSearchIndex + 1);
-      await new Promise((r) => setTimeout(r, 400));
+      secondIndex = chatSearchIndex;
     }
-    const second = document.getElementById("chat-search-count").textContent;
+    const second = secondIndex < 0 ? first : `${secondIndex + 1}/${hits}`;
     // Stepping back past the start wraps to the last hit. A repaint can clear
     // the marks mid-flight, so make sure the query is painted again first.
     if (!chatSearchHits.length) await runChatSearch(needle, true);

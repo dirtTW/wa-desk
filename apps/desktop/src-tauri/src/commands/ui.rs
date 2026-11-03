@@ -361,6 +361,18 @@ pub fn ui_member_menu_position(
     )
 }
 
+/// The New group / Add members dialog labels for a mode (`create` / `add`).
+#[tauri::command]
+pub fn ui_group_modal(mode: String) -> wa_ui::picker::GroupModal {
+    wa_ui::picker::group_modal(&mode)
+}
+
+/// The chat row for a freshly created group.
+#[tauri::command]
+pub fn ui_created_group_chat(jid: String, name: String, now: i64) -> serde_json::Value {
+    wa_ui::state::created_group_chat(&jid, &name, now)
+}
+
 /// The confirmation for leaving a group.
 #[tauri::command]
 pub fn ui_leave_group_confirm(name: String) -> String {

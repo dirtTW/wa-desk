@@ -274,3 +274,142 @@ async function saveContact() {
   }
 }
 
+
+/* --------------------------------------------------------------- new group */
+
+/* --------------------------------------------------------------- new group */
+
+let groupSelection = new Set();
+let groupModalMode = "create";
+let groupTargetChat = null;
+
+async function openGroupModal() {
+  groupModalMode = "create";
+  groupTargetChat = null;
+  groupSelection = new Set();
+  // The title, submit label, subject visibility and focus are
+  // wa_ui::picker::group_modal.
+  await applyGroupModalChrome();
+  $("group-subject").value = "";
+  $("group-search").value = "";
+  $("group-error").hidden = true;
+  $("group-modal").hidden = false;
+  renderGroupContacts();
+  $(groupModalFocus).focus();
+}
+
+/// The labels the dialog shows for the current mode.
+let groupModalFocus = "group-subject";
+let groupModalToast = "Group created";
+
+async function applyGroupModalChrome() {
+  const plan = await invoke("ui_group_modal", { mode: groupModalMode }).catch(() => null);
+  if (!plan) return;
+  $("group-modal-title").textContent = plan.title;
+  $("group-create-label").textContent = plan.submit_label;
+  $("group-subject-field").hidden = !plan.show_subject;
+  groupModalFocus = plan.focus;
+  groupModalToast = plan.success_toast;
+}
+
+async function openAddMembers() {
+  const chat = state.chats.get(state.active);
+  if (!chat || !chat.isGroup) return;
+  groupModalMode = "add";
+  groupTargetChat = chat.jid;
+  groupSelection = new Set();
+  await applyGroupModalChrome();
+  $("group-search").value = "";
+  $("group-error").hidden = true;
+  $("group-modal").hidden = false;
+  renderGroupContacts();
+  $(groupModalFocus).focus();
+}
+
+// The checklist markup (filtering, formatted numbers, checked state) is built
+// by wa-ui::picker; this only sends the selection and injects the HTML.
+async function renderGroupContacts() {
+  let out;
+  try {
+    out = await invoke("ui_group_contacts", {
+      request: {
+        contacts: Object.fromEntries(state.contacts),
+        known_lids: [...(await knownLids())],
+        photos: Object.fromEntries(
+          [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
+        ),
+        me_jid: state.meJid || "",
+        query: $("group-search").value,
+        selected: [...groupSelection],
+      },
+    });
+  } catch (err) {
+    console.warn("group contacts render failed", err);
+    return;
+  }
+  $("group-contacts").innerHTML = out.html;
+  queuePhotos(out.queue || []);
+}
+
+async function createGroup() {
+  const error = $("group-error");
+  error.hidden = true;
+
+  // The form rules are wa_ui::picker::group_form_error.
+  const formError = await invoke("ui_group_form_error", {
+    mode: groupModalMode,
+    subject: $("group-subject").value,
+    selected: groupSelection.size,
+  }).catch(() => null);
+  if (formError) {
+    error.textContent = formError;
+    error.hidden = false;
+    return;
+  }
+
+  if (groupModalMode === "add") {
+    if (!groupTargetChat) return;
+    $("group-create").disabled = true;
+    try {
+      await invoke("group_add_members", {
+        chat: groupTargetChat,
+        participants: [...groupSelection],
+      });
+      $("group-modal").hidden = true;
+      toast(groupModalToast);
+      if (!$("group-info-screen").hidden) await openGroupInfo();
+    } catch (err) {
+      error.textContent = String(err);
+      error.hidden = false;
+    } finally {
+      $("group-create").disabled = false;
+    }
+    return;
+  }
+
+  const subject = $("group-subject").value.trim();
+
+  $("group-create").disabled = true;
+  try {
+    const jid = await invoke("create_group", {
+      subject,
+      participants: [...groupSelection],
+    });
+    // The empty chat row is wa_ui::state::created_group_chat.
+    const row = await invoke("ui_created_group_chat", {
+      jid,
+      name: subject,
+      now: Date.now(),
+    }).catch(() => null);
+    if (row) state.chats.set(jid, row);
+    $("group-modal").hidden = true;
+    scheduleSave();
+    openChat(jid);
+    toast(groupModalToast);
+  } catch (err) {
+    error.textContent = String(err);
+    error.hidden = false;
+  } finally {
+    $("group-create").disabled = false;
+  }
+}

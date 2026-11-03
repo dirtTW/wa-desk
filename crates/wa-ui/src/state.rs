@@ -501,6 +501,20 @@ pub fn contact_rename_plan(updates: &[(String, String)], chats: &[ContactChatVie
     plan
 }
 
+/// The chat row for a group we just created: no messages yet, newest activity
+/// now, nothing unread.
+pub fn created_group_chat(jid: &str, name: &str, now: i64) -> serde_json::Value {
+    serde_json::json!({
+        "jid": jid,
+        "name": name,
+        "isGroup": true,
+        "messages": [],
+        "last": serde_json::Value::Null,
+        "lastTs": now,
+        "unread": 0,
+    })
+}
+
 /// The address book is requested once per connection and only while we have no
 /// saved names yet.
 pub fn contact_sync_needed(syncing: bool, known: usize) -> bool {
@@ -847,6 +861,18 @@ mod tests {
             "deduped"
         );
         assert!(views[1].senders.is_empty());
+    }
+
+    #[test]
+    fn a_created_group_starts_empty_and_unread_free() {
+        let row = created_group_chat("123@g.us", "Team", 42);
+        assert_eq!(row["jid"], "123@g.us");
+        assert_eq!(row["name"], "Team");
+        assert_eq!(row["isGroup"], true);
+        assert_eq!(row["unread"], 0);
+        assert_eq!(row["lastTs"], 42);
+        assert_eq!(row["messages"].as_array().map(Vec::len), Some(0));
+        assert!(row["last"].is_null());
     }
 
     #[test]

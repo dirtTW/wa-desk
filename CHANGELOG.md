@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.45] — 2026-11-03
+
+- **`contacts.js` is deleted — 21 → 20 JS files.** Its remaining decisions became
+  Rust and its DOM glue sits in `new-chat.js` (the picker file):
+  - `wa_ui::picker::group_modal(mode)` — the New group / Add members dialog's
+    title, submit label, whether the subject field shows, which field gets focus
+    and the success toast (`Group created` / `Members added`). `openGroupModal`
+    and `openAddMembers` are async now and paint `plan.*`.
+  - `wa_ui::state::created_group_chat(jid, name, now)` — the row a newly created
+    group gets (`isGroup`, empty message list, `last: null`, `lastTs: now`,
+    `unread: 0`) instead of a hard-coded object literal.
+  Commands `ui_group_modal`, `ui_created_group_chat`.
+- 2 new `wa-ui` unit tests (220 total, plus 3 contract) and a group-dialog CDP
+  e2e section: the file is no longer loaded (20 scripts), both plans, the created
+  row, and a live pass that opens both dialogs and checks their chrome
+  (`New group`/`Create` with 287 contacts, then `Add members`/`Add` with the
+  subject hidden).
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.44] — 2026-11-03
 
 - **`group-info.js` is deleted — 22 → 21 JS files.** Its remaining decision is

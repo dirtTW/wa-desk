@@ -297,6 +297,39 @@ pub struct GroupContactsOutput {
 }
 
 /// The "New group" / "Add members" contact checklist.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GroupModal {
+    pub title: &'static str,
+    pub submit_label: &'static str,
+    /// The subject field only belongs to the create dialog.
+    pub show_subject: bool,
+    /// Which field the dialog focuses when it opens.
+    pub focus: &'static str,
+    /// The toast after the dialog succeeds.
+    pub success_toast: &'static str,
+}
+
+/// The New group / Add members dialog in `mode` (`create` or `add`).
+pub fn group_modal(mode: &str) -> GroupModal {
+    if mode == "add" {
+        GroupModal {
+            title: "Add members",
+            submit_label: "Add",
+            show_subject: false,
+            focus: "group-search",
+            success_toast: "Members added",
+        }
+    } else {
+        GroupModal {
+            title: "New group",
+            submit_label: "Create",
+            show_subject: true,
+            focus: "group-subject",
+            success_toast: "Group created",
+        }
+    }
+}
+
 /// Validation for the new-group / add-members dialog: the first problem, or
 /// `None` when the form may be submitted.
 pub fn group_form_error(mode: &str, subject: &str, selected: usize) -> Option<String> {
@@ -397,6 +430,26 @@ mod tests {
             forward: false,
             forward_targets: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_group_dialog_labels_follow_its_mode() {
+        let create = group_modal("create");
+        assert_eq!(create.title, "New group");
+        assert_eq!(create.submit_label, "Create");
+        assert!(create.show_subject);
+        assert_eq!(create.focus, "group-subject");
+        assert_eq!(create.success_toast, "Group created");
+
+        let add = group_modal("add");
+        assert_eq!(add.title, "Add members");
+        assert_eq!(add.submit_label, "Add");
+        assert!(!add.show_subject, "adding members keeps the existing name");
+        assert_eq!(add.focus, "group-search");
+        assert_eq!(add.success_toast, "Members added");
+
+        // An unknown mode behaves like create, never like add.
+        assert!(group_modal("").show_subject);
     }
 
     #[test]
