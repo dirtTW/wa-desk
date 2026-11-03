@@ -11,6 +11,7 @@
 pub mod actions;
 pub mod cache;
 pub mod chat;
+pub mod chat_actions;
 pub mod composer;
 pub mod emoji;
 pub mod export;
@@ -35,6 +36,9 @@ mod emoji_data;
 
 pub use actions::{PostCheck, ReplyPreview, SelectionBar, StatusPermissions};
 pub use cache::{CachePayloadInput, FingerChat, RestoreOutput};
+pub use chat_actions::{
+    ChatActionInput, ChatActionPlan, DeleteCommand, DeleteTarget, InfoRow, MessageInfoInput,
+};
 pub use composer::{EmojiPanel, StatusPalette};
 pub use emoji::{EmojiGroupView, EmojiItem};
 pub use export::{ExistingMessage, ExportMessage, ImportPlan};

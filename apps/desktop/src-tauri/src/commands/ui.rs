@@ -151,6 +151,37 @@ pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search
     wa_ui::search::count_label(index, total, &query)
 }
 
+/// What a chat-menu row does.
+#[tauri::command]
+pub fn ui_chat_action(
+    input: wa_ui::chat_actions::ChatActionInput,
+) -> wa_ui::chat_actions::ChatActionPlan {
+    wa_ui::chat_actions::plan_chat_action(&input)
+}
+
+/// One delete command per selected message.
+#[tauri::command]
+pub fn ui_delete_commands(
+    items: Vec<wa_ui::chat_actions::DeleteTarget>,
+    everyone: bool,
+) -> Vec<wa_ui::chat_actions::DeleteCommand> {
+    wa_ui::chat_actions::delete_commands(&items, everyone)
+}
+
+/// The message-info rows and their dialog body.
+#[tauri::command]
+pub fn ui_message_info(input: wa_ui::chat_actions::MessageInfoInput) -> MessageInfoOutput {
+    let rows = wa_ui::chat_actions::message_info(&input);
+    let html = wa_ui::chat_actions::message_info_html(&rows);
+    MessageInfoOutput { rows, html }
+}
+
+#[derive(serde::Serialize)]
+pub struct MessageInfoOutput {
+    pub rows: Vec<wa_ui::chat_actions::InfoRow>,
+    pub html: String,
+}
+
 /// Whether a story can be replied to / reacted to / deleted.
 #[tauri::command]
 pub fn ui_status_permissions(from_me: bool) -> wa_ui::actions::StatusPermissions {

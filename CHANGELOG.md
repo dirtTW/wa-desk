@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.16] — 2026-11-03
+
+- **Chat-menu actions are planned in Rust.** `wa_ui::chat_actions::plan_chat_action`
+  maps a menu row to the wire command and its args (`chat_pin`,
+  `chat_archive`, `chat_read_mark`, `chat_block`, `chat_clear`, `chat_delete`),
+  the local mutation (pin/archived/unread/blocked/clear/delete/close), the
+  confirmation copy for destructive rows and the toast. Unknown rows plan
+  nothing. `runChatAction` only executes the plan; the dead local `applyPin`
+  helper is gone.
+- **Delete commands and message info come from Rust.**
+  `delete_commands` builds one `delete_for_me`/`delete_for_everyone` call per
+  selected message (participant/`from_me` only for "for me"); `message_info`
+  builds the Type/Sent/From/Message ID/Status rows (status labels
+  `Sending…`/`Failed`/`Read`/`Delivered`/`Sent`, sender label from name → number)
+  plus the dialog body, so `showMessageInfo` no longer formats anything.
+- Commands: `ui_chat_action`, `ui_delete_commands`, `ui_message_info`.
+- 6 new `wa-ui` unit tests (136 total, plus 3 contract) and a chat-actions CDP
+  e2e section (pin/unread/block/clear/close plans, both delete modes, and the
+  5-row info dialog). The status-body e2e check now polls instead of sleeping.
+
 ## [0.2.0-rc.15] — 2026-11-03
 
 - **The story viewer's frame clock moved to Rust.** `wa_ui::status` now owns the

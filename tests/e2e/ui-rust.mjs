@@ -460,6 +460,59 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# chat actions (rust)");
+const chatActions = await page.evaluate(async () => {
+  const input = (action, extra = {}) => ({
+    action,
+    jid: "1@s.whatsapp.net",
+    pinned: false,
+    archived: false,
+    blocked: false,
+    is_open: false,
+    is_group: false,
+    ...extra,
+  });
+  const pin = await invoke("ui_chat_action", { input: input("pin") });
+  const unread = await invoke("ui_chat_action", { input: input("unread") });
+  const block = await invoke("ui_chat_action", { input: input("block", { blocked: true }) });
+  const clear = await invoke("ui_chat_action", { input: input("clear") });
+  const close = await invoke("ui_chat_action", { input: input("close", { is_open: true }) });
+  const deletes = await invoke("ui_delete_commands", {
+    items: [
+      { chat: "a", id: "1", from_me: true, participant: null },
+      { chat: "b", id: "2", from_me: false, participant: "6285@s.whatsapp.net" },
+    ],
+    everyone: false,
+  });
+  const deletesEveryone = await invoke("ui_delete_commands", {
+    items: [{ chat: "a", id: "1", from_me: true, participant: null }],
+    everyone: true,
+  });
+
+  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 2);
+  let dialog = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 1000));
+    const message = chat.messages.find((m) => m.text);
+    await showMessageInfo(message);
+    dialog = {
+      hidden: document.getElementById("msg-info").hidden,
+      rows: document.querySelectorAll("#msg-info-body div").length,
+    };
+    document.getElementById("msg-info").hidden = true;
+  }
+  return { pin, unread, block, clear, close, deletes, deletesEveryone, dialog };
+});
+check("chat actions plan their command", chatActions.pin.command === "chat_pin" && chatActions.pin.pin === true, chatActions.pin.toast);
+check("read-mark and block plan correctly", chatActions.unread.unread === true && chatActions.block.blocked === false, `${chatActions.unread.toast} / ${chatActions.block.toast}`);
+check("clear asks first", chatActions.clear.clear && Boolean(chatActions.clear.confirm));
+check("close only affects the open chat", chatActions.close.command === null && chatActions.close.close);
+check("delete commands carry the args", chatActions.deletes.length === 2 && chatActions.deletes[1].participant === "6285@s.whatsapp.net" && chatActions.deletesEveryone[0].command === "delete_for_everyone");
+if (chatActions.dialog) {
+  check("the message info dialog renders", !chatActions.dialog.hidden && chatActions.dialog.rows === 5, `${chatActions.dialog.rows} rows`);
+}
+
 console.log("\n# status frame clock (rust)");
 const clock = await page.evaluate(async () => {
   const timing = await invoke("ui_status_timing");
@@ -756,7 +809,11 @@ const statusScreen = await page.evaluate(async () => {
   let viewer = { skipped: true };
   if (first) {
     openStatusViewer(first.getAttribute("data-status-jid"));
-    await new Promise((r) => setTimeout(r, 2200));
+    // The frame body is painted after the renderer round-trip; poll for it.
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      if ((document.querySelector("#status-viewer-body")?.innerHTML || "").length > 0) break;
+    }
     viewer = {
       name: document.getElementById("status-viewer-name").textContent,
       time: document.getElementById("status-viewer-time").textContent,

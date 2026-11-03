@@ -116,119 +116,71 @@ function initChatMenu() {
   // Every action still mirrors the exact same events the official client
   // fires; the chat cache mutates right away so a slow app-state ack never
   // blocks the sidebar (or loses it after another render).
+  // The command, the local mutation, the toast and any confirmation come from
+  // wa_ui::chat_actions; this only applies them.
   async function runChatAction(action, chatJid) {
     const entry = state.chats.get(chatJid);
+    let plan;
     try {
-      switch (action) {
-        case "pin":
-        case "unpin": {
-          const pinned = action === "pin";
-          await invoke("chat_pin", { chat: chatJid, pinned });
-          applyPin(entry, chatJid, pinned);
-          toast(pinned ? "Chat pinned" : "Chat unpinned");
-          return;
+      plan = await invoke("ui_chat_action", {
+        input: {
+          action,
+          jid: chatJid,
+          pinned: Boolean(entry?.pinned),
+          archived: Boolean(entry?.archived),
+          blocked: Boolean(entry?.blocked),
+          is_open: state.active === chatJid,
+          is_group: Boolean(entry?.isGroup),
+        },
+      });
+    } catch (err) {
+      toast(String(err));
+      return;
+    }
+    if (plan.confirm && !confirm(plan.confirm)) return;
+
+    try {
+      if (plan.command) await invoke(plan.command, plan.args || {});
+      if (entry) {
+        if (plan.pin !== null && plan.pin !== undefined) {
+          entry.pinned = plan.pin;
+          if (entry.pinned && !entry.pinTs) entry.pinTs = Date.now();
+          if (!entry.pinned) delete entry.pinTs;
         }
-        case "archive":
-        case "unarchive": {
-          const archived = action === "archive";
-          await invoke("chat_archive", { chat: chatJid, archived });
-          if (entry) {
-            entry.archived = archived;
-            renderChatList();
-            scheduleSave();
-          }
-          toast(archived ? "Chat archived" : "Chat unarchived");
-          return;
+        if (plan.archived !== null && plan.archived !== undefined) {
+          entry.archived = plan.archived;
         }
-        case "unread":
-        case "read": {
-          const unread = action === "unread";
-          await invoke("chat_read_mark", { chat: chatJid, unread });
-          if (entry) {
-            entry.unread = unread ? Math.max(1, entry.unread || 0) : 0;
-            renderChatList();
-            scheduleSave();
-          }
-          if (unread) toast("Marked as unread");
-          return;
+        if (plan.unread !== null && plan.unread !== undefined) {
+          entry.unread = plan.unread ? Math.max(1, entry.unread || 0) : 0;
         }
-        case "block": {
-          const blocked = Boolean(entry && entry.blocked);
-          await invoke("chat_block", { chat: chatJid, blocked: !blocked });
-          if (entry) {
-            entry.blocked = !blocked;
-            scheduleSave();
-          }
-          toast(blocked ? "Unblocked contact" : "Contact blocked");
-          return;
+        if (plan.blocked !== null && plan.blocked !== undefined) {
+          entry.blocked = plan.blocked;
         }
-        case "close": {
-          if (state.active === chatJid) {
-            // The official desktop only closes the panel, it keeps the entry.
-            state.active = null;
-            renderChat();
-          }
-          return;
+        if (plan.clear) {
+          entry.messages = [];
+          entry.last = null;
         }
-        case "clear": {
-          if (!confirm("Clear all messages in this chat?")) return;
-          await invoke("chat_clear", { chat: chatJid });
-          // The chat_cleared event echo discards the history; this renders
-          // immediately, matching WhatsApp Web's snappy clear.
-          if (entry) {
-            entry.messages = [];
-            entry.last = null;
-            renderChatList();
-            renderChat();
-            scheduleSave();
-          }
-          toast("Chat cleared");
-          return;
+        if (plan.delete) {
+          entry.deleted = true;
+          entry.deletedAt = Date.now();
         }
-        case "delete": {
-          if (!confirm("Delete this chat on all linked devices?")) return;
-          await invoke("chat_delete", { chat: chatJid });
-          if (entry) {
-            entry.deleted = true;
-            entry.deletedAt = Date.now();
-            if (!state.showDeleted && state.active === chatJid) {
-              state.active = null;
-              renderChat();
-            }
-            renderChatList();
-            scheduleSave();
-          }
-          toast("Chat deleted");
-          return;
-        }
-        default:
-          return;
       }
+      if (plan.close) state.active = null;
+      if (plan.toast) toast(plan.toast);
     } catch (err) {
       // The conflicting app-state patch right after launch reads as setup
       // noise; give the user the honest short version like the official does.
-      toast(String(err).includes("still conflicting")
-        ? "WhatsApp is still syncing; try again in a moment."
-        : String(err));
-      // The event echo may already have landed; keep the UI honest after a
-      // failure.
-      renderChatList();
-      scheduleSave();
+      toast(
+        String(err).includes("still conflicting")
+          ? "WhatsApp is still syncing; try again in a moment."
+          : String(err),
+      );
     }
+    renderChatList();
+    if (plan.close || plan.clear || plan.delete) renderChat();
+    scheduleSave();
   }
 
-  // Apply the pin locally when the background command returns; the
-  // chat_pin event echo may race this and apply the same state.
-  function applyPin(entry, chatJid, pinned) {
-    const chat = entry || state.chats.get(chatJid);
-    if (chat) {
-      chat.pinned = pinned;
-      if (chat.pinned && !chat.pinTs) chat.pinTs = Date.now();
-      if (!chat.pinned) delete chat.pinTs;
-      renderChatList();
-      scheduleSave();
-    }
-  }
 
   async function applyMuteSubmenu(chatJid) {
     const chat = state.chats.get(chatJid) || {};

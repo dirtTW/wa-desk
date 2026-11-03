@@ -208,17 +208,29 @@ async function confirmDelete(everyone) {
   renderChat();
   scheduleSave();
 
-  for (const item of pending.items) {
-    const args = { chat: item.chat, id: item.id };
-    if (everyone) {
-      invoke("delete_for_everyone", args).catch((err) => toast(String(err)));
-    } else {
-      invoke("delete_for_me", {
-        ...args,
-        fromMe: Boolean(item.fromMe),
+  // The per-item command and args come from wa_ui::chat_actions.
+  let commands = [];
+  try {
+    commands = await invoke("ui_delete_commands", {
+      items: pending.items.map((item) => ({
+        chat: item.chat,
+        id: item.id,
+        from_me: Boolean(item.fromMe),
         participant: item.participant || null,
-      }).catch((err) => toast(String(err)));
+      })),
+      everyone,
+    });
+  } catch (err) {
+    toast(String(err));
+    return;
+  }
+  for (const command of commands) {
+    const args = { chat: command.chat, id: command.id };
+    if (command.from_me !== null && command.from_me !== undefined) {
+      args.fromMe = command.from_me;
+      args.participant = command.participant || null;
     }
+    invoke(command.command, args).catch((err) => toast(String(err)));
   }
 }
 
@@ -284,31 +296,23 @@ function clampMessageMenu() {
   menu.style.top = `${top}px`;
 }
 
-function showMessageInfo(message) {
-  const rows = [
-    ["Type", message.kind || "text"],
-    ["Sent", new Date(message.timestamp).toLocaleString()],
-    ["From", message.from_me ? "You" : message.sender_name || message.sender || "Unknown"],
-    ["Message ID", message.id],
-    [
-      "Status",
-      message.pending
-        ? "Sending…"
-        : message.failed
-          ? "Failed"
-          : message.status === "read"
-            ? "Read"
-            : message.status === "delivered"
-              ? "Delivered"
-              : "Sent",
-    ],
-  ];
-  $("msg-info-body").innerHTML = rows
-    .map(
-      ([label, value]) =>
-        `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value))}</dd></div>`,
-    )
-    .join("");
+async function showMessageInfo(message) {
+  // Labels, values and rows are built by wa_ui::chat_actions.
+  const info = await invoke("ui_message_info", {
+    input: {
+      kind: message.kind || "text",
+      timestamp: message.timestamp || 0,
+      from_me: Boolean(message.from_me),
+      sender_name: message.sender_name || "",
+      sender: message.sender || "",
+      id: String(message.id || ""),
+      pending: Boolean(message.pending),
+      failed: Boolean(message.failed),
+      status: message.status || "",
+    },
+  }).catch(() => null);
+  if (!info) return;
+  $("msg-info-body").innerHTML = info.html;
   $("msg-info").hidden = false;
 }
 
