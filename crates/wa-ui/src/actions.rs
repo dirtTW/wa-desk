@@ -156,6 +156,10 @@ pub struct AttachmentCheck {
     pub error: Option<String>,
     /// `image`, `video` or `document`.
     pub kind: String,
+    /// The MIME to put on the wire (a blank pick becomes octet-stream).
+    pub send_mime: String,
+    /// The caption to send (trimmed; `None` when there is none).
+    pub caption: Option<String>,
 }
 
 /// The attachment size limit (48 MB).
@@ -163,6 +167,26 @@ pub const MAX_ATTACHMENT_BYTES: u64 = 48 * 1024 * 1024;
 
 /// Validate an attachment before upload and decide how to send it.
 pub fn attachment_check(size: u64, mime: &str) -> AttachmentCheck {
+    attachment_send(size, mime, "")
+}
+
+/// Validate an attachment and shape the `send_attachment` call: the media kind,
+/// the wire MIME and the caption.
+pub fn attachment_send(size: u64, mime: &str, caption: &str) -> AttachmentCheck {
+    let raw = mime.trim();
+    let send_mime = if raw.is_empty() {
+        "application/octet-stream".to_string()
+    } else {
+        raw.to_string()
+    };
+    let caption = {
+        let trimmed = caption.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    };
     let mime = mime.to_lowercase();
     let kind = if mime.starts_with("image/") {
         "image"
@@ -176,12 +200,16 @@ pub fn attachment_check(size: u64, mime: &str) -> AttachmentCheck {
             ok: false,
             error: Some("File is too large - 48 MB is the limit.".to_string()),
             kind: kind.to_string(),
+            send_mime,
+            caption,
         };
     }
     AttachmentCheck {
         ok: true,
         error: None,
         kind: kind.to_string(),
+        send_mime,
+        caption,
     }
 }
 
@@ -587,6 +615,27 @@ mod tests {
             Some("File is too large - 48 MB is the limit.")
         );
         assert_eq!(huge.kind, "image");
+    }
+
+    #[test]
+    fn the_send_shapes_the_wire_mime_and_caption() {
+        // A blank pick type becomes octet-stream, the caption is trimmed.
+        let plan = attachment_send(10, "", "  hello  ");
+        assert!(plan.ok);
+        assert_eq!(plan.send_mime, "application/octet-stream");
+        assert_eq!(plan.caption.as_deref(), Some("hello"));
+        assert_eq!(plan.kind, "document", "an unknown type is a document");
+
+        // A real type is passed through untouched (case preserved).
+        let image = attachment_send(10, "image/PNG", "");
+        assert_eq!(image.send_mime, "image/PNG");
+        assert_eq!(image.kind, "image", "the kind comparison is lowercased");
+        assert!(image.caption.is_none(), "a blank caption sends none");
+
+        // The caption survives on a rejected file so the toast path can show it.
+        let huge = attachment_send(MAX_ATTACHMENT_BYTES + 1, "image/png", "caption");
+        assert!(!huge.ok);
+        assert_eq!(huge.caption.as_deref(), Some("caption"));
     }
 
     #[test]

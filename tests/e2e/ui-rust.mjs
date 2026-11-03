@@ -488,6 +488,76 @@ check(
   `${storePlans.trim.dropped} dropped`,
 );
 
+console.log("\n# attachments (rust, attachments.js removed)");
+const attachFiles = await page.evaluate(async () => {
+  const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
+    node.getAttribute("src"),
+  );
+  const loadsAttachments = scripts.some((src) => String(src).includes("attachments.js"));
+  const plans = {
+    image: await invoke("ui_attachment_send", { size: 1024, mime: "image/png", caption: " hi " }),
+    blank: await invoke("ui_attachment_send", { size: 10, mime: "", caption: "   " }),
+    huge: await invoke("ui_attachment_send", {
+      size: 50 * 1024 * 1024,
+      mime: "image/png",
+      caption: "x",
+    }),
+  };
+  const defined = {
+    fileToBase64: typeof fileToBase64 === "function",
+    sendFile: typeof sendFile === "function",
+  };
+
+  // Live: the draft stack still stages through the moved code, and
+  // fileToBase64 still reads a real file.
+  const chat = [...state.chats.values()].find((entry) => !entry.isGroup && entry.messages.length);
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 900));
+    clearDraft();
+    const img = new File([new Uint8Array([1, 2, 3])], "probe.png", { type: "image/png" });
+    await addDraftFiles([img]);
+    await new Promise((r) => setTimeout(r, 400));
+    live = {
+      staged: draftFiles.length,
+      thumbs: document.querySelectorAll("#draft-thumbs .draft-item").length,
+      base64: (await fileToBase64(img)).length > 0,
+    };
+    clearDraft();
+  }
+  return { scripts, loadsAttachments, plans, defined, live };
+});
+check(
+  "attachments.js is no longer loaded (19 JS files)",
+  !attachFiles.loadsAttachments && attachFiles.scripts.length === 19,
+  `${attachFiles.scripts.length} scripts, loadsAttachments=${attachFiles.loadsAttachments}`,
+);
+check(
+  "the attachment send plan carries the mime and caption",
+  attachFiles.plans.image.ok &&
+    attachFiles.plans.image.kind === "image" &&
+    attachFiles.plans.image.send_mime === "image/png" &&
+    attachFiles.plans.image.caption === "hi" &&
+    attachFiles.plans.blank.send_mime === "application/octet-stream" &&
+    attachFiles.plans.blank.caption === null &&
+    !attachFiles.plans.huge.ok &&
+    attachFiles.plans.huge.error.includes("48 MB"),
+  JSON.stringify(attachFiles.plans),
+);
+check(
+  "the attachment helpers survive the move",
+  attachFiles.defined.fileToBase64 && attachFiles.defined.sendFile,
+  JSON.stringify(attachFiles.defined),
+);
+if (attachFiles.live) {
+  check(
+    "the live draft stack still stages a file",
+    attachFiles.live.staged === 1 && attachFiles.live.thumbs === 1 && attachFiles.live.base64,
+    JSON.stringify(attachFiles.live),
+  );
+}
+
 console.log("\n# group dialog (rust, contacts.js removed)");
 const contactsFiles = await page.evaluate(async () => {
   const scripts = [...document.querySelectorAll("script[src]")].map((node) =>
@@ -533,8 +603,8 @@ const contactsFiles = await page.evaluate(async () => {
   return { scripts, loadsContacts, plans, row, createState, addState };
 });
 check(
-  "contacts.js is no longer loaded (20 JS files)",
-  !contactsFiles.loadsContacts && contactsFiles.scripts.length === 20,
+  "contacts.js is no longer loaded (19 JS files)",
+  !contactsFiles.loadsContacts && contactsFiles.scripts.length === 19,
   `${contactsFiles.scripts.length} scripts, loadsContacts=${contactsFiles.loadsContacts}`,
 );
 check(
@@ -617,8 +687,8 @@ const groupInfoFiles = await page.evaluate(async () => {
   return { scripts, loadsGroupInfo, defined, confirms, live };
 });
 check(
-  "group-info.js is no longer loaded (20 JS files)",
-  !groupInfoFiles.loadsGroupInfo && groupInfoFiles.scripts.length === 20,
+  "group-info.js is no longer loaded (19 JS files)",
+  !groupInfoFiles.loadsGroupInfo && groupInfoFiles.scripts.length === 19,
   `${groupInfoFiles.scripts.length} scripts, loadsGroupInfo=${groupInfoFiles.loadsGroupInfo}`,
 );
 check(

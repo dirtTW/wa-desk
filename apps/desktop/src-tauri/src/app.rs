@@ -291,6 +291,7 @@ pub fn run() {
             crate::commands::ui::ui_pending_echo,
             crate::commands::ui::ui_unread_rule,
             crate::commands::ui::ui_ai_echo,
+            crate::commands::ui::ui_attachment_send,
             crate::commands::ui::ui_attachment_check,
             crate::commands::ui::ui_search_matches,
             crate::commands::ui::ui_search_hit_index,

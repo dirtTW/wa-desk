@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.46] — 2026-11-03
+
+- **`attachments.js` is deleted — 20 → 19 JS files.** Its last decisions became
+  part of the Rust attachment plan and the DOM glue sits in `chats.js`:
+  - `wa_ui::actions::attachment_send(size, mime, caption)` extends the check with
+    the two things the `send_attachment` call needs: `send_mime` (a blank pick
+    type becomes `application/octet-stream`, a real one is passed through
+    untouched while the kind comparison stays lowercased) and `caption`
+    (trimmed, `None` when blank). `attachment_check` delegates to it with an
+    empty caption, so nothing else changed. Command `ui_attachment_send`.
+  - `fileToBase64` and `sendFile` moved into `chats.js`; `sendFile` now sends
+    `check.send_mime` / `check.caption` instead of re-deriving them.
+- 1 new `wa-ui` unit test (221 total, plus 3 contract) and an attachments CDP e2e
+  section: the file is no longer loaded (19 scripts), the send plan for a real
+  image / a blank type / an oversized file, both helpers still present, and a
+  live draft stack that stages a file and base64-encodes it.
+- Audits: `check-undefined` 21 (false positives), `check-ids` 0/271,
+  `check-data-attrs` 0/84, `check-command-args` 0, `check-dead-functions` 0,
+  `check-state-fields` 0/38.
+
 ## [0.2.0-rc.45] — 2026-11-03
 
 - **`contacts.js` is deleted — 21 → 20 JS files.** Its remaining decisions became

@@ -139,9 +139,10 @@ apps/desktop/
     src/ai/util.rs             clock, randomness, emoji/text helpers
     src/ai/tests.rs            unit tests
     tauri.conf.json
-  ui/                          vanilla HTML/CSS/JS frontend, no npm (20 files; chat-search.js
+  ui/                          vanilla HTML/CSS/JS frontend, no npm (19 files; chat-search.js
                                folded into chat-render.js in rc.43, group-info.js into
-                               chat-list.js in rc.44, contacts.js into new-chat.js in rc.45)
+                               chat-list.js in rc.44, contacts.js into new-chat.js in rc.45,
+                               attachments.js into chats.js in rc.46)
     core.js                    constants, state, cache, helpers, avatars
     chat-list.js               sidebar list, channels, group info and members
     media-ui.js                media rendering, posters, link previews
@@ -151,13 +152,12 @@ apps/desktop/
     actions.js                 send, read, open chat, history sync
     calls.js                   call signaling and media
     status.js                  status/stories
-    chats.js                   aliases, merge, clipboard drafts
+    chats.js                   aliases, merge, clipboard drafts, attachments
     message-actions.js         edit/delete/reaction menus
     new-chat.js                new-chat picker, group create/add dialog
     settings.js                settings/theme/autostart
     emoji.js                   emoji picker
     stickers.js                sticker grids/favorites
-    attachments.js             composer attachments
     wiring.js                  DOM event wiring
     main.js                    bootstrap: wire(), listeners, get_status()
   scripts/gen-icons.ps1        regenerates the app icons

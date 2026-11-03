@@ -115,7 +115,15 @@ pub fn ui_ai_echo(messages: Vec<(bool, String, i64)>, text: String, now: i64) ->
     wa_ui::incoming::is_ai_echo(&messages, &text, now)
 }
 
-/// Validate an attachment and classify it (image/video/document).
+/// Validate an attachment, classify it and shape the send (MIME + caption).
+#[tauri::command]
+pub fn ui_attachment_send(
+    size: u64,
+    mime: String,
+    caption: String,
+) -> wa_ui::actions::AttachmentCheck {
+    wa_ui::actions::attachment_send(size, &mime, &caption)
+}
 #[tauri::command]
 pub fn ui_attachment_check(size: u64, mime: String) -> wa_ui::actions::AttachmentCheck {
     wa_ui::actions::attachment_check(size, &mime)
