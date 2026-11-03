@@ -14,16 +14,16 @@ function clearChatSearchMarks() {
   chatSearchIndex = -1;
 }
 
-function updateChatSearchCount() {
+async function updateChatSearchCount() {
   const count = $("chat-search-count");
-  const total = chatSearchHits.length;
-  count.textContent = total
-    ? `${chatSearchIndex + 1}/${total}`
-    : $("chat-search-input").value.trim()
-      ? "0/0"
-      : "";
-  $("chat-search-prev").disabled = total === 0;
-  $("chat-search-next").disabled = total === 0;
+  const label = await invoke("ui_search_label", {
+    index: chatSearchIndex,
+    total: chatSearchHits.length,
+    query: $("chat-search-input").value,
+  }).catch(() => ({ text: "", disabled: true }));
+  count.textContent = label.text;
+  $("chat-search-prev").disabled = label.disabled;
+  $("chat-search-next").disabled = label.disabled;
 }
 
 function scrollToChatSearchHit(index) {
@@ -36,18 +36,31 @@ function scrollToChatSearchHit(index) {
   updateChatSearchCount();
 }
 
-function runChatSearch(query, keepIndex = false) {
+async function runChatSearch(query, keepIndex = false) {
   const previous = keepIndex ? chatSearchIndex : -1;
   clearChatSearchMarks();
-  const needle = query.trim().toLowerCase();
+  const needle = query.trim();
   if (!needle) {
     updateChatSearchCount();
     return;
   }
 
+  // Which bubbles match is decided by wa-ui::search over their rendered text;
+  // the text-node ranges are still painted here.
+  const bubbles = [...$("messages").querySelectorAll(".bubble[data-id]")];
+  const texts = bubbles.map((bubble) =>
+    [...bubble.querySelectorAll(".body")]
+      .map((body) => body.textContent || "")
+      .join("\n"),
+  );
+  const matches = await invoke("ui_search_matches", { texts, query: needle }).catch(
+    () => [],
+  );
+  const lowered = needle.toLowerCase();
   const ranges = [];
-  for (const bubble of $("messages").querySelectorAll(".bubble[data-id]")) {
-    let matched = false;
+  for (const index of matches) {
+    const bubble = bubbles[index];
+    if (!bubble) continue;
     for (const body of bubble.querySelectorAll(".body")) {
       const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
       let node;
@@ -55,23 +68,20 @@ function runChatSearch(query, keepIndex = false) {
         const value = (node.nodeValue || "").toLowerCase();
         let from = 0;
         while (true) {
-          const at = value.indexOf(needle, from);
+          const at = value.indexOf(lowered, from);
           if (at < 0) break;
-          matched = true;
           if (typeof Highlight === "function") {
             const range = document.createRange();
             range.setStart(node, at);
-            range.setEnd(node, at + needle.length);
+            range.setEnd(node, at + lowered.length);
             ranges.push(range);
           }
-          from = at + needle.length;
+          from = at + lowered.length;
         }
       }
     }
-    if (matched) {
-      bubble.classList.add("search-hit");
-      chatSearchHits.push(bubble);
-    }
+    bubble.classList.add("search-hit");
+    chatSearchHits.push(bubble);
   }
 
   if (window.CSS && CSS.highlights && ranges.length) {

@@ -21,6 +21,7 @@ pub mod labels;
 pub mod menus;
 pub mod picker;
 pub mod screens;
+pub mod search;
 pub mod settings;
 pub mod sidebar;
 pub mod state;
@@ -44,6 +45,7 @@ pub use menus::{
 };
 pub use picker::{PickerChat, PickerOutput, PickerRequest};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
+pub use search::{SearchLabel, count_label, matched_indices};
 pub use settings::{SettingsOutput, SettingsRequest};
 pub use sidebar::{SidebarChat, SidebarOutput, SidebarRequest};
 pub use state::{MergeChatView, MergePlan, TrimChatView, TrimPlan};

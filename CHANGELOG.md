@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.13] — 2026-11-03
+
+- **Attachment validation and in-chat search planning moved to Rust.**
+  `wa_ui::actions::attachment_check` owns the 48 MB limit and the
+  image/video/document classification (with the exact refusal copy);
+  `wa_ui::search` decides which rendered bubbles match a query
+  (`matched_indices`, case-insensitive) and builds the counter label
+  (`1/6`, `0/0`, or empty when the box is blank). Commands
+  `ui_attachment_check`, `ui_search_matches`, `ui_search_label`.
+  `attachments.js` keeps only the FileReader/optimistic-bubble wiring and
+  `chat-search.js` only paints the text-node ranges.
+- **The last duplicated helper is gone.** `state-updates.js` had its own
+  `isPlaceholderName`; both call sites now use `ui_placeholder_name` (the
+  rename also refreshes the sidebar when it lands).
+- 2 new `wa-ui` unit tests (116 total, plus 3 contract) and a CDP e2e section:
+  attachment classification + oversize refusal, planned matches `0,2`,
+  labels `1/2` and `0/0`, and a live in-chat search (6 bubbles, `1/6`).
+
 ## [0.2.0-rc.12] — 2026-11-03
 
 - **`icons.js` and `chat-utils.js` are gone.** The four remaining runtime icon

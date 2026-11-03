@@ -2,8 +2,6 @@
 
 /* ---------------------------------------------------------------- attachments */
 
-const MAX_ATTACHMENT_BYTES = 48 * 1024 * 1024;
-
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -20,16 +18,16 @@ function fileToBase64(file) {
 async function sendFile(file, caption = "") {
   const chat = state.active;
   if (!file || !chat) return;
-  if (file.size > MAX_ATTACHMENT_BYTES) {
-    toast("File is too large - 48 MB is the limit.");
+  // Size limit and media kind are decided by wa-ui::actions.
+  const check = await invoke("ui_attachment_check", {
+    size: file.size || 0,
+    mime: file.type || "",
+  }).catch(() => null);
+  if (!check || !check.ok) {
+    if (check?.error) toast(check.error);
     return;
   }
-
-  const kind = file.type.startsWith("image/")
-    ? "image"
-    : file.type.startsWith("video/")
-      ? "video"
-      : "document";
+  const kind = check.kind;
 
   const entry = state.chats.get(chat);
   if (!entry) return;

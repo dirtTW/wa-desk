@@ -4,10 +4,6 @@
 /* state updates                                                       */
 /* ------------------------------------------------------------------ */
 
-function isPlaceholderName(jid, name) {
-  return name === jid.split("@")[0];
-}
-
 function contactNameFor(jid) {
   if (!jid) return "";
   return state.contacts.get(jidUser(jid)) || "";
@@ -94,7 +90,14 @@ function upsertChat({ chat, name, isGroup }) {
   }
 
   // A bare phone number is only a placeholder until a real name shows up.
-  if (name && !isPlaceholderName(chat, name)) entry.name = name;
+  if (name) {
+    // The placeholder rule is wa_ui::text::is_placeholder_name.
+    invoke("ui_placeholder_name", { jid: chat, name })
+      .catch(() => false)
+      .then((placeholder) => {
+        if (!placeholder) entry.name = name;
+      });
+  }
   if (isGroup !== undefined) entry.isGroup = Boolean(isGroup);
   return entry;
 }
@@ -212,8 +215,15 @@ function addIncoming(message, history = false) {
     }
   }
 
-  if (!message.is_group && message.sender_name && isPlaceholderName(entry.jid, entry.name)) {
-    entry.name = message.sender_name;
+  if (!message.is_group && message.sender_name) {
+    invoke("ui_placeholder_name", { jid: entry.jid, name: entry.name })
+      .catch(() => false)
+      .then((placeholder) => {
+        if (!placeholder) return;
+        entry.name = message.sender_name;
+        scheduleChatListRender();
+        scheduleSave();
+      });
   }
 
   entry.messages.push({ ...message, pending: false });

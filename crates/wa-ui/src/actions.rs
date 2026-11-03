@@ -150,6 +150,41 @@ pub struct SelectionBar {
     pub disabled: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AttachmentCheck {
+    pub ok: bool,
+    pub error: Option<String>,
+    /// `image`, `video` or `document`.
+    pub kind: String,
+}
+
+/// The attachment size limit (48 MB).
+pub const MAX_ATTACHMENT_BYTES: u64 = 48 * 1024 * 1024;
+
+/// Validate an attachment before upload and decide how to send it.
+pub fn attachment_check(size: u64, mime: &str) -> AttachmentCheck {
+    let mime = mime.to_lowercase();
+    let kind = if mime.starts_with("image/") {
+        "image"
+    } else if mime.starts_with("video/") {
+        "video"
+    } else {
+        "document"
+    };
+    if size > MAX_ATTACHMENT_BYTES {
+        return AttachmentCheck {
+            ok: false,
+            error: Some("File is too large - 48 MB is the limit.".to_string()),
+            kind: kind.to_string(),
+        };
+    }
+    AttachmentCheck {
+        ok: true,
+        error: None,
+        kind: kind.to_string(),
+    }
+}
+
 /// "1 selected" / "N selected" and the action buttons' enabled state.
 pub fn selection_bar(count: usize) -> SelectionBar {
     SelectionBar {
@@ -238,6 +273,28 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(long.preview.chars().count(), 140);
+    }
+
+    #[test]
+    fn attachments_are_validated_and_classified() {
+        let photo = attachment_check(1024, "image/png");
+        assert!(photo.ok);
+        assert_eq!(photo.kind, "image");
+
+        let clip = attachment_check(MAX_ATTACHMENT_BYTES, "video/mp4");
+        assert!(clip.ok);
+        assert_eq!(clip.kind, "video");
+
+        let doc = attachment_check(10, "application/pdf");
+        assert!(doc.ok && doc.kind == "document");
+
+        let huge = attachment_check(MAX_ATTACHMENT_BYTES + 1, "image/png");
+        assert!(!huge.ok);
+        assert_eq!(
+            huge.error.as_deref(),
+            Some("File is too large - 48 MB is the limit.")
+        );
+        assert_eq!(huge.kind, "image");
     }
 
     #[test]

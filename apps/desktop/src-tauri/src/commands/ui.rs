@@ -84,6 +84,24 @@ pub fn ui_placeholder_name(jid: String, name: String) -> bool {
     wa_ui::text::is_placeholder_name(&jid, &name)
 }
 
+/// Validate an attachment and classify it (image/video/document).
+#[tauri::command]
+pub fn ui_attachment_check(size: u64, mime: String) -> wa_ui::actions::AttachmentCheck {
+    wa_ui::actions::attachment_check(size, &mime)
+}
+
+/// Indices of the rendered bubbles that match a search query.
+#[tauri::command]
+pub fn ui_search_matches(texts: Vec<String>, query: String) -> Vec<usize> {
+    wa_ui::search::matched_indices(&texts, &query)
+}
+
+/// The in-chat search counter (`2/5`, `0/0`, empty).
+#[tauri::command]
+pub fn ui_search_label(index: i64, total: usize, query: String) -> wa_ui::search::SearchLabel {
+    wa_ui::search::count_label(index, total, &query)
+}
+
 /// Whether a story can be replied to / reacted to / deleted.
 #[tauri::command]
 pub fn ui_status_permissions(from_me: bool) -> wa_ui::actions::StatusPermissions {

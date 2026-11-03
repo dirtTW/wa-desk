@@ -173,6 +173,44 @@ check(
 );
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
 
+console.log("\n# search + attachments (rust)");
+const searchAttach = await page.evaluate(async () => {
+  const photo = await invoke("ui_attachment_check", { size: 2048, mime: "image/png" });
+  const pdf = await invoke("ui_attachment_check", { size: 10, mime: "application/pdf" });
+  const huge = await invoke("ui_attachment_check", { size: 50 * 1024 * 1024, mime: "video/mp4" });
+  const matches = await invoke("ui_search_matches", {
+    texts: ["hello there", "nothing", "say hello"],
+    query: "HELLO",
+  });
+  const label = await invoke("ui_search_label", { index: 0, total: 2, query: "hello" });
+  const emptyLabel = await invoke("ui_search_label", { index: -1, total: 0, query: "zzz" });
+
+  const chat = [...state.chats.values()].find((entry) => entry.messages.length > 3);
+  let live = null;
+  if (chat) {
+    await openChat(chat.jid);
+    await new Promise((r) => setTimeout(r, 1200));
+    const word = (chat.messages.find((m) => m.text && m.text.length > 12)?.text || "").slice(0, 4);
+    document.getElementById("chat-search-bar").hidden = false;
+    document.getElementById("chat-search-input").value = word;
+    await runChatSearch(word);
+    await new Promise((r) => setTimeout(r, 400));
+    live = {
+      hits: document.querySelectorAll("#messages .bubble.search-hit").length,
+      count: document.getElementById("chat-search-count").textContent,
+    };
+    closeChatSearch();
+  }
+  return { photo, pdf, huge, matches, label, emptyLabel, live };
+});
+check("attachments are classified", searchAttach.photo.kind === "image" && searchAttach.pdf.kind === "document", `${searchAttach.photo.kind}/${searchAttach.pdf.kind}`);
+check("oversized attachments are rejected", searchAttach.huge.ok === false, searchAttach.huge.error);
+check("search matches are planned in Rust", searchAttach.matches.join(",") === "0,2", searchAttach.matches.join(","));
+check("the search label renders", searchAttach.label.text === "1/2" && searchAttach.emptyLabel.text === "0/0");
+if (searchAttach.live) {
+  check("in-chat search finds bubbles", searchAttach.live.hits > 0, `${searchAttach.live.hits} bubbles, ${searchAttach.live.count}`);
+}
+
 console.log("\n# action guards (rust)");
 const guards = await page.evaluate(async () => {
   const own = await invoke("ui_status_permissions", { fromMe: true });
