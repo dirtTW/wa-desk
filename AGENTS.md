@@ -114,6 +114,10 @@ crates/wa-core/                protocol session layer (no Tauri dependency)
   src/status.rs                stories: history, post, reply, react
   src/util.rs                  parsing/media-cache helpers
   src/tests.rs                 unit tests
+apps/desktop-native/         NATIVE front end (eframe/egui, no WebView, no JS)
+  src/main.rs                runtime, session wiring, --selftest entry
+  src/model.rs               chat store from UiEvents, search, unread, labels
+  src/app.rs                 egui window: chat list + conversation + composer
 apps/desktop/
   src-tauri/                   Tauri 2 shell, commands, event bridge
     src/main.rs                entry point: module wiring + `app::run()`

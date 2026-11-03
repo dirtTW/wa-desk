@@ -4,6 +4,30 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.51] — 2026-11-03
+
+- **A native front end exists: `apps/desktop-native` (binary `wa-desk-native`).**
+  It renders with `eframe`/`egui` — no WebView, no HTML, no JavaScript — and
+  drives the same `wa-core` session the Tauri app uses. Every user-visible
+  string (chat preview, clock stamp, title fallbacks) comes from `wa-ui`, so the
+  two front ends cannot drift apart.
+  - `model.rs`: the chat store, folded from `UiEvent`s — live messages, history
+    replay, sent echoes, read marks, deleted chats, pairing/QR/connection status
+    — plus the search filter, the unread rule (an open chat never gains a badge)
+    and `open_chat` clearing it.
+  - `app.rs`: sidebar (search, preview, stamp, unread pill) and the conversation
+    (own/other bubble colours, sender + clock header) with a composer that sends
+    through the session and reports typing.
+  - Session commands (`SendText`, `MarkRead`, `Typing`) are executed on the
+    tokio runtime that owns the session.
+  - `--selftest` runs the whole model headlessly, applies a scripted event
+    sequence and prints what the window would show:
+    `{"chats":2,"first":"Team","preview":"ok","stamp":"9:40 am","status":"Connected"}`
+    — it exits non-zero if any expectation fails, so the native UI is verifiable
+    without a display.
+- 3 unit tests for the model; `cargo clippy --workspace --all-targets -D warnings`
+  is clean with the new crate, and the Tauri app still builds.
+
 ## [0.2.0-rc.50] — 2026-11-03
 
 Bulk release (one cut for the whole batch).
