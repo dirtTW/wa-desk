@@ -4,6 +4,39 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.3] - 2026-11-03
+
+- **The status/stories screen is rendered by Rust.** `wa_ui::status` owns the
+  rail list (24-hour expiry, recent/viewed split, `(You)`-style own row with its
+  text/media thumbnail, unseen count and photo queue), the story viewer shell
+  (progress segments, name, `Today at 8:44 pm`, the text-story background, the
+  avatar and the viewer count), the media body (`<img>`/`<video>` or the
+  `Loading status...`/`no longer available` states) and the `Viewed by N` list.
+  `status.js` keeps the timers, the media download and the event wiring;
+  `ui_status_list`, `ui_status_frame`, `ui_status_media`,
+  `ui_status_media_error` and `ui_status_views` expose the renderers.
+  Verified by 5 new `wa-ui` unit tests (51 total) and the CDP e2e, which opens
+  the status screen (18 recent / 3 viewed rows) and the viewer (3 segments, an
+  image body, no JavaScript errors).
+- **The new-chat / forward picker is rendered by Rust.** `wa_ui::picker` builds
+  the rows: the "Message yourself" entry, saved contacts with their formatted
+  number, known chats (groups only while forwarding), LID de-duplication,
+  name/number filtering, the A–Z sections, the typed-number row and the forward
+  ticks. `new-chat.js` fell from 322 to 249 lines and `ui_picker` exposes it;
+  5 more unit tests (56 total) and the CDP e2e (367 rows, 25 letter sections,
+  "You" first, a typed +62 number gets its own row).
+- **The group member checklist is rendered by Rust.**
+  `wa_ui::picker::group_contacts` filters saved contacts (LID and self excluded),
+  formats the numbers and keeps the ticked boxes across a repaint;
+  `contacts.js` fell from 141 to 121 lines and `ui_group_contacts` exposes it.
+  Verified by a unit test and the CDP e2e (287 contacts, a ticked row stays
+  checked, no JavaScript errors).
+- **The group-info member list is rendered by Rust.**
+  `wa_ui::screens::group_members` resolves saved names, formats the numbers and
+  marks admins; `group-info.js` only sends the member rows and injects the HTML
+  (`ui_group_members`). Verified by a unit test and the CDP e2e (11 members,
+  6 admin tags, no JavaScript errors).
+
 ## [0.2.0-rc.2] — 2026-11-03
 
 - **The UI model moved into Rust.** A new `crates/wa-ui` crate owns the text

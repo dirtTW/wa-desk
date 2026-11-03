@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use std::collections::HashMap;
+
 use crate::html::{avatar, escape, icon};
 use crate::labels::stamp_of;
 use crate::sidebar::{GroupMeta, SidebarChat, SidebarRequest};
@@ -300,6 +302,76 @@ pub fn starred(entries: &[StarredEntry], req: &SidebarRequest) -> StarredOutput 
     StarredOutput { html }
 }
 
+/* ------------------------------------------------------------ group members */
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct GroupMemberRow {
+    #[serde(default)]
+    pub jid: String,
+    #[serde(default)]
+    pub phone: String,
+    #[serde(default)]
+    pub admin: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GroupMembersOutput {
+    pub html: String,
+    pub queue: Vec<String>,
+}
+
+/// The group-info member list: saved name or number, formatted phone, admin tag.
+pub fn group_members(
+    members: &[GroupMemberRow],
+    contacts: &HashMap<String, String>,
+    photos: &HashMap<String, String>,
+) -> GroupMembersOutput {
+    if members.is_empty() {
+        return GroupMembersOutput {
+            html: r#"<p class="new-chat-empty">No members.</p>"#.to_string(),
+            queue: Vec::new(),
+        };
+    }
+    let html = members
+        .iter()
+        .map(|member| {
+            let phone = if member.phone.is_empty() {
+                crate::text::phone_from_jid(&member.jid)
+            } else {
+                member.phone.clone()
+            };
+            let name = contacts.get(&phone).cloned().unwrap_or_default();
+            let name = if name.is_empty() {
+                crate::text::format_phone(&phone)
+            } else {
+                name
+            };
+            format!(
+                r#"<div class="group-member" data-member-jid="{}" data-member-admin="{}">
+            {}
+            <span class="group-member-meta"><strong>{}</strong><span>{}</span></span>
+            {tag}
+            <button type="button" class="member-more" title="Member options">&#8942;</button>
+          </div>"#,
+                escape(&member.jid),
+                member.admin,
+                avatar(&name, &member.jid, "avatar", photos),
+                escape(&name),
+                escape(&crate::text::format_phone(&phone)),
+                tag = if member.admin {
+                    r#"<span class="group-member-tag">Admin</span>"#
+                } else {
+                    ""
+                },
+            )
+        })
+        .collect();
+    GroupMembersOutput {
+        html,
+        queue: members.iter().map(|member| member.jid.clone()).collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,5 +503,33 @@ mod tests {
 
         let empty = starred(&[], &req);
         assert!(empty.html.contains("No starred messages yet"));
+    }
+
+    #[test]
+    fn group_members_show_saved_names_and_admins() {
+        let members = vec![
+            GroupMemberRow {
+                jid: "628770000000@s.whatsapp.net".into(),
+                phone: "628770000000".into(),
+                admin: true,
+            },
+            GroupMemberRow {
+                jid: "628550000000@s.whatsapp.net".into(),
+                phone: String::new(),
+                admin: false,
+            },
+        ];
+        let mut contacts = HashMap::new();
+        contacts.insert("628770000000".to_string(), "Budi".to_string());
+        let out = group_members(&members, &contacts, &HashMap::new());
+        assert!(out.html.contains("<strong>Budi</strong>"));
+        assert!(out.html.contains("group-member-tag"));
+        assert!(out.html.contains("+62 855-0000-000"));
+        assert!(out.html.contains(r#"data-member-admin="false""#));
+        assert_eq!(out.queue.len(), 2);
+
+        let empty = group_members(&[], &contacts, &HashMap::new());
+        assert!(empty.html.contains("No members"));
+        assert!(empty.queue.is_empty());
     }
 }

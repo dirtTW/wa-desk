@@ -23,23 +23,19 @@ async function openGroupInfo() {
     $("group-info-name").textContent = info.subject || chat.name;
     $("group-info-count").textContent = `Group - ${info.members.length} members`;
     $("group-info-desc").textContent = info.description || "";
-    $("group-members").innerHTML =
-      info.members
-        .map((member) => {
-          const phone = member.phone || WAChatUtils.phoneFromJid(member.jid);
-          const name = contactNameFor(member.phone) || WAChatUtils.formatPhone(phone);
-          return `<div class="group-member" data-member-jid="${escapeHtml(
-            member.jid,
-          )}" data-member-admin="${member.admin}">
-            ${avatarHtml(name, member.jid)}
-            <span class="group-member-meta"><strong>${escapeHtml(name)}</strong><span>${escapeHtml(
-              WAChatUtils.formatPhone(phone),
-            )}</span></span>
-            ${member.admin ? '<span class="group-member-tag">Admin</span>' : ""}
-            <button type="button" class="member-more" title="Member options">&#8942;</button>
-          </div>`;
-        })
-        .join("") || '<p class="new-chat-empty">No members.</p>';
+    const rendered = await invoke("ui_group_members", {
+      members: info.members.map((member) => ({
+        jid: member.jid,
+        phone: member.phone || WAChatUtils.phoneFromJid(member.jid),
+        admin: Boolean(member.admin),
+      })),
+      contacts: Object.fromEntries(state.contacts),
+      photos: Object.fromEntries(
+        [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
+      ),
+    });
+    $("group-members").innerHTML = rendered.html;
+    for (const jid of rendered.queue || []) queuePhoto(jid);
   } catch (err) {
     $("group-members").innerHTML = `<p class="new-chat-empty">${escapeHtml(String(err))}</p>`;
   }

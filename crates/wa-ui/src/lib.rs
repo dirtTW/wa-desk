@@ -13,8 +13,10 @@ pub mod emoji;
 pub mod html;
 pub mod icons_data;
 pub mod labels;
+pub mod picker;
 pub mod screens;
 pub mod sidebar;
+pub mod status;
 pub mod text;
 
 mod emoji_data;
@@ -22,8 +24,13 @@ mod emoji_data;
 pub use emoji::{EmojiGroupView, EmojiItem};
 pub use html::{avatar, escape, icon, icon_with_class, initials};
 pub use labels::{clock_label, day_of, format_followers, stamp_of};
+pub use picker::{PickerChat, PickerOutput, PickerRequest};
 pub use screens::{ChannelsOutput, CommunityOutput, StarredEntry, StarredOutput};
 pub use sidebar::{SidebarChat, SidebarOutput, SidebarRequest};
+pub use status::{
+    StatusEntryView, StatusFrameOutput, StatusFrameRequest, StatusListOutput, StatusRequest,
+    StatusUpdateView, StatusViewsOutput,
+};
 pub use text::{MentionResolver, MessageRow, format_phone, preview_of};
 
 /// Everything the webview needs to boot in one round-trip: the icon set, the

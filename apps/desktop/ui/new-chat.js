@@ -162,128 +162,48 @@ function knownLids() {
   return lids;
 }
 
-function newChatEntries() {
-  const entries = [];
-  const seen = new Set();
-  const selfJid = state.meLid || state.meJid;
-  if (selfJid) {
-    entries.push({ jid: selfJid, name: "You", subtitle: "Message yourself", self: true });
-    seen.add(selfJid);
-  }
-
-  const lids = knownLids();
-  const byName = new Map();
-  const byPhone = new Map();
-  for (const chat of state.chats.values()) {
-    if (chat.isGroup) continue;
-    byName.set(chat.name.trim().toLowerCase(), chat.jid);
-    byPhone.set(WAChatUtils.phoneFromJid(chat.jid), chat.jid);
-    const resolved = state.phones.get(chat.jid);
-    if (typeof resolved === "string" && resolved.length > 5) byPhone.set(resolved, chat.jid);
-  }
-
-  for (const [key, name] of state.contacts) {
-    if (!name || !/^\d+$/.test(key) || key.length < 8 || key.length > 13) continue;
-    if (lids.has(key) || key === WAChatUtils.phoneFromJid(state.meJid || "")) continue;
-    // Reuse the existing conversation (it may be keyed by LID) instead of
-    // creating an empty PN duplicate.
-    const jid =
-      byName.get(name.trim().toLowerCase()) || byPhone.get(key) || `${key}@s.whatsapp.net`;
-    if (seen.has(jid)) continue;
-    entries.push({ jid, name, subtitle: WAChatUtils.formatPhone(key) });
-    seen.add(jid);
-  }
-
-  for (const chat of state.chats.values()) {
-    // The forward picker targets groups too, like WhatsApp's; "new chat" only
-    // offers people (a group is created from the action row instead).
-    if (chat.isGroup) {
-      if (!forwardMessage || seen.has(chat.jid)) continue;
-      entries.push({ jid: chat.jid, name: chat.name, subtitle: "Group" });
-      seen.add(chat.jid);
-      continue;
-    }
-    if (chat.jid.endsWith("@lid") || seen.has(chat.jid)) continue;
-    entries.push({
+function pickerRequest() {
+  return {
+    contacts: Object.fromEntries(state.contacts),
+    chats: [...state.chats.values()].map((chat) => ({
       jid: chat.jid,
-      name: chat.name,
-      subtitle: WAChatUtils.formatPhone(WAChatUtils.phoneFromJid(chat.jid)),
-    });
-    seen.add(chat.jid);
-  }
-
-  return entries;
+      name: chat.name || "",
+      is_group: Boolean(chat.isGroup),
+    })),
+    phones: Object.fromEntries(state.phones),
+    known_lids: [...knownLids()],
+    photos: Object.fromEntries(
+      [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
+    ),
+    me_jid: state.meJid || "",
+    me_lid: state.meLid || "",
+    query: $("new-chat-input").value.trim(),
+    forward: Boolean(forwardMessage),
+    forward_targets: [...forwardTargets],
+  };
 }
 
-function renderNewChat() {
-  const query = $("new-chat-input").value.trim();
-  const needle = query.toLowerCase();
-  const digits = query.replace(/\D/g, "");
-  const actions = document.querySelector(".new-chat-actions");
-  actions.hidden = Boolean(needle) || Boolean(forwardMessage);
+// The rows, letter sections, raw-number row and forward ticks are built by
+// wa-ui::picker; this only injects the markup and queues the avatars.
+let pickerSeq = 0;
 
-  const entries = newChatEntries()
-    .filter((entry) => {
-      if (!needle) return true;
-      if (entry.name.toLowerCase().includes(needle)) return true;
-      return digits.length >= 3 && entry.subtitle.replace(/\D/g, "").includes(digits);
-    })
-    .sort((a, b) => {
-      if (a.self) return -1;
-      if (b.self) return 1;
-      return a.name.localeCompare(b.name);
-    });
-
-  const rows = [];
-  if (needle && digits.length >= 7 && /^[+\d][\d\s().-]*$/.test(query)) {
-    const jid = `${digits}@s.whatsapp.net`;
-    if (!entries.some((entry) => entry.jid === jid)) {
-      const label = WAChatUtils.formatPhone(digits);
-      rows.push(`<button type="button" class="new-chat-row${
-        forwardMessage ? " forward-row" : ""
-      }${
-        forwardMessage && forwardTargets.has(jid) ? " selected" : ""
-      }" ${
-        forwardMessage
-          ? `data-forward-jid="${escapeHtml(jid)}"`
-          : `data-chat-jid="${escapeHtml(jid)}" data-chat-name="${escapeHtml(label)}"`
-      }>
-        ${forwardMessage ? '<span class="forward-tick" aria-hidden="true"></span>' : ""}
-        ${avatarHtml(label, jid)}
-        <div class="new-chat-meta"><strong>${escapeHtml(label)}</strong><span>Start a chat with this number</span></div>
-      </button>`);
-    }
+async function renderNewChat() {
+  const seq = ++pickerSeq;
+  let out;
+  try {
+    out = await invoke("ui_picker", { request: pickerRequest() });
+  } catch (err) {
+    console.warn("picker render failed", err);
+    return;
   }
-
-  let lastLetter = "";
-  for (const entry of entries) {
-    const letter = entry.self
-      ? ""
-      : /^[a-z]/i.test(entry.name)
-        ? entry.name[0].toUpperCase()
-        : "#";
-    if (letter && letter !== lastLetter) {
-      rows.push(`<div class="new-chat-letter">${escapeHtml(letter)}</div>`);
-      lastLetter = letter;
-    }
-    rows.push(`<button type="button" class="new-chat-row${
-      forwardMessage ? " forward-row" : ""
-    }${
-      forwardMessage && forwardTargets.has(entry.jid) ? " selected" : ""
-    }" ${
-      forwardMessage
-        ? `data-forward-jid="${escapeHtml(entry.jid)}"`
-        : `data-chat-jid="${escapeHtml(entry.jid)}" data-chat-name="${escapeHtml(entry.name)}"`
-    }>
-      ${forwardMessage ? '<span class="forward-tick" aria-hidden="true"></span>' : ""}
-      ${avatarHtml(entry.name, entry.jid)}
-      <div class="new-chat-meta"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.subtitle)}</span></div>
-    </button>`);
-  }
-
-  const list = $("new-chat-list");
-  list.innerHTML = rows.join("") || '<p class="new-chat-empty">No contacts match that search.</p>';
-  for (const entry of entries.slice(0, 40)) queuePhoto(entry.jid);
+  if (seq !== pickerSeq) return;
+  document.querySelector(".new-chat-actions").hidden = out.actions_hidden;
+  $("new-chat-list").innerHTML =
+    out.html || '<p class="new-chat-empty">No contacts match that search.</p>';
+  const ids = [...$("new-chat-list").querySelectorAll("[data-chat-jid]")]
+    .slice(0, 40)
+    .map((node) => node.dataset.chatJid);
+  for (const jid of ids) queuePhoto(jid);
 }
 
 function openChatFromPicker(jid, name) {

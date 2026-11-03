@@ -215,72 +215,78 @@ function closeStatus() {
   renderChat();
 }
 
-function statusItemHtml(entry) {
-  const latest = latestStatus(entry);
-  const viewed = entry.updates.every((update) => update.viewed);
-  const count = entry.updates.length;
-  return `
-    <div class="status-item${viewed ? " viewed" : ""}" data-status-jid="${escapeHtml(entry.jid)}">
-      <div class="status-ring${viewed ? " viewed" : ""}">${avatarHtml(entry.name, entry.jid)}</div>
-      <div class="status-meta">
-        <strong>${escapeHtml(entry.name)}</strong>
-        <span>${escapeHtml(dayOf(latest))} at ${timeOf(latest)}${count > 1 ? ` • ${count} updates` : ""}</span>
-      </div>
-    </div>`;
+/* ------------------------------------------------ Rust-rendered status UI */
+
+// The list rows, viewer shell, media body and "who viewed" markup come from
+// wa-ui::status; this file keeps the timers, media fetch and event wiring.
+function statusUpdateView(update) {
+  return {
+    id: update.id || "",
+    sender: update.sender || "",
+    name: update.name || "",
+    kind: update.kind || "text",
+    text: update.text || "",
+    background: update.background || "",
+    timestamp: update.timestamp || 0,
+    viewed: Boolean(update.viewed),
+    from_me: Boolean(update.from_me),
+    viewers: (update.viewers || []).map((viewer) => ({
+      jid: viewer.jid || "",
+      name: viewer.name || "",
+      timestamp: viewer.timestamp || 0,
+    })),
+  };
 }
 
-function renderStatusList() {
+function statusRequest() {
+  return {
+    entries: [...state.statuses.values()].map((entry) => ({
+      jid: entry.jid,
+      name: entry.name || entry.jid,
+      updates: (entry.updates || []).map(statusUpdateView),
+    })),
+    photos: Object.fromEntries(
+      [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
+    ),
+    local_media: Object.fromEntries(statusLocalMedia),
+    me: state.me || "",
+    me_jid: state.meJid || "",
+    me_lid: state.meLid || "",
+    now: Date.now(),
+  };
+}
+
+let statusListSeq = 0;
+
+async function renderStatusList() {
   setAvatar($("status-my-avatar"), state.me || "me", state.meLid || state.meJid);
-
-  const rows = statusEntries();
-  const mine = rows.filter(isMyStatus);
-  const others = rows.filter((entry) => !isMyStatus(entry));
-
-  // WhatsApp shows your latest story as the row thumbnail and its time as the
-  // subtitle; the empty state keeps the "click to add" hint and your avatar.
-  const mineUpdates = mine.flatMap((entry) => entry.updates);
-  const latestMine = mineUpdates.sort((a, b) => b.timestamp - a.timestamp)[0] || null;
-  const thumb = $("status-my-thumb");
-  $("status-my-avatar").hidden = Boolean(latestMine);
-  thumb.hidden = !latestMine;
-  if (latestMine) {
-    if (latestMine.kind === "text") {
-      const colour = /^#[0-9a-f]{6}$/i.test(latestMine.background || "")
-        ? latestMine.background
-        : "#243640";
-      thumb.style.background = colour;
-      thumb.textContent = String(latestMine.text || "").slice(0, 48);
-      thumb.classList.remove("has-image");
-    } else {
-      const url = statusLocalMedia.get(latestMine.id) || "";
-      thumb.innerHTML =
-        latestMine.kind === "video" ? waIcon("play_arrow") : "";
-      thumb.style.background = url
-        ? `center / cover no-repeat url("${url}")`
-        : "var(--panel-3)";
-      thumb.classList.toggle("has-image", Boolean(url));
-    }
+  const seq = ++statusListSeq;
+  let out;
+  try {
+    out = await invoke("ui_status_list", { request: statusRequest() });
+  } catch (err) {
+    console.warn("status list render failed", err);
+    return;
   }
-  $("status-mine").querySelector(".status-meta span").textContent = latestMine
-    ? `${dayOf(latestMine.timestamp)} at ${timeOf(latestMine.timestamp)}`
-    : "Click to add status update";
+  if (seq !== statusListSeq) return;
 
-  const recent = others.filter((entry) => entry.updates.some((update) => !update.viewed));
-  const viewed = others.filter((entry) => entry.updates.every((update) => update.viewed));
+  $("status-my-avatar").hidden = out.mine_has_thumb;
+  const thumb = $("status-my-thumb");
+  thumb.hidden = !out.mine_has_thumb;
+  if (out.mine_has_thumb) {
+    thumb.innerHTML = out.mine_thumb_html;
+    thumb.setAttribute("style", out.mine_thumb_style);
+    thumb.classList.toggle("has-image", out.mine_thumb_has_image);
+  }
+  $("status-mine").querySelector(".status-meta span").textContent = out.mine_label;
 
   if (state.connected) {
-    for (const entry of rows) queuePhoto(entry.jid);
+    for (const jid of out.queue || []) queuePhoto(jid);
   }
+  if (typeof setRailStatusUnseen === "function") setRailStatusUnseen(out.unseen);
 
-  // Rail feed: the status icon lights while unseen stories exist.
-  if (typeof setRailStatusUnseen === "function") setRailStatusUnseen(recent.length);
-
-  $("status-list").innerHTML = recent.length
-    ? recent.map(statusItemHtml).join("")
-    : '<p class="empty">No recent status updates.</p>';
-  $("status-viewed-list").innerHTML = viewed.length
-    ? viewed.map(statusItemHtml).join("")
-    : '<p class="empty">No viewed status updates.</p>';
+  $("status-list").innerHTML = out.recent_html;
+  $("status-viewed-list").innerHTML = out.viewed_html;
 }
 
 function addStatusUpdate(update) {
@@ -434,26 +440,26 @@ function closeStatusViews() {
   $("status-views").hidden = true;
 }
 
-function renderStatusViews() {
+async function renderStatusViews() {
   const update = statusQueue[statusIndex];
-  const viewers = [...(update?.viewers || [])].sort((a, b) => b.timestamp - a.timestamp);
-  $("status-views-title").textContent = `Viewed by ${viewers.length}`;
-  $("status-view-count-label").textContent = String(viewers.length);
-  $("status-views-list").innerHTML = viewers.length
-    ? viewers
-        .map(
-          (viewer) => `
-        <div class="status-view-row">
-          ${avatarHtml(viewer.name, viewer.jid)}
-          <div class="status-view-meta">
-            <strong>${escapeHtml(viewer.name)}</strong>
-            <span>${escapeHtml(dayOf(viewer.timestamp))} at ${escapeHtml(timeOf(viewer.timestamp))}</span>
-          </div>
-        </div>`,
-        )
-        .join("")
-    : '<p class="empty">No views recorded yet. WhatsApp only reports views that arrive while WA Desk is running.</p>';
-  for (const viewer of viewers.slice(0, 20)) queuePhoto(viewer.jid);
+  let out;
+  try {
+    out = await invoke("ui_status_views", {
+      viewers: (update?.viewers || []).map((viewer) => ({
+        jid: viewer.jid || "",
+        name: viewer.name || "",
+        timestamp: viewer.timestamp || 0,
+      })),
+      request: statusRequest(),
+    });
+  } catch (err) {
+    console.warn("status views render failed", err);
+    return;
+  }
+  $("status-views-title").textContent = out.title;
+  $("status-view-count-label").textContent = out.title.replace("Viewed by ", "");
+  $("status-views-list").innerHTML = out.html;
+  for (const jid of out.queue || []) queuePhoto(jid);
 }
 
 function openStatusViews() {
@@ -649,39 +655,45 @@ async function renderStatusFrame() {
   statusFrameRemaining = 0;
   updateStatusPauseButton();
 
-  // Past segments are filled by CSS; the active one is painted by the rAF loop.
-  $("status-progress").innerHTML = statusQueue
-    .map((item, index) => `<span class="${index < statusIndex ? "done" : ""}"><i></i></span>`)
-    .join("");
+  let shell;
+  try {
+    shell = await invoke("ui_status_frame", {
+      request: {
+        queue: statusQueue.map(statusUpdateView),
+        index: statusIndex,
+        group_name: statusGroups[statusGroupIndex]?.name || "",
+        group_jid: statusGroups[statusGroupIndex]?.jid || "",
+        photos: Object.fromEntries(
+          [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
+        ),
+        local_media: Object.fromEntries(statusLocalMedia),
+        now: Date.now(),
+      },
+    });
+  } catch (err) {
+    console.warn("status frame render failed", err);
+    return;
+  }
+  if (!shell || token !== statusFrameToken || $("status-viewer").hidden) return;
 
-  $("status-viewer-name").textContent = update.from_me
-    ? "You"
-    : statusGroups[statusGroupIndex]?.name || update.name || "Status";
-  $("status-viewer-time").textContent = `${dayOf(update.timestamp)} at ${timeOf(update.timestamp)}`;
-  setAvatar(
-    $("status-viewer-avatar"),
-    statusGroups[statusGroupIndex]?.name || update.name || "Status",
-    statusGroups[statusGroupIndex]?.jid || update.sender,
-  );
+  // Past segments are filled by CSS; the active one is painted by the rAF loop.
+  $("status-progress").innerHTML = shell.progress_html;
+  $("status-viewer-name").textContent = shell.name;
+  $("status-viewer-time").textContent = shell.time_label;
+  setAvatar($("status-viewer-avatar"), shell.avatar_name, shell.avatar_jid);
   statusReplyVisible(update);
   markStatusViewed(update);
   updateStatusNav();
 
   const body = $("status-viewer-body");
-  if (update.kind === "text") {
-    // WhatsApp paints a text story across the whole window in the colour that
-    // travelled with the message, not as a card on a black backdrop.
-    const colour = /^#[0-9a-f]{6}$/i.test(update.background || "")
-      ? update.background
-      : "#243640";
-    $("status-viewer").style.background = colour;
-    body.innerHTML = `<div class="text-status">${escapeHtml(update.text || "")}</div>`;
+  $("status-viewer").style.background = shell.background || "";
+  body.innerHTML = shell.body_html;
+
+  if (!shell.needs_media) {
     anchorStatusFrame(statusFrameTotal, statusFrameTotal, token);
     return;
   }
-  $("status-viewer").style.background = "";
 
-  body.innerHTML = '<div class="media-box">Loading status...</div>';
   // The bar starts with the frame, not with the media: waiting for a download
   // left the active segment empty (the black line) for as long as it took.
   const placeholder = update.kind === "video" ? STATUS_VIDEO_FALLBACK_MS : STATUS_IMAGE_MS;
@@ -693,9 +705,16 @@ async function renderStatusFrame() {
       url = convertFileSrc ? convertFileSrc(path) : path;
     }
     if ($("status-viewer").hidden || token !== statusFrameToken) return;
+    const html = await invoke("ui_status_media", {
+      url,
+      kind: update.kind,
+      name: update.name || "",
+    });
+    if (token !== statusFrameToken) return;
+    body.innerHTML = html;
     if (update.kind === "video") {
-      body.innerHTML = `<video src="${escapeHtml(url)}" autoplay playsinline></video>`;
       const video = body.querySelector("video");
+      if (!video) return;
       video.muted = statusMuted;
       video.addEventListener(
         "ended",
@@ -715,21 +734,17 @@ async function renderStatusFrame() {
         anchorStatusFrame(total, Math.max(1, total - statusFrameElapsed()), token);
       };
       video.addEventListener("loadedmetadata", adoptDuration, { once: true });
-      // A blob that is already decoded can have its metadata before the listener
-      // is attached; without this the bar would never fill.
       if (video.readyState >= 1) adoptDuration();
       video.play().catch(() => {
         video.muted = true;
         video.play().catch(() => {});
       });
-    } else {
-      body.innerHTML = `<img src="${escapeHtml(url)}" alt="${escapeHtml(update.name)}" />`;
-      // The countdown is already running from the frame's start; an image that
-      // decodes late just keeps the same clock instead of restarting the bar.
     }
   } catch {
     if (token !== statusFrameToken) return;
-    body.innerHTML = '<div class="text-status">Status media is no longer available.</div>';
+    body.innerHTML = await invoke("ui_status_media_error").catch(
+      () => '<div class="text-status">Status media is no longer available.</div>',
+    );
     anchorStatusFrame(STATUS_MEDIA_FAILED_MS, STATUS_MEDIA_FAILED_MS, token);
   }
 }

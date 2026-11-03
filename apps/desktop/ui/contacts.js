@@ -6,27 +6,6 @@ let groupSelection = new Set();
 let groupModalMode = "create";
 let groupTargetChat = null;
 
-function groupContactEntries() {
-  const lids = knownLids();
-  const self = WAChatUtils.phoneFromJid(state.meJid || "");
-  return [...state.contacts]
-    .filter(
-      ([key, name]) =>
-        name &&
-        /^\d+$/.test(key) &&
-        key.length >= 8 &&
-        key.length <= 13 &&
-        !lids.has(key) &&
-        key !== self,
-    )
-    .map(([key, name]) => ({
-      jid: `${key}@s.whatsapp.net`,
-      name,
-      phone: WAChatUtils.formatPhone(key),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
 function openGroupModal() {
   groupModalMode = "create";
   groupTargetChat = null;
@@ -58,31 +37,29 @@ function openAddMembers() {
   $("group-search").focus();
 }
 
-function renderGroupContacts() {
-  const query = $("group-search").value.trim().toLowerCase();
-  const digits = query.replace(/\D/g, "");
-  const rows = groupContactEntries().filter(
-    (entry) =>
-      !query ||
-      entry.name.toLowerCase().includes(query) ||
-      (digits.length >= 3 && entry.phone.replace(/\D/g, "").includes(digits)),
-  );
-
-  $("group-contacts").innerHTML =
-    rows
-      .map(
-        (entry) => `
-      <label class="group-contact">
-        <input type="checkbox" data-group-jid="${escapeHtml(entry.jid)}" ${
-          groupSelection.has(entry.jid) ? "checked" : ""
-        } />
-        ${avatarHtml(entry.name, entry.jid)}
-        <span class="group-contact-meta"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.phone)}</span></span>
-      </label>`,
-      )
-      .join("") || '<p class="new-chat-empty">No contacts match.</p>';
-
-  for (const entry of rows.slice(0, 30)) queuePhoto(entry.jid);
+// The checklist markup (filtering, formatted numbers, checked state) is built
+// by wa-ui::picker; this only sends the selection and injects the HTML.
+async function renderGroupContacts() {
+  let out;
+  try {
+    out = await invoke("ui_group_contacts", {
+      request: {
+        contacts: Object.fromEntries(state.contacts),
+        known_lids: [...knownLids()],
+        photos: Object.fromEntries(
+          [...state.photos].filter(([, url]) => typeof url === "string" && url.startsWith("http")),
+        ),
+        me_jid: state.meJid || "",
+        query: $("group-search").value,
+        selected: [...groupSelection],
+      },
+    });
+  } catch (err) {
+    console.warn("group contacts render failed", err);
+    return;
+  }
+  $("group-contacts").innerHTML = out.html;
+  for (const jid of out.queue || []) queuePhoto(jid);
 }
 
 async function createGroup() {

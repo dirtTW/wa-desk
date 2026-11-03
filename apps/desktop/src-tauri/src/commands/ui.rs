@@ -37,6 +37,63 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// The group-info member list.
+#[tauri::command]
+pub fn ui_group_members(
+    members: Vec<wa_ui::screens::GroupMemberRow>,
+    contacts: std::collections::HashMap<String, String>,
+    photos: std::collections::HashMap<String, String>,
+) -> wa_ui::screens::GroupMembersOutput {
+    wa_ui::screens::group_members(&members, &contacts, &photos)
+}
+
+/// The "New group" / "Add members" contact checklist.
+#[tauri::command]
+pub fn ui_group_contacts(
+    request: wa_ui::picker::GroupContactsRequest,
+) -> wa_ui::picker::GroupContactsOutput {
+    wa_ui::picker::group_contacts(&request)
+}
+
+/// The new-chat / forward picker list.
+#[tauri::command]
+pub fn ui_picker(request: wa_ui::PickerRequest) -> wa_ui::PickerOutput {
+    wa_ui::picker::render(&request)
+}
+
+/// The status rail list (recent/viewed sections, my own row).
+#[tauri::command]
+pub fn ui_status_list(request: wa_ui::StatusRequest) -> wa_ui::StatusListOutput {
+    wa_ui::status::list(&request)
+}
+
+/// The story viewer shell for one frame.
+#[tauri::command]
+pub fn ui_status_frame(request: wa_ui::StatusFrameRequest) -> Option<wa_ui::StatusFrameOutput> {
+    wa_ui::status::frame(&request)
+}
+
+/// The story body for a resolved media URL.
+#[tauri::command]
+pub fn ui_status_media(url: String, kind: String, name: String) -> String {
+    wa_ui::status::media_html(&url, &kind, &name)
+}
+
+/// The body shown when story media is gone from the server.
+#[tauri::command]
+pub fn ui_status_media_error() -> String {
+    wa_ui::status::media_error_html()
+}
+
+/// The "who viewed my status" list.
+#[tauri::command]
+pub fn ui_status_views(
+    viewers: Vec<wa_ui::status::ViewerRow>,
+    request: wa_ui::StatusRequest,
+) -> wa_ui::StatusViewsOutput {
+    wa_ui::status::views(&viewers, &request)
+}
+
 /// The channels rail panel.
 #[tauri::command]
 pub fn ui_channels(request: SidebarRequest, needle: String) -> wa_ui::ChannelsOutput {

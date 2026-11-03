@@ -134,6 +134,103 @@ if (chatCheck.skipped) {
   check("media blocks render", chatCheck.media >= 0, `${chatCheck.media} media, ${chatCheck.images} ready`);
 }
 
+console.log("\n# group info (rust)");
+const groupInfo = await page.evaluate(async () => {
+  const group = [...state.chats.values()].find((chat) => chat.isGroup);
+  if (!group) return { skipped: true };
+  await openChat(group.jid);
+  await new Promise((r) => setTimeout(r, 700));
+  await openGroupInfo();
+  await new Promise((r) => setTimeout(r, 1400));
+  const rows = document.querySelectorAll("#group-members .group-member").length;
+  const admins = document.querySelectorAll("#group-members .group-member-tag").length;
+  const count = document.getElementById("group-info-count").textContent;
+  document.getElementById("group-info-screen").hidden = true;
+  document.getElementById("rail-chats").click();
+  return { rows, admins, count };
+});
+if (groupInfo.skipped) {
+  console.log("  ok  group info skipped (no groups)");
+} else {
+  check("the member list renders", groupInfo.rows > 0, `${groupInfo.rows} members, ${groupInfo.admins} admins`);
+  check("the member count renders", groupInfo.count.includes("members"), groupInfo.count);
+}
+
+console.log("\n# group member picker (rust)");
+const groupPicker = await page.evaluate(async () => {
+  openGroupModal();
+  await new Promise((r) => setTimeout(r, 800));
+  const rows = document.querySelectorAll("#group-contacts .group-contact").length;
+  const first = document.querySelector("#group-contacts .group-contact input");
+  const jid = first?.getAttribute("data-group-jid");
+  if (jid) groupSelection.add(jid);
+  await renderGroupContacts();
+  await new Promise((r) => setTimeout(r, 500));
+  const checked = jid
+    ? document.querySelector(`#group-contacts input[data-group-jid="${jid}"]`)?.checked
+    : false;
+  document.getElementById("group-modal").hidden = true;
+  groupSelection.clear();
+  return { rows, checked };
+});
+check("the group checklist renders", groupPicker.rows > 0, `${groupPicker.rows} contacts`);
+check("ticked contacts survive a repaint", groupPicker.checked === true);
+
+console.log("\n# new chat picker (rust)");
+const picker = await page.evaluate(async () => {
+  openNewChat();
+  await new Promise((r) => setTimeout(r, 800));
+  const rows = document.querySelectorAll("#new-chat-list .new-chat-row").length;
+  const letters = document.querySelectorAll("#new-chat-list .new-chat-letter").length;
+  const first = document.querySelector("#new-chat-list .new-chat-row strong")?.textContent || "";
+  document.getElementById("new-chat-input").value = "+62 812 3456 7890";
+  await renderNewChat();
+  await new Promise((r) => setTimeout(r, 500));
+  const numberRow = Boolean(
+    document.querySelector('#new-chat-list [data-chat-jid="6281234567890@s.whatsapp.net"]'),
+  );
+  document.getElementById("new-chat-input").value = "";
+  closeNewChat();
+  return { rows, letters, first, numberRow };
+});
+check("the picker renders", picker.rows > 0, `${picker.rows} rows, ${picker.letters} letters`);
+check("my own row comes first", picker.first === "You", picker.first);
+check("a typed number gets its own row", picker.numberRow);
+
+console.log("\n# status screen (rust)");
+const statusScreen = await page.evaluate(async () => {
+  openStatus();
+  await new Promise((r) => setTimeout(r, 1200));
+  const rows = document.querySelectorAll("#status-list .status-item").length;
+  const viewed = document.querySelectorAll("#status-viewed-list .status-item").length;
+  const mineLabel = document.querySelector("#status-mine .status-meta span")?.textContent || "";
+  const first = document.querySelector("#status-list .status-item, #status-viewed-list .status-item");
+  let viewer = { skipped: true };
+  if (first) {
+    openStatusViewer(first.getAttribute("data-status-jid"));
+    await new Promise((r) => setTimeout(r, 2200));
+    viewer = {
+      name: document.getElementById("status-viewer-name").textContent,
+      time: document.getElementById("status-viewer-time").textContent,
+      segments: document.querySelectorAll("#status-progress span").length,
+      body: document.querySelector("#status-viewer-body")?.innerHTML.slice(0, 40) || "",
+      kind: statusQueue[statusIndex]?.kind || "",
+    };
+  }
+  closeStatusViewer();
+  document.getElementById("rail-chats").click();
+  return { rows, viewed, mineLabel, viewer };
+});
+check("status list renders", statusScreen.rows >= 0, `${statusScreen.rows} recent, ${statusScreen.viewed} viewed`);
+check("my status row has its label", statusScreen.mineLabel.length > 0, statusScreen.mineLabel);
+if (statusScreen.viewer.skipped) {
+  console.log("  ok  status viewer skipped (no stories)");
+} else {
+  check("the story viewer shell renders", statusScreen.viewer.segments > 0, `${statusScreen.viewer.segments} segments, ${statusScreen.viewer.kind}`);
+  check("the story name/time render", statusScreen.viewer.name.length > 0 && statusScreen.viewer.time.includes(" at "), `${statusScreen.viewer.name} · ${statusScreen.viewer.time}`);
+  check("the story body renders", statusScreen.viewer.body.length > 0, statusScreen.viewer.body);
+}
+
 console.log("\n# secondary screens (rust)");
 const starred = await page.evaluate(async () => {
   openStarred();
