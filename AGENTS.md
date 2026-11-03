@@ -478,6 +478,21 @@ device until you remove it from the phone).
   the crate's default feature set, so stable Rust works. If you want the extra
   throughput, build with `RUSTC_BOOTSTRAP=1` or a nightly toolchain and re-enable it.
 
+- **In-app updates.** `tauri-plugin-updater` fetches
+  `plugins.updater.endpoints` and verifies every download against the minisign
+  key in `plugins.updater.pubkey` (signed in CI with the
+  `TAURI_SIGNING_PRIVATE_KEY` secret; `bundle.createUpdaterArtifacts` makes the
+  bundler emit the `.sig`). GitHub's `/releases/latest` **skips pre-releases**,
+  so the release job also writes `latest.json` to a `latest` branch and that
+  raw URL is listed first — that is what makes the RC channel work. Settings →
+  Account renders it from `updateState` (`settings.js`) and calls
+  `check_for_update` / `install_update` (`commands/update.rs`).
+- **The security posture is audited in [`SECURITY.md`](SECURITY.md).** CI runs
+  `cargo audit`; accepted advisories live with their rationale in
+  `.cargo/audit.toml`. `security.csp` is set (it used to be `null`) — if you add
+  a remote resource, check the CSP allows it, and prefer moving an inline
+  `on*` handler to `addEventListener` over loosening `script-src`.
+
 ## Roadmap
 
 1. Media: upload/download through `client.upload()` / `client.download()`.

@@ -46,6 +46,8 @@ A desktop client that mirrors WhatsApp Web's look and behaviour:
 - Groups (create, info, members), channels, and status / stories
 - Full-screen media viewer, in-chat search, starred messages, chat export/import
 - Optional AI auto-reply with your own OpenAI-compatible key
+- In-app updates — Settings → Account checks for a newer release and installs it
+  (signed, verified against a pinned key)
 - System tray, desktop notifications, launch at login, light/dark theme
 
 The full, always-current feature inventory, architecture notes, design gotchas and roadmap live
@@ -119,6 +121,26 @@ portable executable, not a fully portable data store.
 
 For AI reading of GIFs/short videos, put `ffmpeg.exe` next to `WA Desk.exe` (or on `PATH`);
 without it the client uses the video's embedded thumbnail.
+
+---
+
+## Updates
+
+WA Desk checks for updates from inside the app: **Settings → Account →
+Updates → Check for updates**. When a newer release exists the row becomes
+*Update to vX*, which downloads the installer, verifies its minisign signature
+against the public key pinned in `tauri.conf.json`, installs it and restarts.
+
+The check reads `plugins.updater.endpoints`, in order:
+
+1. `https://raw.githubusercontent.com/dirtTW/wa-desk/latest/latest.json` — a
+   `latest` branch the release job keeps in step. GitHub's `/releases/latest`
+   skips pre-releases, so this branch is what makes the RC channel work.
+2. `https://github.com/dirtTW/wa-desk/releases/latest/download/latest.json` —
+   the same manifest as an asset on the newest full release.
+
+Both are written by the `release` job in
+[`.github/workflows/build.yml`](.github/workflows/build.yml) on every `v*` tag.
 
 ---
 
