@@ -753,7 +753,12 @@ async function replyCurrentStatus() {
   const update = statusQueue[statusIndex];
   const input = $("status-reply-input");
   const text = input.value.trim();
-  if (!update || !text || update.from_me) return;
+  if (!update) return;
+  // Who may reply/react/delete is decided by wa-ui::actions.
+  const perms = await invoke("ui_status_permissions", {
+    fromMe: Boolean(update.from_me),
+  });
+  if (!perms.can_reply || !text) return;
   try {
     // The reply carries the status as its quote, like the official client, so
     // the DM shows the "· Status" card instead of a bare line of text.
@@ -772,7 +777,11 @@ async function replyCurrentStatus() {
 
 async function reactCurrentStatus(emoji) {
   const update = statusQueue[statusIndex];
-  if (!update || update.from_me) return;
+  if (!update) return;
+  const perms = await invoke("ui_status_permissions", {
+    fromMe: Boolean(update.from_me),
+  });
+  if (!perms.can_react) return;
   try {
     await invoke("react_status", { sender: update.sender, id: update.id, emoji });
     toast(`Reacted ${emoji}`);
@@ -783,8 +792,12 @@ async function reactCurrentStatus(emoji) {
 
 async function deleteCurrentStatus() {
   const update = statusQueue[statusIndex];
-  if (!update || !update.from_me) {
-    toast("Only your own status can be deleted.");
+  if (!update) return;
+  const perms = await invoke("ui_status_permissions", {
+    fromMe: Boolean(update.from_me),
+  });
+  if (!perms.can_delete) {
+    toast(perms.delete_reason || "Only your own status can be deleted.");
     return;
   }
   if (!confirm("Delete this status update?")) return;
@@ -975,7 +988,12 @@ function insertStatusEmoji(character) {
 
 async function postTextStatus() {
   const text = $("status-text-input").value.trim();
-  if (!text) return;
+  const draft = await invoke("ui_status_post_check", {
+    hasFile: false,
+    mime: "",
+    text,
+  });
+  if (!draft.ok) return;
   const send = $("status-text-send");
   send.disabled = true;
   // The colour and font travel with the status, so contacts see the same story.
@@ -1066,14 +1084,25 @@ function statusVideoMeta(file) {
 async function postStatus() {
   const text = $("status-text").value.trim();
   const file = statusDraftFile;
-  if (!file && !text) return;
-
+  const draft = await invoke("ui_status_post_check", {
+    hasFile: Boolean(file),
+    mime: file?.type || "",
+    text,
+  });
   const error = $("status-error");
   error.hidden = true;
+  if (!draft.ok) {
+    if (draft.error) {
+      error.textContent = draft.error;
+      error.hidden = false;
+    }
+    return;
+  }
+  const caption = draft.caption;
 
   try {
     if (file) {
-      const isVideo = file.type.startsWith("video/");
+      const isVideo = draft.is_video;
       const data = await fileToBase64(file);
       const meta = isVideo
         ? await statusVideoMeta(file)
@@ -1081,7 +1110,7 @@ async function postStatus() {
       await invoke("post_status_media", {
         data,
         mime: file.type || (isVideo ? "video/mp4" : "image/jpeg"),
-        caption: text,
+        caption,
         thumb: meta.thumb,
         duration: meta.duration,
       });
@@ -1093,7 +1122,7 @@ async function postStatus() {
         sender: state.meLid || state.meJid || "me",
         name: state.me || "Me",
         kind: isVideo ? "video" : "image",
-        text,
+        text: caption,
         timestamp: Date.now(),
         from_me: true,
         viewed: true,

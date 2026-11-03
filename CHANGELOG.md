@@ -4,6 +4,25 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.11] — 2026-11-03
+
+- **Status and message actions are guarded by Rust.** `wa_ui::actions` decides
+  who may reply to / react to / delete a story (own stories only delete, others
+  only reply/react, with the "Only your own status can be deleted." copy),
+  validates a status draft (a media draft needs an `image/`/`video/` MIME with
+  its caption trimmed; a text draft needs text) and builds the reply banner
+  (author from saved contact → push name → `You`, text or media label preview
+  capped at 140 chars, the participant colour) and the multi-select bar
+  (`1 selected`/`N selected` + disabled state).
+  Commands: `ui_status_permissions`, `ui_status_post_check`, `ui_reply_preview`,
+  `ui_selection_bar`.
+- `status.js` reply/react/delete/post paths and `message-actions.js`'s
+  `startReply`/`updateSelectBar` now call those instead of re-implementing the
+  rules.
+- 5 new `wa-ui` unit tests (114 total, plus 3 contract) and an action-guards CDP
+  e2e section (permissions, draft validation, reply preview, selection bar and
+  the painted reply banner).
+
 ## [0.2.0-rc.10] — 2026-11-03
 
 - **The remaining store flows moved to Rust.** `wa_ui::export` parses a

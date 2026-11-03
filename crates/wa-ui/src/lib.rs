@@ -8,6 +8,7 @@
 //! Renderers take a serde request built from the webview's state and return
 //! ready-to-inject HTML, which keeps the JavaScript a thin DOM/event shim.
 
+pub mod actions;
 pub mod cache;
 pub mod chat;
 pub mod composer;
@@ -30,6 +31,7 @@ pub mod viewer;
 
 mod emoji_data;
 
+pub use actions::{PostCheck, ReplyPreview, SelectionBar, StatusPermissions};
 pub use cache::{CachePayloadInput, FingerChat, RestoreOutput};
 pub use composer::{EmojiPanel, StatusPalette};
 pub use emoji::{EmojiGroupView, EmojiItem};

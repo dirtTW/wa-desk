@@ -81,6 +81,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/composer.rs              status composer palette, fonts, ARGB, emoji panel
   src/state.rs                 merge/trim plans for the chat store, photo queue
   src/cache.rs                 cache fingerprint, payload, restore, photo queue
+  src/actions.rs               status permissions/drafts, reply banner, selection bar
   src/export.rs                chat-export parsing and import merge plan
   src/history.rs               on-demand history anchors and re-sync order
   src/screens.rs               channels panel, community screen, starred messages

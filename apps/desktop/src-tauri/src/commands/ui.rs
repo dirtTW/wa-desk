@@ -37,6 +37,34 @@ pub fn ui_emoji_groups() -> Vec<wa_ui::EmojiGroupView> {
     wa_ui::emoji::groups()
 }
 
+/// Whether a story can be replied to / reacted to / deleted.
+#[tauri::command]
+pub fn ui_status_permissions(from_me: bool) -> wa_ui::actions::StatusPermissions {
+    wa_ui::actions::status_permissions(from_me)
+}
+
+/// Validate a status draft before posting.
+#[tauri::command]
+pub fn ui_status_post_check(
+    has_file: bool,
+    mime: String,
+    text: String,
+) -> wa_ui::actions::PostCheck {
+    wa_ui::actions::status_post_check(has_file, &mime, &text)
+}
+
+/// The reply banner's author, preview and colour.
+#[tauri::command]
+pub fn ui_reply_preview(message: wa_ui::actions::ReplySource) -> wa_ui::actions::ReplyPreview {
+    wa_ui::actions::reply_preview(&message)
+}
+
+/// The multi-select bar label and enabled state.
+#[tauri::command]
+pub fn ui_selection_bar(count: usize) -> wa_ui::actions::SelectionBar {
+    wa_ui::actions::selection_bar(count)
+}
+
 /// The disk mirror of the chat list (metadata only, newest first).
 #[tauri::command]
 pub fn ui_disk_cache_payload(chats: Vec<wa_ui::cache::DiskChatInput>, limit: usize) -> String {

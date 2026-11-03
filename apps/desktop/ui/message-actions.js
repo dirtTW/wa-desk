@@ -79,22 +79,23 @@ function closeMessageMenu() {
 // Quote a message in the composer. WhatsApp shows the author and a one-line
 // preview in an inset card ABOVE the input while the reply is pending, with the
 // quoted author's colour on the left bar and the name.
-function startReply(message) {
+async function startReply(message) {
   state.reply = message;
-  const name = message.from_me
-    ? "You"
-    : contactNameFor(message.sender) || message.sender_name || "Unknown";
-  const preview =
-    String(message.text || "").trim() ||
-    MEDIA_LABELS[message.kind] ||
-    "Message";
+  // Author, preview and participant colour are computed by wa-ui::actions.
+  const preview = await invoke("ui_reply_preview", {
+    message: {
+      from_me: Boolean(message.from_me),
+      kind: message.kind || "text",
+      text: String(message.text || ""),
+      sender: message.sender || "",
+      sender_name: message.sender_name || "",
+      contact_name: contactNameFor(message.sender) || "",
+    },
+  });
   const banner = $("reply-banner");
-  // The official paints the bar and the author name with the colour it assigns
-  // that participant (the same palette as group sender names).
-  const colour = globalThis.WAChatUtils?.senderColor(message.sender) || "var(--accent)";
-  banner.style.setProperty("--reply-colour", colour);
-  $("reply-banner-name").textContent = name;
-  $("reply-banner-text").textContent = preview.slice(0, 140);
+  banner.style.setProperty("--reply-colour", preview.colour);
+  $("reply-banner-name").textContent = preview.name;
+  $("reply-banner-text").textContent = preview.preview;
   banner.hidden = false;
   const input = $("input");
   if (input) input.focus();
@@ -151,11 +152,11 @@ function toggleSelection(id) {
   updateSelectBar();
 }
 
-function updateSelectBar() {
-  const count = state.selected.size;
-  $("select-count").textContent = count === 1 ? "1 selected" : `${count} selected`;
-  $("select-forward").disabled = count === 0;
-  $("select-delete").disabled = count === 0;
+async function updateSelectBar() {
+  const bar = await invoke("ui_selection_bar", { count: state.selected.size });
+  $("select-count").textContent = bar.label;
+  $("select-forward").disabled = bar.disabled;
+  $("select-delete").disabled = bar.disabled;
 }
 
 /* ------------------------------------------------- delete confirmation */

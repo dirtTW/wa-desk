@@ -173,6 +173,36 @@ check(
 );
 check("emoji recents render", header.recents === 3, `${header.recents} recents`);
 
+console.log("\n# action guards (rust)");
+const guards = await page.evaluate(async () => {
+  const own = await invoke("ui_status_permissions", { fromMe: true });
+  const other = await invoke("ui_status_permissions", { fromMe: false });
+  const empty = await invoke("ui_status_post_check", { hasFile: false, mime: "", text: "  " });
+  const text = await invoke("ui_status_post_check", { hasFile: false, mime: "", text: " hi " });
+  const pdf = await invoke("ui_status_post_check", { hasFile: true, mime: "application/pdf", text: "x" });
+  const video = await invoke("ui_status_post_check", { hasFile: true, mime: "video/mp4", text: " cap " });
+  const reply = await invoke("ui_reply_preview", {
+    message: { from_me: false, kind: "image", text: "", sender: "6285@s.whatsapp.net", sender_name: "Push", contact_name: "Saved" },
+  });
+  const bar = await invoke("ui_selection_bar", { count: 2 });
+  startReply({ from_me: true, kind: "text", text: "hello", sender: "", sender_name: "", chat: state.active });
+  await new Promise((r) => setTimeout(r, 300));
+  const banner = {
+    hidden: document.getElementById("reply-banner").hidden,
+    name: document.getElementById("reply-banner-name").textContent,
+    text: document.getElementById("reply-banner-text").textContent,
+  };
+  cancelReply();
+  return { own, other, empty, text, pdf, video, reply, bar, banner };
+});
+check("status permissions are computed", guards.own.can_delete && !guards.own.can_reply && guards.other.can_reply, JSON.stringify(guards.other));
+check("empty status drafts are rejected", guards.empty.ok === false);
+check("text and video drafts pass", guards.text.ok && guards.video.ok && guards.video.is_video);
+check("wrong media types are rejected", guards.pdf.ok === false, guards.pdf.error);
+check("the reply preview renders", guards.reply.name === "Saved" && guards.reply.preview === "Photo", `${guards.reply.name}: ${guards.reply.preview}`);
+check("the selection bar renders", guards.bar.label === "2 selected" && !guards.bar.disabled);
+check("the reply banner is painted", guards.banner.hidden === false && guards.banner.name === "You", `${guards.banner.name}: ${guards.banner.text}`);
+
 console.log("\n# flows (rust)");
 const flows = await page.evaluate(async () => {
   const chat = [...state.chats.values()].find((entry) => entry.messages.length > 2);
