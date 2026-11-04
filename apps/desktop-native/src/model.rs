@@ -525,6 +525,32 @@ impl Model {
             is_announce: false,
         });
 
+        // Two stories for the Status screen: one unseen (Recent) and one that
+        // has been watched (Viewed).
+        for (jid, name, id, viewed) in [
+            ("1@s.whatsapp.net", "Ada", "s1", false),
+            ("2@s.whatsapp.net", "Budi", "s2", true),
+        ] {
+            let update = wa_ui::status::StatusUpdateView {
+                id: id.to_string(),
+                sender: jid.to_string(),
+                name: name.to_string(),
+                kind: "text".to_string(),
+                text: "on call, back at 8".to_string(),
+                viewed,
+                timestamp: now - 1_200_000,
+                ..Default::default()
+            };
+            model.statuses.insert(
+                jid.to_string(),
+                StatusRow {
+                    jid: jid.to_string(),
+                    name: name.to_string(),
+                    updates: vec![update],
+                },
+            );
+        }
+
         // A community with its announcement group and one child group, for the
         // Communities screen.
         for (jid, name, community, parent, announce) in [
@@ -1972,6 +1998,14 @@ impl Model {
     }
 
     /// The panel's rows: newest story first, unseen flag from the frames.
+    /// The official split: groups with something unseen are "Recent", the rest
+    /// are "Viewed".
+    pub fn status_sections(&self) -> (Vec<StatusGroupRow>, Vec<StatusGroupRow>) {
+        self.status_groups()
+            .into_iter()
+            .partition(|group| group.unseen)
+    }
+
     pub fn status_groups(&self) -> Vec<StatusGroupRow> {
         viewer_groups(&self.status_request())
             .into_iter()
@@ -2996,6 +3030,47 @@ mod tests {
     /// The Favorites pill lists exactly the chats marked in the chat menu.
     /// The Communities screen lists each community with its groups, the
     /// announcement group first.
+    /// Unseen stories are "Recent", the rest are "Viewed" - the official split.
+    #[test]
+    fn status_sections_split_recent_and_viewed() {
+        let mut model = Model::new();
+        let update = |id: &str, name: &str| wa_ui::status::StatusUpdateView {
+            id: id.to_string(),
+            sender: "1@s.whatsapp.net".to_string(),
+            name: name.to_string(),
+            kind: "text".to_string(),
+            text: "hi".to_string(),
+            ..Default::default()
+        };
+        model.statuses.insert(
+            "1@s.whatsapp.net".to_string(),
+            StatusRow {
+                jid: "1@s.whatsapp.net".to_string(),
+                name: "Ada".to_string(),
+                updates: vec![update("a1", "Ada")],
+            },
+        );
+        model.statuses.insert(
+            "2@s.whatsapp.net".to_string(),
+            StatusRow {
+                jid: "2@s.whatsapp.net".to_string(),
+                name: "Budi".to_string(),
+                updates: vec![update("b1", "Budi")],
+            },
+        );
+        // Mark Budi's story as seen (the viewer does this when it shows one).
+        if let Some(row) = model.statuses.get_mut("2@s.whatsapp.net")
+            && let Some(first) = row.updates.first_mut()
+        {
+            first.viewed = true;
+        }
+        let (recent, viewed) = model.status_sections();
+        assert_eq!(recent.len(), 1, "one unseen group");
+        assert_eq!(recent[0].name, "Ada");
+        assert_eq!(viewed.len(), 1, "one fully seen group");
+        assert_eq!(viewed[0].name, "Budi");
+    }
+
     #[test]
     fn communities_group_their_children() {
         let mut model = Model::new();

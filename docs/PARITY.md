@@ -41,8 +41,8 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | --- | --- | --- |
 | Status screen = rail + 614 px drawer with the list and the "Share statuses" pane | rail + list (64 px header) + 320 px share pane | ✅ (`target/our_status3.png`) |
 | "My status" row with ring and "Click to add status update" | yes | ✅ |
-| Recent / Viewed sections with 72 px rows and rings | rows + rings; a single list, no section split | 🟡 |
-| Text status with the colour/font palette | `Command::PostStatusText` (green, system font) | 🟡 palette UI not exposed |
+| Recent / Viewed sections with 72 px rows and rings | `Model::status_sections()` splits unseen (Recent) from fully-seen (Viewed); both sections render with their headings and rings | ✅ (`target/our_status4.png`) |
+| Text status with the colour/font palette | the composer shows the official 20-colour array from `wa_ui::composer::BACKGROUNDS` as selectable discs (the chosen one ringed), the four fonts (`system/serif/script/bold`), a preview box in the chosen colour, and Send posts `background = wa_ui::composer::argb(hex)` + the font name | ✅ (`target/our_status_compose.png`) |
 | Photo and video status | `Command::PostStatusMedia` via the file picker | ✅ |
 | Story viewer with progress bars, reply, react, delete | yes | ✅ |
 

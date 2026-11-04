@@ -72,8 +72,11 @@ pub struct WaDesk {
     /// The Communities screen, and the community opened in it.
     show_communities: bool,
     communities_active: Option<String>,
-    /// Text being typed into the share-status box.
+    /// Text being typed into the share-status box, plus the chosen background
+    /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
+    status_compose_background: usize,
+    status_compose_font: usize,
     /// The settings screen is showing instead of a conversation.
     show_settings: bool,
     settings: NativeSettings,
@@ -249,6 +252,8 @@ impl WaDesk {
             show_communities: false,
             communities_active: None,
             status_compose: None,
+            status_compose_background: 0,
+            status_compose_font: 0,
             show_channels: false,
             show_settings: false,
             settings,
@@ -376,6 +381,10 @@ impl WaDesk {
                 "calls" => self.show_calls = true,
                 "communities" => self.show_communities = true,
                 "status" => self.show_status = true,
+                "status-compose" => {
+                    self.show_status = true;
+                    self.status_compose = Some("Good morning!".to_string());
+                }
                 "channels" => self.show_channels = true,
                 "group" => {
                     self.model.active = Some("1203@g.us".to_string());
@@ -4559,31 +4568,97 @@ impl WaDesk {
                                 caption: String::new(),
                             });
                         }
-                        if let Some(draft) = self.status_compose.clone() {
+                        if self.status_compose.is_some() {
                             ui.add_space(16.0);
                             ui.label(
                                 egui::RichText::new("Text status")
                                     .size(13.0)
                                     .color(palette.accent),
                             );
-                            let response = ui.add_sized(
-                                [260.0, 70.0],
-                                egui::TextEdit::multiline(
-                                    &mut self.status_compose.clone().unwrap_or_default(),
-                                )
-                                .hint_text("Type a status"),
-                            );
-                            if response.changed()
-                                && let Some(buffer) = &mut self.status_compose
-                            {
-                                let _ = buffer;
-                            }
+                            // The box takes the chosen background, like the
+                            // official composer, and the palette below is the
+                            // official 20-colour array from `wa-ui`.
+                            let swatches = wa_ui::composer::palette();
+                            let background = swatches
+                                .backgrounds
+                                .get(self.status_compose_background)
+                                .cloned()
+                                .unwrap_or_else(|| "#A62C71".to_string());
+                            let fill = hex_colour(&background);
+                            let mut draft = self.status_compose.clone().unwrap_or_default();
+                            egui::Frame::new()
+                                .fill(fill)
+                                .corner_radius(egui::CornerRadius::same(10))
+                                .inner_margin(egui::Margin::symmetric(10, 8))
+                                .show(ui, |ui| {
+                                    ui.add_sized(
+                                        [240.0, 64.0],
+                                        egui::TextEdit::multiline(&mut draft)
+                                            .frame(false)
+                                            .hint_text("Type a status"),
+                                    );
+                                });
+                            self.status_compose = Some(draft.clone());
+                            ui.add_space(8.0);
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                                for (index, hex) in swatches.backgrounds.iter().enumerate() {
+                                    let (rect, response) = ui.allocate_exact_size(
+                                        egui::vec2(20.0, 20.0),
+                                        egui::Sense::click(),
+                                    );
+                                    ui.painter().circle_filled(
+                                        rect.center(),
+                                        10.0,
+                                        hex_colour(hex),
+                                    );
+                                    if index == self.status_compose_background {
+                                        ui.painter().circle_stroke(
+                                            rect.center(),
+                                            9.0,
+                                            egui::Stroke::new(2.0_f32, palette.text),
+                                        );
+                                    }
+                                    if response.clicked() {
+                                        self.status_compose_background = index;
+                                    }
+                                }
+                            });
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                for (index, name) in swatches.font_names.iter().enumerate() {
+                                    let selected = index == self.status_compose_font;
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new(name).size(12.5).color(
+                                                    if selected {
+                                                        palette.accent
+                                                    } else {
+                                                        palette.secondary
+                                                    },
+                                                ),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.status_compose_font = index;
+                                    }
+                                }
+                            });
                             ui.add_space(8.0);
                             if status_send_button(ui, &palette) && !draft.trim().is_empty() {
+                                let font = swatches
+                                    .fonts
+                                    .get(self.status_compose_font)
+                                    .cloned()
+                                    .unwrap_or_else(|| "system".to_string());
                                 self.send(Command::PostStatusText {
                                     text: draft.trim().to_string(),
-                                    background: 0xFF00_A884,
-                                    font: "system".to_string(),
+                                    background: wa_ui::composer::argb(&background),
+                                    font,
                                 });
                                 self.status_compose = None;
                             }
@@ -4633,8 +4708,8 @@ impl WaDesk {
                         if status_row(ui, &palette, &own, "", avatar.as_ref(), false, true) {
                             self.status_compose = Some(String::new());
                         }
-                        let groups = self.model.status_groups();
-                        if groups.is_empty() {
+                        let (recent, viewed) = self.model.status_sections();
+                        if recent.is_empty() && viewed.is_empty() {
                             ui.add_space(26.0);
                             ui.vertical_centered(|ui| {
                                 ui.label(
@@ -4645,21 +4720,36 @@ impl WaDesk {
                             });
                             return;
                         }
-                        for group in &groups {
-                            self.ensure_avatar(ui.ctx(), &group.jid);
-                            let avatar = self.avatar_for(&group.jid).cloned();
-                            let stamp = format!("{} update(s)", group.count);
-                            if status_row(
-                                ui,
-                                &palette,
-                                &group.name,
-                                &stamp,
-                                avatar.as_ref(),
-                                group.unseen,
-                                false,
-                            ) {
-                                let jid = group.jid.clone();
-                                self.model.open_status(&jid);
+                        for (heading, groups) in [("Recent", &recent), ("Viewed", &viewed)] {
+                            if groups.is_empty() {
+                                continue;
+                            }
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
+                                ui.add_space(14.0);
+                                ui.label(
+                                    egui::RichText::new(heading)
+                                        .size(13.0)
+                                        .color(palette.accent),
+                                );
+                            });
+                            ui.add_space(2.0);
+                            for group in groups.iter() {
+                                self.ensure_avatar(ui.ctx(), &group.jid);
+                                let avatar = self.avatar_for(&group.jid).cloned();
+                                let stamp = format!("{} update(s)", group.count);
+                                if status_row(
+                                    ui,
+                                    &palette,
+                                    &group.name,
+                                    &stamp,
+                                    avatar.as_ref(),
+                                    group.unseen,
+                                    false,
+                                ) {
+                                    let jid = group.jid.clone();
+                                    self.model.open_status(&jid);
+                                }
                             }
                         }
                     });
@@ -6506,6 +6596,22 @@ fn status_share_tile(
         palette.text,
     );
     response.clicked()
+}
+
+/// `#rrggbb` (or `#aarrggbb`) as an egui colour.
+fn hex_colour(value: &str) -> egui::Color32 {
+    let clean = value.trim_start_matches('#');
+    let parsed = u32::from_str_radix(clean, 16).unwrap_or(0xA884);
+    if clean.len() == 8 {
+        egui::Color32::from_rgba_unmultiplied(
+            (parsed >> 16) as u8,
+            (parsed >> 8) as u8,
+            parsed as u8,
+            (parsed >> 24) as u8,
+        )
+    } else {
+        egui::Color32::from_rgb((parsed >> 16) as u8, (parsed >> 8) as u8, parsed as u8)
+    }
 }
 
 /// The green "Send" pill under the text-status box.

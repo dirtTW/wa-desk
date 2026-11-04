@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.12] - 2026-11-04
+
+- **Status list split into Recent and Viewed.** The official list has a "My status" row, then the
+  stories with something unseen under **Recent** and the watched ones under **Viewed**.
+  `Model::status_sections()` partitions `status_groups()` on the unseen flag and the screen renders
+  both headings with their rings (green for Recent, grey for Viewed). The demo model carries one of
+  each. Test: `model::tests::status_sections_split_recent_and_viewed`.
+  Capture: `target/our_status4.png`.
+- **The text-status composer has the official palette.** It shows the 20 backgrounds from
+  `wa_ui::composer::BACKGROUNDS` as discs (the selected one ringed), the four fonts
+  (`system`, `serif`, `script`, `bold`), a preview box filled with the chosen colour, and Send posts
+  `Command::PostStatusText` with `background = wa_ui::composer::argb(hex)` and the font name - so the
+  colour and typeface travel with the status instead of a fixed green.
+  Capture: `target/our_status_compose.png` (`WA_DESK_SCREEN=status-compose`).
+- `docs/PARITY.md` marks the Recent/Viewed split and the palette done.
+- Tests: 114 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.11] - 2026-11-04
 
 - **Communities screen (was ❌).** Sampled the official Communities drawer ("Create communities" ·
