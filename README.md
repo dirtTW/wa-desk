@@ -108,7 +108,7 @@ exits non-zero if anything disagrees.
 
 ## Install on Windows
 
-Download **`WA Desk Setup.exe`** from the [releases page](https://github.com/dirtTW/wa-desk/releases)
+Download **`WA-Desk-Setup.exe`** from the [releases page](https://github.com/dirtTW/wa-desk/releases)
 and run it. It needs no admin rights and no MSI/WiX runtime:
 
 - installs per-user into `%LOCALAPPDATA%\Programs\WA Desk`

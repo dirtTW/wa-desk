@@ -525,7 +525,7 @@ device until you remove it from the phone).
   crate so the app binary never links the `windows` crate.
 - **CI** keys its `actions/cache` on the Rust version rather than `Cargo.lock` (a version bump
   used to invalidate the whole dependency tree), disables incremental and dev debug info,
-  installs `cargo-audit` from a prebuilt binary, and publishes `WA Desk Setup.exe` beside the
+  installs `cargo-audit` from a prebuilt binary, and publishes `WA-Desk-Setup.exe` beside the
   raw binaries.
 
 ## Roadmap (native app)

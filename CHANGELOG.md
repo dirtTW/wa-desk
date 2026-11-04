@@ -4,12 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.63] — 2026-11-04
+## [0.2.0-rc.64] — 2026-11-04
+
+- **CI: the serial `check` job is now two parallel jobs.** `lint` (fmt, clippy, `cargo audit`) and
+  `test` (`cargo test --workspace`, native selftest) ran back to back and were the critical path
+  at ~9 minutes. They now run side by side on separate runners with their own caches, so the job
+  that gates the release is the slower of the two rather than the sum.
+- **The installer asset is `WA-Desk-Setup.exe`.** GitHub replaced the spaces in
+  `WA Desk Setup.exe` with dots on upload; the hyphenated name survives `gh release create` and
+  is safe in URLs and scripts.
+
+
 
 - **The Windows installer is back.** The MSI disappeared with the Tauri bundler in rc.57; there
   is a real installer again, written in Rust: `apps/windows-installer` holds a setup stub, and
   `pack-setup` glues the app binary to it behind a 16-byte trailer (`WADSETUP` + length). Running
-  `WA Desk Setup.exe` installs per-user into `%LOCALAPPDATA%\Programs\WA Desk` (no admin, no
+  `WA-Desk-Setup.exe` installs per-user into `%LOCALAPPDATA%\Programs\WA Desk` (no admin, no
   MSI runtime), writes `Uninstall WA Desk.cmd`, creates Start Menu and Desktop shortcuts through
   `IShellLink` COM, and starts the app. The release job now uploads it next to the raw binaries.
 - Verified locally: packing rc.63 produced a 45,510,672-byte setup, running it installed
