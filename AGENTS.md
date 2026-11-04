@@ -508,6 +508,9 @@ device until you remove it from the phone).
   process-wide registry (cleared when the chat changes) and steps it with the pure `frame_index`;
   the bubble paints frames through the shared texture cache and the window repaints while one is
   visible.
+- **Group bubbles carry the sender's photo.** `Model::starts_run` (pure, tested) marks the head
+  of each sender run; `bubble()` reserves a 40 px gutter there and paints the profile picture, or
+  the coloured initials disc until it loads. The sender's name is drawn only at the head.
 - **Days are separated by a chip.** `Model::starts_new_day` (pure, tested) inserts the official
   centered date chip before the first message of a new day, using `wa_ui::labels::day_of`.
 - **Bubble tails follow the run.** `Model::ends_run` decides which bubble squares its tail

@@ -307,6 +307,19 @@ impl WaDesk {
     pub fn preview_mode(&mut self) {
         self.model = Model::demo();
         self.preview = true;
+        // Opening through the model keeps the unread anchor (and clears the
+        // badge), which a screenshot of the divider needs.
+        if std::env::var("WA_DESK_OPEN_FIRST").is_ok()
+            && self.model.active.is_none()
+            && let Some(first) = self
+                .model
+                .visible_chats()
+                .first()
+                .map(|row| row.jid.clone())
+        {
+            self.model.open_chat(&first);
+            self.auto_opened = true;
+        }
         self.show_group = false;
         self.show_status = false;
         self.show_channels = false;
@@ -1579,6 +1592,11 @@ impl WaDesk {
             self.model.apply(&event);
             changed = true;
             if let Some((chat, name, kind, text)) = incoming {
+                // A message that lands in the open chat is read straight away,
+                // the way the official client behaves.
+                if self.model.active.as_deref() == Some(chat.as_str()) {
+                    self.send(Command::MarkRead { chat: chat.clone() });
+                }
                 self.notify_message(ctx, &chat, &name, &kind, &text);
             }
         }
@@ -2148,7 +2166,27 @@ impl WaDesk {
                                     &wa_ui::labels::day_of(message.timestamp, now),
                                 );
                             }
+                            // ...and marks where the unread block began.
+                            if self
+                                .model
+                                .unread_anchor
+                                .get(&row.jid)
+                                .is_some_and(|id| id == &message.id)
+                            {
+                                unread_divider(ui, &palette);
+                            }
                             let is_hit = hits.contains(&index);
+                            let head = Model::starts_run(&row.messages, index);
+                            let avatar = if row.jid.ends_with("@g.us")
+                                && !message.from_me
+                                && head
+                                && let Some(sender) = message.sender.as_deref()
+                            {
+                                self.ensure_avatar(ui.ctx(), sender);
+                                self.avatar_for(sender).cloned()
+                            } else {
+                                None
+                            };
                             if let Some(action) = bubble(
                                 ui,
                                 &palette,
@@ -2160,6 +2198,8 @@ impl WaDesk {
                                 focus == Some(index),
                                 &playback,
                                 Model::ends_run(&row.messages, index),
+                                avatar.as_ref(),
+                                head,
                             ) {
                                 chosen = Some(action);
                             }
@@ -2472,6 +2512,10 @@ fn bubble(
     scroll: bool,
     playback: &crate::audio::PlaybackState,
     tail: bool,
+    // Group chats show the sender's photo in the left gutter on the first
+    // bubble of each run, and the name only there.
+    avatar: Option<&egui::TextureHandle>,
+    show_sender: bool,
 ) -> Option<BubbleAction> {
     let align = if message.from_me {
         egui::Align::Max
@@ -2480,6 +2524,7 @@ fn bubble(
     };
     let mut action: Option<BubbleAction> = None;
     let max_width = (ui.available_width() * 0.66).max(160.0);
+    let gutter_owner = message.is_group && !message.from_me && show_sender;
 
     ui.with_layout(egui::Layout::top_down(align), |ui| {
         ui.set_max_width(max_width);
@@ -2782,7 +2827,8 @@ fn bubble(
             se: if message.from_me { square } else { 8 },
         };
         let padding = 9.0;
-        let max_text = max_width - padding * 2.0;
+        let gutter_space = if gutter_owner { 40.0 } else { 0.0 };
+        let max_text = (max_width - gutter_space - padding * 2.0).max(80.0);
         // Measure the body so the bubble hugs the text (a plain `Frame` lets a
         // right-aligned child stretch it to the full width and height).
         let text_job = match search {
@@ -2825,7 +2871,7 @@ fn bubble(
         let sender = message
             .sender_name
             .clone()
-            .filter(|_| message.is_group && !message.from_me);
+            .filter(|_| message.is_group && !message.from_me && show_sender);
         let sender_galley = sender.as_ref().map(|name| {
             ui.painter().layout_no_wrap(
                 name.clone(),
@@ -2839,8 +2885,42 @@ fn bubble(
         if let Some(galley) = &sender_galley {
             height += galley.size().y + 1.0;
         }
-        let (rect, hit) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+        let gutter = if gutter_owner { 40.0 } else { 0.0 };
+        let (outer, hit) =
+            ui.allocate_exact_size(egui::vec2(width + gutter, height), egui::Sense::click());
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(outer.left() + gutter, outer.top()),
+            egui::vec2(width, height),
+        );
         let painter = ui.painter();
+        if gutter_owner {
+            let center = egui::pos2(outer.left() + 16.0, outer.top() + 18.0);
+            match avatar {
+                Some(texture) => {
+                    let size = texture.size_vec2();
+                    let scale = (32.0 / size.x.max(1.0)).min(32.0 / size.y.max(1.0));
+                    painter.image(
+                        texture.id(),
+                        egui::Rect::from_center_size(center, size * scale),
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
+                None => {
+                    // No photo yet (or none at all): the initials disc the
+                    // official client uses, coloured per sender.
+                    let name = message.sender_name.clone().unwrap_or_default();
+                    painter.circle_filled(center, 16.0, sender_color(&name, palette));
+                    painter.text(
+                        center,
+                        egui::Align2::CENTER_CENTER,
+                        call_initials(&name),
+                        egui::FontId::proportional(12.0),
+                        egui::Color32::from_rgb(11, 20, 26),
+                    );
+                }
+            }
+        }
         painter.rect_filled(rect, radius, fill);
         if search.is_some() {
             painter.rect_stroke(
@@ -4260,6 +4340,49 @@ fn notification_body(kind: &str, text: &str) -> String {
         _ => "New message",
     }
     .to_string()
+}
+
+/// The "Unread messages" divider the official client puts above the first
+/// unread bubble: a hairline with a centered pill.
+fn unread_divider(ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+    let galley = ui.painter().layout_no_wrap(
+        "Unread messages".to_string(),
+        egui::FontId::proportional(11.5),
+        palette.secondary,
+    );
+    let width = galley.size().x + 22.0;
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        let height = 18.0;
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), height),
+            egui::Sense::hover(),
+        );
+        let pill = egui::Rect::from_center_size(rect.center(), egui::vec2(width, height));
+        let stroke = egui::Stroke::new(1.0_f32, palette.border);
+        ui.painter().line_segment(
+            [rect.left_center(), egui::pos2(pill.left(), rect.center().y)],
+            stroke,
+        );
+        ui.painter().line_segment(
+            [
+                egui::pos2(pill.right(), rect.center().y),
+                rect.right_center(),
+            ],
+            stroke,
+        );
+        ui.painter()
+            .rect_filled(pill, egui::CornerRadius::same(9), palette.elevated);
+        ui.painter().galley(
+            egui::pos2(
+                pill.center().x - galley.size().x / 2.0,
+                pill.center().y - galley.size().y / 2.0,
+            ),
+            galley.clone(),
+            palette.secondary,
+        );
+    });
+    ui.add_space(4.0);
 }
 
 /// A centered date chip ("Today", "12/10/2026") between two days of a chat.

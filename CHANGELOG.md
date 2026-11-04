@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.94] - 2026-11-04
+
+- **Group bubbles have the sender's photo in the left gutter** (the request from the official
+  screenshot). The first bubble of each sender run reserves a 40 px gutter and paints the sender's
+  profile picture there, falling back to the official coloured initials disc while the photo loads
+  (or when there is none); the sender's name now appears only at the head of the run, and the text
+  width accounts for the gutter so bubbles never overlap it.
+  `Model::starts_run` (pure, tested) decides the head of a run.
+  Screenshot: `target/group_avatars.png` (A / B / T discs beside the group bubbles).
+- Also visible in that shot: the new **"Unread messages" divider** (`Model::open_chat` remembers
+  the first unread message before the badge clears; test
+  `opening_a_chat_remembers_the_first_unread`), and messages that land in the open chat are marked
+  read immediately.
+- Tests: 90 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.93] - 2026-11-04
 
 - **Date chips separate days in a conversation.** The window painted message timestamps but no

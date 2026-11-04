@@ -323,6 +323,9 @@ pub struct Model {
     pub connection_epoch: u64,
     /// Starred message ids, across chats.
     pub starred: std::collections::BTreeSet<String>,
+    /// The first unread message of a chat when it was opened, by chat id: the
+    /// conversation draws the "Unread messages" divider there.
+    pub unread_anchor: std::collections::HashMap<String, String>,
     /// The call in progress, if any.
     pub call: Option<CallState>,
     /// Delivery state of our own messages, by message id (`sent`, `delivered`,
@@ -571,7 +574,7 @@ impl Model {
             now - 90_000,
             true,
         )));
-        model.active = Some("1203@g.us".to_string());
+        model.open_chat("1203@g.us");
         model
     }
 
@@ -685,6 +688,7 @@ impl Model {
                 timestamp,
             } => {
                 self.ticks.insert(id.clone(), "sent".to_string());
+                self.unread_anchor.remove(chat);
                 if let Some(last) = self
                     .chats
                     .get_mut(chat)
@@ -887,6 +891,12 @@ impl Model {
             .collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         rows
+    }
+
+    /// Is the message at `index` the first of its sender run? The group gutter
+    /// photo and the sender's name are painted there, once per run.
+    pub fn starts_run(messages: &[MessageView], index: usize) -> bool {
+        index == 0 || Self::ends_run(messages, index - 1)
     }
 
     /// Does the message at `index` start a new day? The conversation paints a
@@ -1730,6 +1740,17 @@ impl Model {
     /// belongs to the chat it was started in, so it resets.
     pub fn open_chat(&mut self, jid: &str) {
         self.active = Some(jid.to_string());
+        // Remember the first unread message before the badge is cleared, so the
+        // conversation can show the official "Unread messages" divider.
+        if let Some(row) = self.chats.get(jid) {
+            let unread = row.unread.max(0) as usize;
+            if unread > 0
+                && let Some(message) = row.messages.get(row.messages.len().saturating_sub(unread))
+            {
+                self.unread_anchor
+                    .insert(jid.to_string(), message.id.clone());
+            }
+        }
         if let Some(row) = self.chats.get_mut(jid) {
             row.unread = 0;
         }
@@ -2462,6 +2483,48 @@ mod tests {
             status: "read".into(),
         });
         assert_eq!(model.tick_status(&own), "read");
+    }
+
+    #[test]
+    fn the_gutter_photo_is_painted_once_per_run() {
+        let mut first = view("1@g.us", "Team", "a", "one", 1_000, false);
+        first.is_group = true;
+        first.sender = Some("2@s.whatsapp.net".into());
+        let mut second = view("1@g.us", "Team", "b", "two", 2_000, false);
+        second.is_group = true;
+        second.sender = Some("2@s.whatsapp.net".into());
+        let mut other = view("1@g.us", "Team", "c", "three", 3_000, false);
+        other.is_group = true;
+        other.sender = Some("3@s.whatsapp.net".into());
+        let messages = vec![first, second, other];
+        assert!(Model::starts_run(&messages, 0));
+        assert!(!Model::starts_run(&messages, 1), "same sender continues");
+        assert!(Model::starts_run(&messages, 2), "a new sender starts one");
+    }
+
+    #[test]
+    fn opening_a_chat_remembers_the_first_unread() {
+        let mut model = Model::new();
+        for id in ["m1", "m2", "m3"] {
+            model.apply(&UiEvent::Message(view(
+                "1@s.whatsapp.net",
+                "Ada",
+                id,
+                "hi",
+                1_770_000_000_000,
+                false,
+            )));
+        }
+        assert_eq!(model.chats["1@s.whatsapp.net"].unread, 3);
+        model.open_chat("1@s.whatsapp.net");
+        assert_eq!(
+            model
+                .unread_anchor
+                .get("1@s.whatsapp.net")
+                .map(String::as_str),
+            Some("m1")
+        );
+        assert_eq!(model.chats["1@s.whatsapp.net"].unread, 0, "badge cleared");
     }
 
     #[test]
