@@ -281,6 +281,10 @@ impl WaDesk {
                     self.send(Command::SyncChatState);
                     self.show_chat_menu = false;
                 }
+                if menu_row(ui, &palette, Icon::Groups, "Sync groups") {
+                    self.send(Command::SyncGroups);
+                    self.show_chat_menu = false;
+                }
                 if menu_row(ui, &palette, Icon::Status, "Refresh statuses") {
                     self.send(Command::StatusHistory);
                     self.show_chat_menu = false;
@@ -2347,6 +2351,7 @@ impl eframe::App for WaDesk {
             self.model.needs_history = false;
             self.send(Command::InitialSync);
             self.send(Command::SyncChatState);
+            self.send(Command::SyncGroups);
             // Keep pulling batches so the recent chats surface, like the phone.
             self.sync_rounds = 12;
             self.last_sync = std::time::Instant::now();
@@ -2361,6 +2366,7 @@ impl eframe::App for WaDesk {
                 self.last_sync = std::time::Instant::now();
             }
             self.send(Command::SyncChatState);
+            self.send(Command::SyncGroups);
         }
         if self.model.login.is_linked()
             && self.sync_rounds > 0

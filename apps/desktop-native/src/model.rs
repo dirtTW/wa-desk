@@ -114,6 +114,8 @@ pub enum Command {
     /// Unlink this device so a fresh pair imports the complete chat list
     /// (WhatsApp only sends groups and old chats to a new link).
     Relink,
+    /// Ask the phone for every group the account participates in.
+    SyncGroups,
     /// Send a file from disk as an attachment.
     SendDocument {
         chat: String,
@@ -520,6 +522,29 @@ impl Model {
                     && read
                 {
                     row.unread = 0;
+                }
+            }
+            UiEvent::ChatAlias { from, to } => {
+                // The same peer under a LID and its phone number: fold them.
+                if let Some(row) = self.chats.remove(from) {
+                    let target = self.chats.entry(to.clone()).or_insert_with(|| ChatRow {
+                        jid: to.clone(),
+                        ..Default::default()
+                    });
+                    if target.name.is_empty() {
+                        target.name = row.name;
+                    }
+                    target.unread += row.unread;
+                    target.last_ts = target.last_ts.max(row.last_ts);
+                    for message in row.messages {
+                        if !target.messages.iter().any(|known| known.id == message.id) {
+                            target.messages.push(message);
+                        }
+                    }
+                    target.messages.sort_by_key(|message| message.timestamp);
+                }
+                if self.active.as_deref() == Some(from.as_str()) {
+                    self.active = Some(to.clone());
                 }
             }
             UiEvent::ChatDeleted { chat } if self.active.as_deref() == Some(chat.as_str()) => {

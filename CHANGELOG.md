@@ -4,7 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.70] — 2026-11-04
+## [0.2.0-rc.71] — 2026-11-04
+
+- **Groups are listed properly.** My rc.70 claim that groups need a relink was wrong: the
+  protocol client exposes `groups().get_participating()`, and `Session::participating_groups()`
+  now uses it. The window asks at start-up (and from the kebab → **Sync groups**), seeds each
+  `@g.us` row with its subject and community flag, and requests their history - verified against
+  the real account: **10 participating groups** appeared in the list with names, avatars,
+  previews and unread counts.
+- **Duplicate LID rows fold.** `UiEvent::ChatAlias` now merges the LID chat into its phone-number
+  chat (name, unread, messages deduplicated by id), so a group/contact stored twice appears once.
+- The kebab menu gained **Sync groups**; the relink action remains for importing older message
+  history, not for the group list.
+
+
 
 - **Groups in the chat list.** The session now runs the chat app-state collection (pins,
   archives, mutes) at start-up (`Session::sync_chat_state`), and every chat it mentions is added

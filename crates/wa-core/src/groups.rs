@@ -36,6 +36,24 @@ impl Session {
     }
 
     /// Group metadata for the info screen.
+    /// Every group the account participates in, with its subject, as
+    /// `(jid, subject)`. This is the participating-groups IQ WhatsApp Web uses
+    /// to populate its chat list.
+    pub async fn participating_groups(&self) -> Result<Vec<(String, String)>, String> {
+        let groups = self
+            .client
+            .groups()
+            .get_participating()
+            .await
+            .map_err(|err| format!("participating groups failed: {err}"))?;
+        let mut rows: Vec<(String, String)> = groups
+            .into_iter()
+            .map(|(jid, metadata)| (jid.to_string(), metadata.subject))
+            .collect();
+        rows.sort_by(|a, b| a.1.cmp(&b.1));
+        Ok(rows)
+    }
+
     pub async fn group_info(&self, chat: &str) -> Result<GroupInfoView, String> {
         let jid = self.resolve_chat(chat)?;
         let metadata = match self.client.groups().get_metadata(&jid).await {

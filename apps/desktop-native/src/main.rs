@@ -413,6 +413,34 @@ fn main() {
                     app::diag("relink requested");
                     session.logout().await;
                 }
+                model::Command::SyncGroups => match session.participating_groups().await {
+                    Ok(groups) => {
+                        app::diag(&format!("participating groups: {}", groups.len()));
+                        let requests: Vec<wa_types::HistoryRequest> = groups
+                            .iter()
+                            .take(8)
+                            .map(|(jid, _)| wa_types::HistoryRequest {
+                                chat: jid.clone(),
+                                oldest_id: String::new(),
+                                oldest_from_me: false,
+                                oldest_timestamp: 0,
+                                count: 20,
+                            })
+                            .collect();
+                        for (jid, name) in &groups {
+                            let _ = events_out.send(wa_types::UiEvent::Chat {
+                                jid: jid.clone(),
+                                name: name.clone(),
+                                is_group: true,
+                                timestamp: 0,
+                            });
+                        }
+                        if let Err(err) = session.sync_chat_history(&requests).await {
+                            app::diag(&format!("group history failed: {err}"));
+                        }
+                    }
+                    Err(err) => app::diag(&format!("participating groups: {err}")),
+                },
                 model::Command::SendDocument {
                     chat,
                     path,
