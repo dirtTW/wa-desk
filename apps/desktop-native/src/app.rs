@@ -805,6 +805,118 @@ fn bubble(
             return;
         }
 
+        // A document card: file icon, name, size and pages, then the caption.
+        if message.kind == "document"
+            && let Some(document) = message.document.as_ref()
+        {
+            let width = max_width.min(310.0);
+            let pad = 10.0;
+            let icon = 38.0;
+            let text_width = (width - pad * 3.0 - icon).max(80.0);
+            let name = if document.name.trim().is_empty() {
+                model.bubble_body(message)
+            } else {
+                document.name.clone()
+            };
+            let caption = if document.name.trim().is_empty() {
+                String::new()
+            } else {
+                message.text.clone()
+            };
+            let name_galley = ui.painter().layout_job(egui::text::LayoutJob::simple(
+                name,
+                egui::FontId::proportional(14.0),
+                palette.text,
+                text_width,
+            ));
+            let mut meta = crate::model::Model::file_size(document.size);
+            if document.pages > 0 {
+                meta.push_str(&format!(" · {} pages", document.pages));
+            }
+            let meta_galley = ui.painter().layout_no_wrap(
+                meta,
+                egui::FontId::proportional(11.5),
+                palette.secondary,
+            );
+            let caption_galley = (!caption.trim().is_empty()).then(|| {
+                ui.painter().layout_job(egui::text::LayoutJob::simple(
+                    caption,
+                    egui::FontId::proportional(13.5),
+                    palette.text,
+                    width - pad * 2.0,
+                ))
+            });
+            let time = ui.painter().layout_no_wrap(
+                model.bubble_stamp(message),
+                egui::FontId::proportional(11.0),
+                palette.secondary,
+            );
+
+            let name_height = name_galley.size().y;
+            let row = (name_height + meta_galley.size().y + 3.0).max(icon);
+            let mut height = pad + row + 4.0 + time.size().y + 4.0;
+            if let Some(galley) = &caption_galley {
+                height += galley.size().y + 6.0;
+            }
+            let (rect, hit) =
+                ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            let radius = egui::CornerRadius {
+                nw: 8,
+                ne: 8,
+                sw: if message.from_me { 8 } else { 2 },
+                se: if message.from_me { 2 } else { 8 },
+            };
+            let painter = ui.painter();
+            painter.rect_filled(rect, radius, fill);
+            let icon_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.left() + pad, rect.top() + pad),
+                egui::vec2(icon, icon),
+            );
+            painter.rect_filled(icon_rect, egui::CornerRadius::same(8), palette.elevated);
+            draw_icon(ui, icon_rect.shrink(8.0), Icon::Document, palette.text);
+
+            let text_x = rect.left() + pad * 2.0 + icon;
+            painter.galley(
+                egui::pos2(text_x, rect.top() + pad),
+                name_galley,
+                palette.text,
+            );
+            painter.galley(
+                egui::pos2(text_x, rect.top() + pad + name_height + 2.0),
+                meta_galley,
+                palette.secondary,
+            );
+            let mut y = rect.top() + pad + row + 4.0;
+            if let Some(galley) = caption_galley {
+                let caption_height = galley.size().y;
+                painter.galley(egui::pos2(rect.left() + pad, y), galley, palette.text);
+                y += caption_height;
+            }
+            let _ = y;
+            painter.galley(
+                egui::pos2(
+                    rect.right() - pad - time.size().x,
+                    rect.bottom() - 4.0 - time.size().y,
+                ),
+                time,
+                palette.secondary,
+            );
+
+            if scroll {
+                hit.scroll_to_me(Some(egui::Align::Center));
+            }
+            context_menu(&hit, palette, model, message, &mut action);
+            pills_row(ui, model, message);
+            ui.add_space(4.0);
+            return;
+        }
+
         let body = model.bubble_body(message);
         let fill = if message.from_me {
             palette.bubble_out
@@ -2164,6 +2276,7 @@ enum Icon {
     Copy,
     Edit,
     Delete,
+    Document,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -2211,6 +2324,7 @@ impl Icon {
             Icon::Copy => "content_copy",
             Icon::Edit => "edit",
             Icon::Delete => "delete",
+            Icon::Document => "description",
         }
     }
 }

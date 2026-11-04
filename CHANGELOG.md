@@ -4,7 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.65] — 2026-11-04
+## [0.2.0-rc.66] — 2026-11-04
+
+- **Documents render as the official card.** A `document` bubble no longer falls back to plain
+  text: it draws the Material `description` icon on a rounded tile, the file name (wrapped), the
+  size and page count (`1.8 MB · 12 pages`), the caption underneath and the clock in the corner,
+  with the same tail and colours as text bubbles. `Model::file_size` formats B / kB / MB / GB
+  the way WhatsApp does, and `--preview` now includes a PDF so the card is visible in
+  screenshots.
+- Test: `file_sizes_read_like_whatsapp` (812 B, 4.2 kB, 1.8 MB, 2.5 GB); the raster test still
+  guards the Material icons.
+
+
 
 - **The window now looks like WhatsApp, not like default egui.** The theme was stored but never
   applied; `theme.rs` now installs the official `--WDS-*` palette (dark surface `#161717`, rail

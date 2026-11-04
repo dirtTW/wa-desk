@@ -217,6 +217,22 @@ impl Model {
         }
     }
 
+    /// A human file size, WhatsApp style: `812 B`, `4.2 kB`, `1.8 MB`.
+    pub fn file_size(bytes: u64) -> String {
+        const UNITS: [&str; 4] = ["B", "kB", "MB", "GB"];
+        let mut value = bytes as f64;
+        let mut unit = 0;
+        while value >= 1000.0 && unit + 1 < UNITS.len() {
+            value /= 1000.0;
+            unit += 1;
+        }
+        if unit == 0 {
+            format!("{bytes} B")
+        } else {
+            format!("{value:.1} {}", UNITS[unit])
+        }
+    }
+
     /// Sample data for `--preview`: a group and two chats, so the window can be
     /// inspected (and screenshotted) without a linked session.
     pub fn demo() -> Self {
@@ -271,6 +287,25 @@ impl Model {
             now - 5 * 60_000,
             true,
         );
+        let mut document = view(
+            "1203@g.us",
+            "Team",
+            "d5",
+            "here's the report",
+            now - 4 * 60_000,
+            false,
+        );
+        document.kind = "document".to_string();
+        document.sender = Some("1@s.whatsapp.net".to_string());
+        document.sender_name = Some("Ada".to_string());
+        document.document = Some(wa_types::DocumentView {
+            name: "Q3-report.pdf".to_string(),
+            mime: "application/pdf".to_string(),
+            size: 1_842_000,
+            pages: 12,
+            thumb: None,
+        });
+        model.apply(&UiEvent::Message(document));
 
         model.apply(&UiEvent::Message(view(
             "1@s.whatsapp.net",
@@ -2076,6 +2111,14 @@ mod tests {
             timestamp: 11,
         });
         assert_eq!(model.reactions_for("m1"), vec![("👍".into(), 1, false)]);
+    }
+
+    #[test]
+    fn file_sizes_read_like_whatsapp() {
+        assert_eq!(Model::file_size(812), "812 B");
+        assert_eq!(Model::file_size(4_200), "4.2 kB");
+        assert_eq!(Model::file_size(1_842_000), "1.8 MB");
+        assert_eq!(Model::file_size(2_500_000_000), "2.5 GB");
     }
 
     #[test]
