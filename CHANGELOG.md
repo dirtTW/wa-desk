@@ -4,6 +4,16 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.93] - 2026-11-04
+
+- **Date chips separate days in a conversation.** The window painted message timestamps but no
+  day separators, so a long chat read as one block. `Model::starts_new_day` (pure: the `wa-ui`
+  day label of the previous message differs, or it is the first message) now inserts the official
+  centered chip ("Today", "Yesterday", a date) before the first message of each day.
+  Test: `a_new_day_paints_a_date_chip`. Screenshot: `target/day_chips.png` ("Today" chip above
+  the first bubble).
+- Tests: 88 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.92] - 2026-11-04
 
 - **Adaptive echo cancellation replaces ducking as the first line of defence.** `aec.rs` is an

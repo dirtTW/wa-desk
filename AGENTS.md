@@ -508,6 +508,8 @@ device until you remove it from the phone).
   process-wide registry (cleared when the chat changes) and steps it with the pure `frame_index`;
   the bubble paints frames through the shared texture cache and the window repaints while one is
   visible.
+- **Days are separated by a chip.** `Model::starts_new_day` (pure, tested) inserts the official
+  centered date chip before the first message of a new day, using `wa_ui::labels::day_of`.
 - **Bubble tails follow the run.** `Model::ends_run` decides which bubble squares its tail
   corner (same sender/direction, within 60 s); `bubble(..., tail)` uses it, so a run reads as one
   block like the official client.

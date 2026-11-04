@@ -445,6 +445,15 @@ impl Model {
             now - 8 * 60_000,
             true,
         );
+        // Yesterday, so the conversation paints a date chip.
+        group(
+            "1@s.whatsapp.net",
+            "Ada",
+            "d0",
+            "yesterday's plan still stands",
+            now - 26 * 60 * 60_000,
+            false,
+        );
         // A second bubble in the same run: only the last one gets the tail.
         group(
             "0@s.whatsapp.net",
@@ -878,6 +887,20 @@ impl Model {
             .collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         rows
+    }
+
+    /// Does the message at `index` start a new day? The conversation paints a
+    /// date chip there, like the official client.
+    pub fn starts_new_day(messages: &[MessageView], index: usize, now: i64) -> bool {
+        let Some(message) = messages.get(index) else {
+            return false;
+        };
+        if index == 0 {
+            return true;
+        }
+        let previous = &messages[index - 1];
+        wa_ui::labels::day_of(previous.timestamp, now)
+            != wa_ui::labels::day_of(message.timestamp, now)
     }
 
     /// Is the message at `index` the last of its sender run? WhatsApp only puts
@@ -2439,6 +2462,28 @@ mod tests {
             status: "read".into(),
         });
         assert_eq!(model.tick_status(&own), "read");
+    }
+
+    #[test]
+    fn a_new_day_paints_a_date_chip() {
+        let now = 1_770_000_000_000;
+        let day = 86_400_000;
+        let messages = vec![
+            view("1@s.whatsapp.net", "Ada", "a", "old", now - day, false),
+            view(
+                "1@s.whatsapp.net",
+                "Ada",
+                "b",
+                "same day",
+                now - day + 60_000,
+                false,
+            ),
+            view("1@s.whatsapp.net", "Ada", "c", "today", now - 60_000, false),
+        ];
+        assert!(Model::starts_new_day(&messages, 0, now));
+        assert!(!Model::starts_new_day(&messages, 1, now));
+        assert!(Model::starts_new_day(&messages, 2, now));
+        assert!(!Model::starts_new_day(&messages, 9, now), "out of range");
     }
 
     #[test]

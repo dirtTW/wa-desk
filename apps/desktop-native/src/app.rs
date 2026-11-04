@@ -2138,7 +2138,16 @@ impl WaDesk {
                         if spare > 0.0 {
                             ui.add_space(spare);
                         }
+                        let now = self.model.now;
                         for (index, message) in row.messages.iter().enumerate() {
+                            // The official client separates days with a chip.
+                            if Model::starts_new_day(&row.messages, index, now) {
+                                day_chip(
+                                    ui,
+                                    &palette,
+                                    &wa_ui::labels::day_of(message.timestamp, now),
+                                );
+                            }
                             let is_hit = hits.contains(&index);
                             if let Some(action) = bubble(
                                 ui,
@@ -4251,6 +4260,32 @@ fn notification_body(kind: &str, text: &str) -> String {
         _ => "New message",
     }
     .to_string()
+}
+
+/// A centered date chip ("Today", "12/10/2026") between two days of a chat.
+fn day_chip(ui: &mut egui::Ui, palette: &crate::theme::Palette, label: &str) {
+    let galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        egui::FontId::proportional(11.5),
+        palette.secondary,
+    );
+    let width = galley.size().x + 22.0;
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.add_space(((ui.available_width() - width) / 2.0).max(0.0));
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 20.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(10), palette.elevated);
+        ui.painter().galley(
+            egui::pos2(
+                rect.center().x - galley.size().x / 2.0,
+                rect.center().y - galley.size().y / 2.0,
+            ),
+            galley.clone(),
+            palette.secondary,
+        );
+    });
+    ui.add_space(4.0);
 }
 
 /// One laid-out piece of a message body: text or a colour emoji.
