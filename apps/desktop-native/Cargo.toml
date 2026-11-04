@@ -47,11 +47,11 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Registry",
     "Win32_Graphics_Gdi",
     "Win32_Storage_Xps",
+    "Win32_System_LibraryLoader",
     "Win32_Foundation",
 ] }
 # Desktop toasts (Windows) and the tray icon/menu.
 tauri-winrt-notification = "0.8"
-tray-icon = "0.26"
 
 [target.'cfg(not(windows))'.dependencies]
 # Linux/macOS toasts over the session bus.

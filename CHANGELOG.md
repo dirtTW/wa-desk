@@ -4,6 +4,69 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.100] - 2026-11-04
+
+- **Media viewer rebuilt against the official screen**: the sender's avatar, name and
+  "Today at 7:16 am" in the header, the toolbar (reply, star, forward, download, menu, close) at
+  the top right, the media centred with prev/next arrows in the gutters, the video transport
+  **inside** the frame (play, seek line with a draggable knob, `1.0x`, mute, fullscreen), the
+  `1 of 2` counter and a filmstrip of rounded thumbnails with the open one ringed green.
+  Keyboard: arrows page, Esc closes, Space plays/pauses.
+- **Video plays at the clip's own frame rate.** `ffprobe` reports `avg_frame_rate`, the frames
+  are extracted at that rate (clamped to 12-30 fps, 720 px wide) and the viewer asks egui to
+  repaint at exactly that interval instead of a fixed 10 fps timer - the reason playback looked
+  choppy (`video::source_fps`, `Video::fps`, `Video::frame_at`).
+- **Frames are decoded off the paint thread** (`src/frames.rs`, `Prefetch`): a worker keeps ~24
+  frames ready around the playhead and the UI only uploads what is already decoded, painting the
+  newest earlier frame while the next one is in flight, so the picture never blanks. The same
+  worker drives GIFs and animated stickers (`gif.rs`). This is the class of bug behind
+  emilk/egui#7860, where WebP/GIF decoding blocked the UI thread.
+- **Animated WebP stickers animate.** `sticker::is_animated_webp` reads the RIFF `ANIM` chunk and
+  those stickers are decoded to frames and looped like a GIF instead of showing frame one.
+- **No more console window while playing media**: every `ffmpeg`/`ffprobe` child is spawned with
+  `CREATE_NO_WINDOW` (`src/spawn.rs`, `spawn::quiet`), used by `video`, `camera`, `callvideo` and
+  `sticker`.
+- **Missing symbols have a font.** `"𝕋𝕒𝕦𝕗𝕚𝕢"` (Mathematical Alphanumeric Symbols,
+  U+1D400-U+1D7FF) painted as six empty boxes because no face in the chain carried them. A new
+  `system-symbols` group loads **Segoe UI Symbol** (stock Windows 10/11) *before* the emoji face,
+  with Cambria Math, DejaVu Sans, Noto Sans Math and Apple Symbols for the other platforms
+  (`SYMBOL_FONTS`). Tests: `mathematical_letters_stay_text`,
+  `the_symbol_group_prefers_a_base_windows_face`.
+- **An emoji codepoint with no colour glyph falls back to text** instead of leaving a hole
+  (`layout_body`), so dingbats like `✓` or `✗` still draw.
+- **Unsaved contacts are marked `~ name` with their number beside them**, exactly like the
+  official client: `saved_contacts` (the phone's address book, keyed by the JID's user part) is
+  tracked apart from `push_names`, `row_title` prefixes `~`, `sender_row` gives a group bubble its
+  `~ name` plus the number printed at the right of that row, and the chat header shows the number
+  as the subtitle. Groups, channels and our own chat are never marked. `Command::InitialSync`
+  replays the whole address book as `UiEvent::ContactName`, so saved names also override push
+  names. Tests: `unsaved_people_are_marked_with_a_tilde`,
+  `an_unsaved_group_sender_shows_the_number_beside_the_name`, `groups_and_self_are_never_unsaved`.
+- **The dark theme is the one web.whatsapp.com serves today** (sampled live through the browser):
+  `#0B141A` wallpaper, `#111B21` panels, `#202C33` headers/inputs/incoming bubbles, `#005C4B`
+  outgoing, `#FAFAFA` text, `rgba(255,255,255,.6)` secondary, `#21C063` accent, `#53BDEB` read.
+  `theme::tests::the_official_tokens_are_used` pins the values.
+- **The login gate is the web page in dark mode**: wordmark, download card, the "Scan to log in"
+  card with its three numbered steps, the QR on a white tile, "Need help?", "Stay logged in on
+  this device", "Log in with phone number" (switches to the pairing-code form), and the footer
+  lines. `WA_DESK_LOGIN=qr|pair` renders it for a screenshot.
+- **Bubble layout order fixed**: the sender name, then the quoted card, then the body (the name
+  used to land on top of the card).
+- **Memory is bounded now.** Media textures are decoded at the size they paint at (720 px for
+  photos, 192 px for stickers, 96 px for quote thumbnails) and both texture caches are pruned by
+  least-recently-painted use (96 photos, 240 stickers) every frame instead of growing for the
+  whole session. Video keeps 18 decoded frames in the LRU, decodes 6 ahead, and drops the clip's
+  frames **and** its worker when the viewer closes (`release_video`). Evidence: the tray probe run
+  reports `tray: icon installed` with a 243 MB working set on a linked account, and `frames.rs`
+  proves a seek re-anchors the decode window.
+- **The tray is Win32 now** (`Shell_NotifyIcon` + a message window in `tray.rs`), so the
+  cross-platform `tray-icon` crate - and with it **gtk/glib** - left the dependency graph.
+  `cargo tree -i glib --target all` reports "did not match any packages", which closes
+  Dependabot alert #1 (glib < 0.20, unsound `VariantStrIter`). The icon is built from the
+  window's RGBA with `CreateDIBSection`/`CreateIconIndirect`, and the menu is a real popup with
+  Open / Quit.
+- Tests: 105 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.0-rc.99] - 2026-11-04
 
 - **Media bubble padding polished.** The photo sits 3 px inside the bubble with a 6 px radius, the

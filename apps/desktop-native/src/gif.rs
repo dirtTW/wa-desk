@@ -8,11 +8,16 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use crate::video::{FPS, Video};
+use crate::video::Video;
 
 fn clips() -> &'static Mutex<HashMap<String, Option<Video>>> {
     static CLIPS: OnceLock<Mutex<HashMap<String, Option<Video>>>> = OnceLock::new();
     CLIPS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn workers() -> &'static Mutex<HashMap<String, crate::frames::Prefetch>> {
+    static WORKERS: OnceLock<Mutex<HashMap<String, crate::frames::Prefetch>>> = OnceLock::new();
+    WORKERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn starts() -> &'static Mutex<HashMap<String, std::time::Instant>> {
@@ -22,11 +27,11 @@ fn starts() -> &'static Mutex<HashMap<String, std::time::Instant>> {
 
 /// Which frame is showing `elapsed` seconds into a clip of `frames` frames: it
 /// loops, and an empty clip reports frame 0.
-pub fn frame_index(elapsed: f32, frames: usize) -> usize {
-    if frames == 0 {
+pub fn frame_index(elapsed: f32, frames: usize, fps: f32) -> usize {
+    if frames == 0 || fps <= 0.0 {
         return 0;
     }
-    let index = (elapsed.max(0.0) * FPS) as usize;
+    let index = (elapsed.max(0.0) * fps) as usize;
     index % frames
 }
 
@@ -68,12 +73,40 @@ pub fn frame(
             .entry(id.to_string())
             .or_insert_with(std::time::Instant::now)
     };
-    let index = frame_index(started.elapsed().as_secs_f32(), prepared.frames);
-    let path = prepared
-        .frame_path(index)
-        .map(|path| path.to_string_lossy().into_owned())?;
-    let key = format!("gif:{id}#{index}");
-    crate::app::texture_at(ctx, textures, &key, Some(path))
+    let index = frame_index(
+        started.elapsed().as_secs_f32(),
+        prepared.frames,
+        prepared.fps,
+    );
+    // Decode ahead on a worker: a frame decoded on the paint thread is exactly
+    // the stutter (and the egui#7860 hang) this avoids.
+    let dir_key = format!("gif:{id}");
+    let mut workers = workers().lock().ok()?;
+    if workers.get(&dir_key).is_none()
+        && let Some(worker) = crate::frames::Prefetch::start(prepared.dir.clone(), prepared.frames)
+    {
+        workers.insert(dir_key.clone(), worker);
+    }
+    let worker = workers.get(&dir_key)?;
+    worker.seek(index);
+    for (number, image) in worker.drain(4) {
+        let key = format!("{dir_key}#{number}");
+        let texture = ctx.load_texture(key.clone(), image, egui::TextureOptions::LINEAR);
+        textures.insert(key, Some(texture));
+    }
+
+    // The frame itself, otherwise the nearest one behind it, so a bubble never
+    // blinks to the poster while a frame is in flight.
+    for behind in 0..=8 {
+        if behind > index {
+            break;
+        }
+        let key = format!("{dir_key}#{}", index - behind);
+        if let Some(Some(texture)) = textures.get(&key) {
+            return Some(texture.clone());
+        }
+    }
+    None
 }
 
 /// Is any GIF decoded and therefore animating right now? The window only needs
@@ -94,6 +127,9 @@ pub fn clear() {
     if let Ok(mut starts) = starts().lock() {
         starts.clear();
     }
+    if let Ok(mut workers) = workers().lock() {
+        workers.clear();
+    }
 }
 
 #[cfg(test)]
@@ -103,17 +139,17 @@ mod tests {
     #[test]
     fn the_frame_index_loops() {
         let frames = 30;
-        assert_eq!(frame_index(0.0, frames), 0);
-        assert_eq!(frame_index(0.1, frames), 1);
-        assert_eq!(frame_index(1.0, frames), 10);
+        assert_eq!(frame_index(0.0, frames, 10.0), 0);
+        assert_eq!(frame_index(0.1, frames, 10.0), 1);
+        assert_eq!(frame_index(1.0, frames, 10.0), 10);
         // Past the end it wraps to the start and keeps going.
-        assert_eq!(frame_index(3.0, frames), 0);
-        assert_eq!(frame_index(3.1, frames), 1);
+        assert_eq!(frame_index(3.0, frames, 10.0), 0);
+        assert_eq!(frame_index(3.1, frames, 10.0), 1);
     }
 
     #[test]
     fn an_empty_clip_stays_on_the_first_frame() {
-        assert_eq!(frame_index(5.0, 0), 0);
-        assert_eq!(frame_index(-1.0, 10), 0);
+        assert_eq!(frame_index(5.0, 0, 10.0), 0);
+        assert_eq!(frame_index(-1.0, 10, 10.0), 0);
     }
 }

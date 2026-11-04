@@ -331,6 +331,12 @@ pub struct Model {
     pub connection_epoch: u64,
     /// Starred message ids, across chats.
     pub starred: std::collections::BTreeSet<String>,
+    /// JIDs whose name came from the phone's address book. Everyone else is an
+    /// unsaved contact, which the official client marks `~ name` and prints the
+    /// number beside.
+    pub saved_contacts: std::collections::BTreeSet<String>,
+    /// Push names WhatsApp announced, so an unsaved chat can still show a name.
+    pub push_names: std::collections::HashMap<String, String>,
     /// Why a media download failed, by message id (shown in the bubble).
     pub media_errors: std::collections::HashMap<String, String>,
     /// The first unread message of a chat when it was opened, by chat id: the
@@ -733,9 +739,29 @@ impl Model {
                     row.name = name.clone();
                 }
             }
-            UiEvent::ChatName { jid, name } | UiEvent::ContactName { jid, name } => {
+            UiEvent::ChatName { jid, name } => {
+                // A push name is not a saved contact: keep it so an unsaved
+                // chat still shows `~ name`.
+                if !name.trim().is_empty() {
+                    self.push_names.insert(jid.clone(), name.clone());
+                }
                 if let Some(row) = self.chats.get_mut(jid) {
                     row.name = name.clone();
+                }
+            }
+            UiEvent::ContactName { jid, name } => {
+                // The address book wins over every push name, and decides
+                // whether the client marks the person with `~`.
+                let key = wa_ui::text::phone_from_jid(jid);
+                if name.trim().is_empty() {
+                    self.saved_contacts.remove(&key);
+                } else {
+                    self.saved_contacts.insert(key.clone());
+                }
+                for row in self.chats.values_mut() {
+                    if wa_ui::text::phone_from_jid(&row.jid) == key {
+                        row.name = name.clone();
+                    }
                 }
             }
             UiEvent::SelfIdentity { jid, name } => {
@@ -2031,6 +2057,90 @@ impl Model {
             row.name.clone()
         }
     }
+
+    /// Is this person in the phone's address book? Groups, channels and the
+    /// account's own chat are never "unsaved".
+    pub fn is_saved_contact(&self, jid: &str) -> bool {
+        self.saved_contacts
+            .contains(&wa_ui::text::phone_from_jid(jid))
+    }
+
+    /// Does the official client mark this person with `~` (not in the address
+    /// book)? Groups, channels, newsletters and our own chat never are.
+    pub fn is_unsaved_person(&self, jid: &str) -> bool {
+        if jid.is_empty()
+            || jid.ends_with("@g.us")
+            || jid.ends_with("@newsletter")
+            || jid == self.me_jid
+            || wa_ui::text::is_self_jid(jid, &self.me_jid, "")
+        {
+            return false;
+        }
+        !self.is_saved_contact(jid)
+    }
+
+    /// The number to print for a person, `+62 822-2654-4441` style, when the
+    /// JID carries one (a bare LID has none).
+    pub fn number_of(&self, jid: &str) -> Option<String> {
+        let user = wa_ui::text::phone_from_jid(jid);
+        if user.len() >= 7 && user.chars().all(|ch| ch.is_ascii_digit()) {
+            Some(wa_ui::text::format_phone(&user))
+        } else {
+            None
+        }
+    }
+
+    /// The sidebar and header title: `~ name` for a person who is not in the
+    /// address book, exactly like the official client.
+    pub fn row_title(&self, row: &ChatRow) -> String {
+        let name = self.title(row);
+        if self.is_unsaved_person(&row.jid) {
+            format!("~ {name}")
+        } else {
+            name
+        }
+    }
+
+    /// The sender row a group bubble carries: the name (`~` when the sender is
+    /// not saved) and the number the official client prints at its right.
+    pub fn sender_row(&self, message: &MessageView) -> Option<(String, Option<String>)> {
+        if !message.is_group || message.from_me {
+            return None;
+        }
+        let jid = message.sender.clone().unwrap_or_default();
+        let push = message
+            .sender_name
+            .clone()
+            .filter(|name| !name.trim().is_empty());
+        let number = message
+            .sender_phone
+            .clone()
+            .filter(|phone| !phone.is_empty())
+            .and_then(|phone| {
+                let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
+                (digits.len() >= 7).then(|| wa_ui::text::format_phone(&digits))
+            })
+            .or_else(|| self.number_of(&jid));
+        let saved = self.is_saved_contact(&jid)
+            || message
+                .sender_phone
+                .as_deref()
+                .is_some_and(|phone| self.saved_contacts.contains(phone));
+        let name = match push {
+            Some(name) => name,
+            None => number.clone().unwrap_or_default(),
+        };
+        if name.trim().is_empty() {
+            return None;
+        }
+        if saved {
+            return Some((name, None));
+        }
+        // An unsaved sender shows `~ name`, and the number beside it unless the
+        // name already *is* the number.
+        let beside = number.filter(|number| number != &name);
+        Some((format!("~ {name}"), beside))
+    }
 }
 
 /// A chat as it is stored in the local cache.
@@ -2666,6 +2776,66 @@ mod tests {
         )));
         assert_eq!(model.visible_chats().len(), 1);
         assert_eq!(model.visible_chats()[0].unread, 1);
+    }
+
+    /// An unsaved person is titled `~ name`; a saved contact is not.
+    #[test]
+    fn unsaved_people_are_marked_with_a_tilde() {
+        let mut model = Model::new();
+        model.apply(&UiEvent::Chat {
+            jid: "628123@s.whatsapp.net".into(),
+            name: "Budi".into(),
+            is_group: false,
+            timestamp: 0,
+        });
+        let jid = "628123@s.whatsapp.net".to_string();
+        assert!(model.is_unsaved_person(&jid));
+        assert_eq!(
+            model.row_title(&model.chats[&jid].clone()),
+            "~ Budi",
+            "an unsaved push name is marked"
+        );
+
+        model.apply(&UiEvent::ContactName {
+            jid: "628123".into(),
+            name: "Budi Santoso".into(),
+        });
+        assert!(!model.is_unsaved_person(&jid));
+        assert_eq!(model.row_title(&model.chats[&jid].clone()), "Budi Santoso");
+    }
+
+    /// A group bubble's sender row carries `~ name` and the number beside it.
+    #[test]
+    fn an_unsaved_group_sender_shows_the_number_beside_the_name() {
+        let mut model = Model::new();
+        let chat = "1-2@g.us";
+        let mut message = view(chat, "Taufiq", "m1", "hi", 1_770_000_000_000, false);
+        message.sender = Some("6282226544441@s.whatsapp.net".into());
+        message.sender_phone = Some("6282226544441".into());
+
+        let (name, number) = model.sender_row(&message).expect("a sender row");
+        assert_eq!(name, "~ Taufiq");
+        assert_eq!(number.as_deref(), Some("+62 822-2654-4441"));
+
+        // Once the phone's address book knows them, the mark goes away.
+        model.apply(&UiEvent::ContactName {
+            jid: "6282226544441".into(),
+            name: "Taufiq".into(),
+        });
+        let (name, number) = model.sender_row(&message).expect("a sender row");
+        assert_eq!(name, "Taufiq");
+        assert_eq!(number, None, "a saved contact needs no number");
+    }
+
+    /// Groups, channels and our own chat are never marked.
+    #[test]
+    fn groups_and_self_are_never_unsaved() {
+        let mut model = Model::new();
+        model.me_jid = "628111@s.whatsapp.net".into();
+        assert!(!model.is_unsaved_person("1-2@g.us"));
+        assert!(!model.is_unsaved_person("123@newsletter"));
+        assert!(!model.is_unsaved_person("628111@s.whatsapp.net"));
+        assert!(model.is_unsaved_person("628999@s.whatsapp.net"));
     }
 
     #[test]

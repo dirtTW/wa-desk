@@ -4,10 +4,14 @@
 //! missing, the viewer keeps showing the poster.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-/// Frames per second extracted for playback.
-pub const FPS: f32 = 10.0;
+/// The extraction rate when the source rate cannot be read.
+pub const DEFAULT_FPS: f32 = 25.0;
+/// Playback follows the clip's own frame rate, clamped to this window: below
+/// 12 fps a phone clip looks like a slideshow, above 30 fps the JPEG frames
+/// cost more disk and decode time than the eye gains.
+const MIN_FPS: f32 = 12.0;
+const MAX_FPS: f32 = 30.0;
 /// Longest clip that is decoded (the rest plays as the poster).
 const MAX_SECONDS: f32 = 120.0;
 
@@ -17,11 +21,20 @@ pub struct Video {
     pub dir: PathBuf,
     pub frames: usize,
     pub duration: f32,
+    /// Frames per second the clip was extracted at (its own rate, clamped).
+    pub fps: f32,
     /// The extracted audio track, when the clip had one.
     pub audio: Option<PathBuf>,
 }
 
 impl Video {
+    /// The frame that is on screen `seconds` into the clip.
+    pub fn frame_at(&self, seconds: f32) -> usize {
+        ((seconds.max(0.0) * self.fps) as usize).min(self.frames.saturating_sub(1))
+    }
+
+    /// The file for one frame (the worker in `frames` builds the same path).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn frame_path(&self, index: usize) -> Option<PathBuf> {
         if index >= self.frames {
             return None;
@@ -53,6 +66,60 @@ pub fn ffmpeg() -> Option<PathBuf> {
     Some(PathBuf::from("ffmpeg"))
 }
 
+/// `ffprobe` next to `ffmpeg` (it ships in the same folder).
+fn ffprobe(ffmpeg: &Path) -> Option<PathBuf> {
+    let name = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+    let sibling = ffmpeg.with_file_name(name);
+    if sibling.is_file() {
+        return Some(sibling);
+    }
+    Some(PathBuf::from(name))
+}
+
+/// The clip's own frame rate (`avg_frame_rate`), clamped to the playback
+/// window. Falls back to [`DEFAULT_FPS`] when ffprobe is missing.
+pub fn source_fps(source: &str, ffmpeg: &Path) -> f32 {
+    let Some(probe) = ffprobe(ffmpeg) else {
+        return DEFAULT_FPS;
+    };
+    let output = crate::spawn::quiet(&probe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=avg_frame_rate,r_frame_rate",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            source,
+        ])
+        .output();
+    let Ok(output) = output else {
+        return DEFAULT_FPS;
+    };
+    if !output.status.success() {
+        return DEFAULT_FPS;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let Some((num, den)) = line.trim().split_once('/') else {
+            continue;
+        };
+        let (Ok(num), Ok(den)) = (num.parse::<f32>(), den.parse::<f32>()) else {
+            continue;
+        };
+        if den > 0.0 && num > 0.0 {
+            return (num / den).clamp(MIN_FPS, MAX_FPS);
+        }
+    }
+    DEFAULT_FPS
+}
+
 /// Decode `source` into frames + audio under a per-message directory.
 pub fn prepare(source: &str, id: &str) -> Result<Video, String> {
     prepare_into(source, id, Path::new(&crate::model::media_dir()))
@@ -70,7 +137,10 @@ pub fn prepare_into(source: &str, id: &str, base: &Path) -> Result<Video, String
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
 
-    let status = Command::new(&ffmpeg)
+    // Playback follows the clip's own rate, so the viewer never has to invent
+    // frames (a 30 fps clip used to be resampled to 10 and looked choppy).
+    let fps = source_fps(source, &ffmpeg);
+    let status = crate::spawn::quiet(&ffmpeg)
         .args([
             "-y",
             "-loglevel",
@@ -80,7 +150,7 @@ pub fn prepare_into(source: &str, id: &str, base: &Path) -> Result<Video, String
             "-t",
             &MAX_SECONDS.to_string(),
             "-vf",
-            &format!("fps={FPS},scale=640:-2"),
+            &format!("fps={fps},scale=640:-2"),
             "-q:v",
             "4",
         ])
@@ -108,7 +178,7 @@ pub fn prepare_into(source: &str, id: &str, base: &Path) -> Result<Video, String
 
     // The audio track is optional; a silent clip simply skips it.
     let audio_path = dir.join("audio.wav");
-    let audio = Command::new(&ffmpeg)
+    let audio = crate::spawn::quiet(&ffmpeg)
         .args([
             "-y",
             "-loglevel",
@@ -134,7 +204,8 @@ pub fn prepare_into(source: &str, id: &str, base: &Path) -> Result<Video, String
     Ok(Video {
         dir,
         frames,
-        duration: frames as f32 / FPS,
+        duration: frames as f32 / fps,
+        fps,
         audio,
     })
 }
@@ -179,6 +250,7 @@ mod tests {
             dir: PathBuf::from("videos"),
             frames: 3,
             duration: 0.3,
+            fps: 10.0,
             audio: None,
         };
         assert_eq!(
@@ -212,7 +284,7 @@ mod tests {
     /// Is a working `ffmpeg` on this machine? The playback pipeline needs it,
     /// so the end-to-end test is skipped where it is missing (CI images).
     fn ffmpeg_works() -> bool {
-        Command::new(ffmpeg().expect("a path"))
+        crate::spawn::quiet(ffmpeg().expect("a path"))
             .arg("-version")
             .output()
             .map(|output| output.status.success())
@@ -229,7 +301,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).expect("temp dir");
         let clip = base.join("clip.avi");
-        let encoded = Command::new(ffmpeg().expect("a path"))
+        let encoded = crate::spawn::quiet(ffmpeg().expect("a path"))
             .args([
                 "-y",
                 "-loglevel",
@@ -254,7 +326,12 @@ mod tests {
         assert!(encoded.success(), "could not make the sample clip");
 
         let video = prepare_into(clip.to_str().unwrap(), "clip", &base).expect("prepare");
-        assert_eq!(video.frames, 20, "10 fps for 2 seconds");
+        assert!(
+            (video.fps - 12.0).abs() < 0.01,
+            "a 10 fps source is lifted to the 12 fps floor, got {}",
+            video.fps
+        );
+        assert_eq!(video.frames, 24, "12 fps for 2 seconds");
         assert!((video.duration - 2.0).abs() < 0.01);
         assert!(video.frame_path(0).expect("first frame").is_file());
         assert!(

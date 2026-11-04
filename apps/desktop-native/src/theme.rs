@@ -44,24 +44,27 @@ pub fn palette(theme: &str, system_dark: bool) -> Palette {
         _ => system_dark,
     };
     if dark {
+        // The official dark theme (WhatsApp Web / Desktop): a #0B141A
+        // wallpaper, #111B21 panels, #202C33 headers, inputs and incoming
+        // bubbles, and #005C4B for our own bubbles.
         Palette {
             dark,
-            panel: hex(0x161717),
-            rail: hex(0x1D1F1F),
+            panel: hex(0x111B21),
+            rail: hex(0x111B21),
             wallpaper: hex(0x0B141A),
-            elevated: hex(0x242626),
-            hover: Color32::from_rgba_unmultiplied(255, 255, 255, 26),
-            selected: hex(0x2E2F2F),
-            text: hex(0xFAFAFA),
-            secondary: Color32::from_rgba_unmultiplied(255, 255, 255, 153),
-            accent: hex(0x21C063),
-            bubble_in: hex(0x242626),
-            bubble_out: hex(0x144D37),
-            link: hex(0x21C063),
+            elevated: hex(0x202C33),
+            hover: Color32::from_rgba_unmultiplied(255, 255, 255, 16),
+            selected: hex(0x2A3942),
+            text: hex(0xE9EDEF),
+            secondary: hex(0x8696A0),
+            accent: hex(0x00A884),
+            bubble_in: hex(0x202C33),
+            bubble_out: hex(0x005C4B),
+            link: hex(0x53BDEB),
             read: hex(0x53BDEB),
-            danger: hex(0xFB5061),
-            border: Color32::from_rgba_unmultiplied(255, 255, 255, 18),
-            unread: hex(0x21C063),
+            danger: hex(0xF15C6D),
+            border: hex(0x2A3942),
+            unread: hex(0x00A884),
         }
     } else {
         Palette {
@@ -167,9 +170,15 @@ mod tests {
 
     #[test]
     fn the_official_tokens_are_used() {
+        // The dark set is the official desktop theme the reference screenshot
+        // shows: #0B141A wallpaper, #111B21 panels, #202C33 bubbles,
+        // #005C4B outgoing.
         let dark = palette("dark", true);
-        assert_eq!(dark.panel, Color32::from_rgb(0x16, 0x17, 0x17));
-        assert_eq!(dark.bubble_out, Color32::from_rgb(0x14, 0x4D, 0x37));
+        assert_eq!(dark.wallpaper, Color32::from_rgb(0x0B, 0x14, 0x1A));
+        assert_eq!(dark.panel, Color32::from_rgb(0x11, 0x1B, 0x21));
+        assert_eq!(dark.elevated, Color32::from_rgb(0x20, 0x2C, 0x33));
+        assert_eq!(dark.bubble_in, Color32::from_rgb(0x20, 0x2C, 0x33));
+        assert_eq!(dark.bubble_out, Color32::from_rgb(0x00, 0x5C, 0x4B));
         assert_eq!(dark.read, Color32::from_rgb(0x53, 0xBD, 0xEB));
         let light = palette("light", false);
         assert_eq!(light.bubble_out, Color32::from_rgb(0xD9, 0xFD, 0xD3));

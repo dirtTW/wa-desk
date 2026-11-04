@@ -23,6 +23,7 @@ mod camera;
 mod clipboard;
 mod echo;
 mod emoji_glyph;
+mod frames;
 mod gif;
 mod icon;
 mod icons;
@@ -31,6 +32,7 @@ mod mic;
 mod model;
 mod notify;
 mod settings;
+mod spawn;
 mod sticker;
 mod theme;
 mod tray;
@@ -568,6 +570,15 @@ fn main() {
                             name: name.clone(),
                             is_group: jid.ends_with("@g.us"),
                             timestamp: 0,
+                        });
+                    }
+                    // The window needs to know which people are *saved* (the
+                    // official client marks everyone else `~ name`). The store is
+                    // small enough to hand over in one go.
+                    for (jid, name) in contacts.iter() {
+                        let _ = events_out.send(wa_types::UiEvent::ContactName {
+                            jid: jid.clone(),
+                            name: name.clone(),
                         });
                     }
                     *command_contacts.lock().expect("sync contacts") = contacts;

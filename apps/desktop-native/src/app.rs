@@ -78,6 +78,8 @@ pub struct WaDesk {
     /// Rasterised QR code, keyed by the SVG it came from so a rotating code
     /// is decoded once per rotation.
     qr: Option<(String, egui::TextureHandle)>,
+    /// The login gate is showing the phone-number form instead of the QR.
+    gate_phone: bool,
     /// Media download results, drained every frame.
     media_rx: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
     /// Group metadata replies.
@@ -148,6 +150,8 @@ pub struct WaDesk {
     video_textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     /// Insertion order of `video_textures`, so old frames can be evicted.
     video_order: std::collections::VecDeque<String>,
+    /// The clip whose frames are being decoded ahead, keyed by its directory.
+    video_prefetch: Option<(String, crate::frames::Prefetch)>,
     video_playing: bool,
     video_started: Option<std::time::Instant>,
     video_offset: f32,
@@ -233,6 +237,7 @@ impl WaDesk {
             settings_path: settings_file(),
             settings_note: String::new(),
             qr: None,
+            gate_phone: false,
             media_rx: native.media,
             group_rx: native.group,
             show_group: false,
@@ -274,6 +279,7 @@ impl WaDesk {
             video_rx,
             video_textures: std::collections::HashMap::new(),
             video_order: std::collections::VecDeque::new(),
+            video_prefetch: None,
             video_playing: false,
             video_started: None,
             video_offset: 0.0,
@@ -316,6 +322,14 @@ impl WaDesk {
     pub fn preview_mode(&mut self) {
         self.model = Model::demo();
         self.preview = true;
+        // `WA_DESK_LOGIN=qr` (or `pair`) renders the login gate for a
+        // screenshot; the QR is generated from a dummy string.
+        if std::env::var("WA_DESK_LOGIN").is_ok() {
+            self.model.login = match std::env::var("WA_DESK_LOGIN").as_deref() {
+                Ok("pair") => crate::login::LoginState::PairCode("ABCD-EFGH".to_string()),
+                _ => crate::login::LoginState::Qr(demo_qr_svg()),
+            };
+        }
         // Opening through the model keeps the unread anchor (and clears the
         // badge), which a screenshot of the divider needs.
         if std::env::var("WA_DESK_OPEN_FIRST").is_ok()
@@ -996,6 +1010,15 @@ impl WaDesk {
         }
     }
 
+    /// Free the decoded frames and the worker of the open clip. Called when the
+    /// viewer closes: a session that looked at ten videos should not keep all
+    /// of their frames in memory.
+    fn release_video(&mut self) {
+        self.video_textures.clear();
+        self.video_order.clear();
+        self.video_prefetch = None;
+    }
+
     fn stop_video(&mut self) {
         if self.video_playing {
             self.audio.stop();
@@ -1006,188 +1029,60 @@ impl WaDesk {
     }
 
     /// The texture for the current frame of a prepared clip.
+    ///
+    /// The paint thread never decodes: a worker keeps frames ready around the
+    /// playhead ([`crate::frames::Prefetch`]) and this only uploads what has
+    /// already been decoded. If the exact frame is still in flight the newest
+    /// earlier frame is painted, so the video never blanks or flickers.
     fn video_frame_handle(&mut self, ctx: &egui::Context, id: &str) -> Option<egui::TextureHandle> {
         let VideoState::Ready(video) = self.videos.get(id)?.clone() else {
             return None;
         };
-        let index = ((self.video_elapsed() * crate::video::FPS) as usize)
-            .min(video.frames.saturating_sub(1));
-        let key = format!("{}#{index}", video.dir.display());
-        // Frames are ~1 MB of texture each, so only a short window is kept:
-        // the last ~5 seconds at 10 fps. The rest is re-decoded on demand.
-        if let Some(position) = self.video_order.iter().position(|entry| entry == &key) {
-            self.video_order.remove(position);
+        let index = video.frame_at(self.video_elapsed());
+        let dir_key = video.dir.display().to_string();
+
+        // (Re)start the worker when another clip is open.
+        let needs_worker = self
+            .video_prefetch
+            .as_ref()
+            .is_none_or(|(key, _)| key != &dir_key);
+        if needs_worker {
+            self.video_prefetch = crate::frames::Prefetch::start(video.dir.clone(), video.frames)
+                .map(|worker| (dir_key.clone(), worker));
         }
-        self.video_order.push_back(key.clone());
-        while self.video_order.len() > 48 {
+        if let Some((_, worker)) = &self.video_prefetch {
+            worker.seek(index);
+            let ready = worker.drain(4);
+            for (number, image) in ready {
+                let key = format!("{dir_key}#{number}");
+                let texture = ctx.load_texture(key.clone(), image, egui::TextureOptions::LINEAR);
+                self.video_textures.insert(key.clone(), Some(texture));
+                self.video_order.push_back(key);
+            }
+        }
+        // 18 frames at 640 px is ~0.6 s of look-ahead in video memory; the LRU
+        // drops the frames behind the playhead as they are passed.
+        while self.video_order.len() > 18 {
             if let Some(old) = self.video_order.pop_front() {
                 self.video_textures.remove(&old);
             }
         }
-        let path = video
-            .frame_path(index)
-            .map(|path| path.to_string_lossy().into_owned());
-        texture_at(ctx, &mut self.video_textures, &key, path)
-    }
 
-    /// The official video transport bar: play/pause, elapsed, a seek line,
-    /// the length, mute and fullscreen.
-    fn video_transport(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, id: &str) {
-        let duration = match self.videos.get(id) {
-            Some(VideoState::Ready(video)) => video.duration,
-            _ => 0.0,
-        };
-        let playing = self.video_playing;
-        let elapsed = self.video_elapsed().clamp(0.0, duration.max(0.0));
-        let muted = self.video_muted;
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::hover());
-        let white = egui::Color32::from_gray(238);
-        let dim = egui::Color32::from_gray(150);
-        let middle = rect.center().y;
-        let painter = ui.painter();
-
-        let play_rect = egui::Rect::from_center_size(
-            egui::pos2(rect.left() + 22.0, middle),
-            egui::vec2(38.0, 38.0),
-        );
-        let play = ui.interact(play_rect, ui.id().with("video-play"), egui::Sense::click());
-        painter.circle_filled(
-            play_rect.center(),
-            19.0,
-            if play.hovered() {
-                egui::Color32::from_white_alpha(34)
-            } else {
-                egui::Color32::from_white_alpha(14)
-            },
-        );
-        draw_icon(
-            ui,
-            play_rect.shrink(8.0),
-            if playing { Icon::Pause } else { Icon::Play },
-            white,
-        );
-
-        let left = rect.left() + 54.0;
-        // Mute + fullscreen own the right end; the times sit just before them.
-        let full_center = egui::pos2(rect.right() - 26.0, middle);
-        let mute_center = egui::pos2(full_center.x - 44.0, middle);
-        let times_right = mute_center.x - 30.0;
-        let right = (times_right - 96.0).max(left + 40.0);
-        let seek_rect = egui::Rect::from_min_max(
-            egui::pos2(left, middle - 9.0),
-            egui::pos2(right, middle + 9.0),
-        );
-        let seek = ui.interact(
-            seek_rect,
-            ui.id().with("video-seek"),
-            egui::Sense::click_and_drag(),
-        );
-        let ratio = if duration > 0.0 {
-            (elapsed / duration).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        painter.line_segment(
-            [egui::pos2(left, middle), egui::pos2(right, middle)],
-            egui::Stroke::new(3.0_f32, egui::Color32::from_white_alpha(45)),
-        );
-        let knob = left + (right - left) * ratio;
-        painter.line_segment(
-            [egui::pos2(left, middle), egui::pos2(knob, middle)],
-            egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(33, 192, 99)),
-        );
-        painter.circle_filled(
-            egui::pos2(knob, middle),
-            if seek.hovered() || seek.dragged() {
-                7.0
-            } else {
-                5.5
-            },
-            white,
-        );
-
-        let font = egui::FontId::proportional(12.0);
-        let played_label = stamp_seconds(elapsed);
-        let total_label = format!("/ {}", stamp_seconds(duration));
-        let total_width = painter
-            .layout_no_wrap(total_label.clone(), font.clone(), dim)
-            .size()
-            .x;
-        painter.text(
-            egui::pos2(times_right, middle),
-            egui::Align2::RIGHT_CENTER,
-            total_label,
-            font.clone(),
-            dim,
-        );
-        painter.text(
-            egui::pos2(times_right - total_width - 4.0, middle),
-            egui::Align2::RIGHT_CENTER,
-            played_label,
-            font,
-            white,
-        );
-
-        let mute_rect = egui::Rect::from_center_size(mute_center, egui::vec2(34.0, 34.0));
-        let mute = ui.interact(mute_rect, ui.id().with("video-mute"), egui::Sense::click());
-        if mute.hovered() {
-            painter.circle_filled(
-                mute_rect.center(),
-                16.0,
-                egui::Color32::from_white_alpha(34),
-            );
+        // The frame itself, otherwise the nearest one behind it.
+        let key = format!("{dir_key}#{index}");
+        if let Some(Some(texture)) = self.video_textures.get(&key) {
+            return Some(texture.clone());
         }
-        draw_icon(
-            ui,
-            mute_rect.shrink(8.0),
-            if muted { Icon::Mute } else { Icon::Volume },
-            white,
-        );
-
-        let full_rect = egui::Rect::from_center_size(full_center, egui::vec2(34.0, 34.0));
-        let full = ui.interact(
-            full_rect,
-            ui.id().with("video-fullscreen"),
-            egui::Sense::click(),
-        );
-        if full.hovered() {
-            painter.circle_filled(
-                full_rect.center(),
-                16.0,
-                egui::Color32::from_white_alpha(34),
-            );
+        for behind in 1..=8 {
+            if behind > index {
+                break;
+            }
+            let key = format!("{dir_key}#{}", index - behind);
+            if let Some(Some(texture)) = self.video_textures.get(&key) {
+                return Some(texture.clone());
+            }
         }
-        let fullscreen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
-        draw_icon(
-            ui,
-            full_rect.shrink(8.0),
-            if fullscreen {
-                Icon::FullscreenExit
-            } else {
-                Icon::Fullscreen
-            },
-            white,
-        );
-
-        if play.clicked() {
-            self.toggle_video(id);
-        }
-        if mute.clicked() {
-            self.video_muted = !self.video_muted;
-            self.audio
-                .set_volume(if self.video_muted { 0.0 } else { 1.0 });
-        }
-        if full.clicked() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
-        }
-        if (seek.clicked() || seek.dragged())
-            && let Some(position) = seek.interact_pointer_pos()
-            && right > left
-        {
-            let ratio = ((position.x - left) / (right - left)).clamp(0.0, 1.0);
-            self.seek_video(id, ratio * duration);
-        }
+        None
     }
 
     /// A toast for a message that arrived while the window is in the
@@ -1948,7 +1843,7 @@ impl WaDesk {
                     .show(ui, |ui| {
                         for row in &rows {
                             let selected = self.model.active.as_deref() == Some(row.jid.as_str());
-                            let title = self.model.title(row);
+                            let title = self.model.row_title(row);
                             let preview = self.model.row_preview(row);
                             let stamp = self.model.row_stamp(row);
                             if row.jid.ends_with("@g.us")
@@ -2035,7 +1930,7 @@ impl WaDesk {
                             ui.add_space(2.0);
                             ui.vertical(|ui| {
                                 ui.label(
-                                    egui::RichText::new(self.model.title(&row))
+                                    egui::RichText::new(self.model.row_title(&row))
                                         .size(15.5)
                                         .strong(),
                                 );
@@ -2046,6 +1941,12 @@ impl WaDesk {
                                         }
                                         _ => "Group".to_string(),
                                     }
+                                } else if self.model.is_unsaved_person(&row.jid) {
+                                    // An unsaved person's header line is the
+                                    // number, like the official client.
+                                    self.model
+                                        .number_of(&row.jid)
+                                        .unwrap_or_else(|| "online".to_string())
                                 } else {
                                     "online".to_string()
                                 };
@@ -2640,9 +2541,18 @@ fn bubble_content(
             ui.add_space(if tail { 8.0 } else { 2.0 });
             return;
         }
+        // A sticker: still WebP or animated (WhatsApp's animated stickers are
+        // WebP with an `ANIM` chunk - the `image` crate only shows frame one, so
+        // those are decoded to frames and stepped like a GIF).
+        let sticker_texture = model.media_path(&message.id).and_then(|path| {
+            if crate::sticker::is_animated_webp(std::path::Path::new(&path)) {
+                crate::gif::frame(ctx, textures, &message.id, &path)
+            } else {
+                texture_at(ctx, textures, &message.id, Some(path), STICKER_PX)
+            }
+        });
         if message.kind == "sticker"
-            && let Some(texture) =
-                texture_at(ctx, textures, &message.id, model.media_path(&message.id))
+            && let Some(texture) = sticker_texture
         {
             let size = texture.size_vec2();
             let scale = (128.0 / size.x).min(1.0);
@@ -2728,7 +2638,15 @@ fn bubble_content(
                         .and_then(|path| crate::gif::frame(ctx, textures, &message.id, &path))
                 })
                 .flatten()
-                .or_else(|| texture_at(ctx, textures, &message.id, model.media_path(&message.id)))
+                .or_else(|| {
+                    texture_at(
+                        ctx,
+                        textures,
+                        &message.id,
+                        model.media_path(&message.id),
+                        PHOTO_PX,
+                    )
+                })
         {
             // The photo/video sits inside the same bubble as text: padding,
             // rounded corners with the run's tail, caption and clock inside.
@@ -3108,27 +3026,50 @@ fn bubble_content(
             .from_me
             .then(|| model.tick_status(message).to_string());
         let tick_width = if tick.is_some() { 16.0 } else { 0.0 };
-        let sender = message
-            .sender_name
-            .clone()
-            .filter(|_| message.is_group && !message.from_me);
-        let sender_galley = sender.as_ref().map(|name| {
+        // The group sender row: `~ name` for a sender outside the address book,
+        // with their number at the right of the row, like the official client.
+        let sender = model.sender_row(message);
+        let sender_galley = sender.as_ref().map(|(name, _)| {
             ui.painter().layout_no_wrap(
                 name.clone(),
                 egui::FontId::proportional(12.5),
-                sender_color(name, palette),
+                sender_color(name.trim_start_matches('~').trim(), palette),
             )
         });
-        let width =
-            (body_size.x.max(time.size().x + tick_width + 10.0) + padding * 2.0).min(max_width);
+        let sender_number = sender
+            .as_ref()
+            .and_then(|(_, number)| number.clone())
+            .map(|number| {
+                ui.painter().layout_no_wrap(
+                    number,
+                    egui::FontId::proportional(11.0),
+                    palette.secondary,
+                )
+            });
+        let number_width = sender_number
+            .as_ref()
+            .map(|galley| galley.size().x + 14.0)
+            .unwrap_or(0.0);
+        let sender_width = sender_galley
+            .as_ref()
+            .map(|galley| galley.size().x + number_width)
+            .unwrap_or(0.0);
+        let width = (body_size
+            .x
+            .max(time.size().x + tick_width + 10.0)
+            .max(sender_width)
+            + padding * 2.0)
+            .min(max_width);
         // A quoted reply sits in an inset card above the body, like the
         // official client's coloured quote.
         let quote = message.reply_to.clone();
         let quote_height = if quote.is_some() { 34.0 } else { 0.0 };
-        let mut height = body_size.y + time.size().y + 8.0 + quote_height;
-        if let Some(galley) = &sender_galley {
-            height += galley.size().y + 1.0;
-        }
+        // The sender name row (group chats only) sits above the card.
+        let name_height = sender_galley
+            .as_ref()
+            .map(|galley| galley.size().y + 1.0)
+            .unwrap_or(0.0);
+        let height = body_size.y + time.size().y + 8.0 + quote_height + name_height;
         let (rect, hit) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
         let painter = ui.painter();
         painter.rect_filled(rect, radius, fill);
@@ -3141,8 +3082,9 @@ fn bubble_content(
             );
         }
         if let Some(quote) = &quote {
+            let card_top = rect.top() + 5.0 + name_height;
             let card = egui::Rect::from_min_size(
-                egui::pos2(rect.left() + 6.0, rect.top() + 5.0),
+                egui::pos2(rect.left() + 6.0, card_top),
                 egui::vec2((rect.width() - 12.0).max(60.0), 28.0),
             );
             let author = model.quote_author(quote);
@@ -3175,11 +3117,32 @@ fn bubble_content(
                 palette.secondary,
             );
         }
-        let mut y = rect.top() + 5.0 + quote_height;
-        if let Some(galley) = sender_galley {
-            let inner = galley.size().y;
-            painter.galley(egui::pos2(rect.left() + padding, y), galley, palette.text);
-            y += inner + 1.0;
+        // The sender's name comes first, then the quoted card, then the body -
+        // the official order, so a name never lands on top of the card.
+        let mut y = rect.top() + 5.0;
+        if let Some(galley) = &sender_galley {
+            // The name is clipped so the number beside it always fits.
+            let limit = rect.width() - padding * 2.0 - number_width;
+            let clipped = painter.with_clip_rect(egui::Rect::from_min_size(
+                egui::pos2(rect.left() + padding, y),
+                egui::vec2(limit.max(24.0), galley.size().y),
+            ));
+            clipped.galley(
+                egui::pos2(rect.left() + padding, y),
+                galley.clone(),
+                palette.text,
+            );
+            if let Some(number) = &sender_number {
+                painter.galley(
+                    egui::pos2(rect.right() - padding - number.size().x, y + 1.5),
+                    number.clone(),
+                    palette.secondary,
+                );
+            }
+            y += name_height;
+        }
+        if quote.is_some() {
+            y += quote_height;
         }
         match &rich_body {
             Some(layout) => paint_body(painter, egui::pos2(rect.left() + padding, y), layout),
@@ -3386,11 +3349,17 @@ fn pills_row(
 
 /// Decode a media file into a texture, once. Absent until the file exists —
 /// and absent when it is not a readable image.
+/// How wide a decoded texture may be, per kind: the window never paints wider.
+pub(crate) const PHOTO_PX: u32 = 720;
+pub(crate) const STICKER_PX: u32 = 192;
+pub(crate) const QUOTE_PX: u32 = 96;
+
 pub(crate) fn texture_at(
     ctx: &egui::Context,
     cache: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
     key: &str,
     path: Option<String>,
+    max_width_px: u32,
 ) -> Option<egui::TextureHandle> {
     if let Some(texture) = cache.get(key) {
         return texture.clone();
@@ -3398,9 +3367,9 @@ pub(crate) fn texture_at(
     let bytes = std::fs::read(path?).ok()?;
     let mut image = image::load_from_memory(&bytes).ok()?;
     // Big screenshots are common; cap the upload size so decoding and texture
-    // creation stay cheap (the window never paints wider than this).
-    if image.width() > 720 {
-        let scale = 720.0 / image.width() as f32;
+    // creation stay cheap *and* the cache has a predictable footprint.
+    if image.width() > max_width_px {
+        let scale = max_width_px as f32 / image.width() as f32;
         image = image.resize(
             (image.width() as f32 * scale) as u32,
             (image.height() as f32 * scale) as u32,
@@ -3412,7 +3381,49 @@ pub(crate) fn texture_at(
     let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
     let texture = ctx.load_texture(key.to_string(), color, egui::TextureOptions::LINEAR);
     cache.insert(key.to_string(), Some(texture.clone()));
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new(("texture-use", key)),
+            ctx.cumulative_frame_nr(),
+        )
+    });
     Some(texture)
+}
+
+/// Keep the texture caches bounded: drop the least-recently-painted entries
+/// once a cache grows past `cap`. This is what stops a long session from
+/// holding every photo and sticker it ever scrolled past in video memory.
+pub(crate) fn prune_textures(
+    ctx: &egui::Context,
+    cache: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    cap: usize,
+) {
+    if cache.len() <= cap {
+        return;
+    }
+    let now = ctx.cumulative_frame_nr();
+    let mut used: Vec<(u64, String)> = cache
+        .keys()
+        .map(|key| {
+            let stamp = ctx
+                .data(|data| data.get_temp::<u64>(egui::Id::new(("texture-use", key.as_str()))))
+                .unwrap_or(0);
+            (stamp, key.clone())
+        })
+        .collect();
+    used.sort_unstable();
+    // Everything painted this frame stays; the rest goes oldest first.
+    let mut live = used.len();
+    for (stamp, key) in used {
+        if live <= cap {
+            break;
+        }
+        if stamp == now {
+            continue;
+        }
+        cache.remove(&key);
+        live -= 1;
+    }
 }
 
 /// A laid-out label with every occurrence of the query on a yellow band.
@@ -3471,79 +3482,467 @@ fn highlight_job(text: &str, needle: &str, color: egui::Color32) -> egui::text::
 impl WaDesk {
     /// The login screen: the QR (or pairing code), the hint line and the
     /// actions that get a fresh code.
+    /// The login gate: WhatsApp Web's "scan to log in" page, painted with the
+    /// dark palette (wordmark, download card, the scan card with its three
+    /// numbered steps, the QR and the phone-number link).
     fn gate(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(40.0);
-                ui.heading("WA Desk");
-                ui.label(egui::RichText::new(self.model.login.hint()).weak());
-
-                match self.model.login.clone() {
-                    LoginState::Qr(svg) => {
-                        if let Some(texture) = self.qr_texture(ctx, &svg) {
-                            let side = 280.0;
-                            ui.add_space(12.0);
-                            ui.image((texture.id(), egui::vec2(side, side)));
-                        } else {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(self.palette.panel))
+            .show(ctx, |ui| {
+                let palette = self.palette.clone();
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        // Top-left wordmark, like the web page.
+                        ui.add_space(18.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(26.0);
+                            let (rect, _) =
+                                ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::hover());
+                            draw_whatsapp_mark(ui, rect, palette.accent);
+                            ui.add_space(4.0);
                             ui.label(
-                                egui::RichText::new("could not draw the QR code")
-                                    .color(self.palette.danger),
+                                egui::RichText::new("WhatsApp")
+                                    .size(15.0)
+                                    .color(palette.text)
+                                    .strong(),
                             );
-                        }
-                    }
-                    LoginState::PairCode(code) => {
-                        ui.add_space(16.0);
-                        ui.label(egui::RichText::new(code).size(30.0).monospace());
-                        ui.label(
-                            egui::RichText::new("Linked devices → Link with phone number")
-                                .small()
-                                .weak(),
-                        );
-                    }
-                    LoginState::Expired | LoginState::Waiting => {}
-                    LoginState::Linked => {}
-                }
+                        });
+                        ui.add_space(46.0);
 
-                ui.add_space(18.0);
-                ui.horizontal(|ui| {
-                    if crate::login::can_restart(&self.model.login)
-                        && ui.button("Request a new code").clicked()
-                    {
-                        self.model.login_restarted();
-                        self.send(Command::Restart);
-                    }
-                });
+                        let width = (ui.available_width() - 96.0).clamp(420.0, 860.0);
+                        let mut go_phone = false;
+                        let mut new_code = false;
 
-                ui.add_space(24.0);
-                ui.separator();
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new("Or link with a phone number").small());
-                ui.horizontal(|ui| {
-                    let width = (ui.available_width() - 90.0).max(120.0);
-                    ui.add_sized(
-                        [width, 28.0],
-                        egui::TextEdit::singleline(&mut self.model.pair_phone)
-                            .hint_text("628123456789"),
-                    );
-                    if ui
-                        .add_sized([80.0, 28.0], egui::Button::new("Get code"))
-                        .clicked()
-                    {
-                        let phone: String = self
-                            .model
-                            .pair_phone
-                            .chars()
-                            .filter(|c| c.is_ascii_digit())
-                            .collect();
-                        if !phone.is_empty() {
-                            self.send(Command::PairCode { phone });
+                        ui.vertical_centered(|ui| {
+                            // ---- Download card -------------------------------------
+                            gate_card(ui, &palette, width, |ui| {
+                                ui.horizontal(|ui| {
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(120.0, 84.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    draw_laptop(ui, rect, &palette);
+                                    ui.add_space(18.0);
+                                    ui.vertical(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("Download WA Desk for Windows")
+                                                .size(17.0)
+                                                .color(palette.text)
+                                                .strong(),
+                                        );
+                                        ui.add_space(3.0);
+                                        ui.label(
+                                            egui::RichText::new(
+                                                "Get extra features like voice and video calling, \
+                                                 screen sharing and more.",
+                                            )
+                                            .size(13.5)
+                                            .color(palette.secondary),
+                                        );
+                                    });
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                egui::vec2(148.0, 44.0),
+                                                egui::Sense::click(),
+                                            );
+                                            let fill = if response.hovered() {
+                                                palette.accent.gamma_multiply(0.88)
+                                            } else {
+                                                palette.accent
+                                            };
+                                            ui.painter().rect_filled(
+                                                rect,
+                                                egui::CornerRadius::same(24),
+                                                fill,
+                                            );
+                                            let label = ui.painter().layout_no_wrap(
+                                                "Download".to_string(),
+                                                egui::FontId::proportional(15.0),
+                                                egui::Color32::from_rgb(11, 20, 26),
+                                            );
+                                            let icon = egui::Rect::from_center_size(
+                                                egui::pos2(
+                                                    rect.right() - 26.0,
+                                                    rect.center().y,
+                                                ),
+                                                egui::vec2(18.0, 18.0),
+                                            );
+                                            ui.painter().galley(
+                                                egui::pos2(
+                                                    rect.left() + 22.0,
+                                                    rect.center().y - label.size().y / 2.0,
+                                                ),
+                                                label,
+                                                egui::Color32::from_rgb(11, 20, 26),
+                                            );
+                                            draw_icon(
+                                                ui,
+                                                icon,
+                                                Icon::Download,
+                                                egui::Color32::from_rgb(11, 20, 26),
+                                            );
+                                            if response.clicked() {
+                                                self.notice = Some((
+                                                    "The installer is the WA-Desk-Setup.exe \
+                                                     release download"
+                                                        .to_string(),
+                                                    std::time::Instant::now(),
+                                                ));
+                                            }
+                                        },
+                                    );
+                                });
+                            });
+
+                            ui.add_space(18.0);
+
+                            // ---- Scan card -----------------------------------------
+                            gate_card(ui, &palette, width, |ui| {
+                                ui.horizontal_top(|ui| {
+                                    // Left: title, steps, links.
+                                    ui.vertical(|ui| {
+                                        ui.set_width((width * 0.5 - 60.0).max(240.0));
+                                        ui.label(
+                                            egui::RichText::new("Scan to log in")
+                                                .size(27.0)
+                                                .color(palette.text),
+                                        );
+                                        ui.add_space(16.0);
+                                        gate_step(
+                                            ui,
+                                            &palette,
+                                            1,
+                                            |ui, palette| {
+                                                ui.label(
+                                                    egui::RichText::new(
+                                                        "Scan the QR code with your phone's camera",
+                                                    )
+                                                    .size(14.0)
+                                                    .color(palette.text),
+                                                );
+                                            },
+                                        );
+                                        ui.add_space(10.0);
+                                        gate_step(
+                                            ui,
+                                            &palette,
+                                            2,
+                                            |ui, palette| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(
+                                                        egui::RichText::new(
+                                                            "Tap the link to open WhatsApp",
+                                                        )
+                                                        .size(14.0)
+                                                        .color(palette.text),
+                                                    );
+                                                    let (rect, _) = ui.allocate_exact_size(
+                                                        egui::vec2(15.0, 15.0),
+                                                        egui::Sense::hover(),
+                                                    );
+                                                    draw_whatsapp_mark(ui, rect, palette.accent);
+                                                });
+                                            },
+                                        );
+                                        ui.add_space(10.0);
+                                        gate_step(
+                                            ui,
+                                            &palette,
+                                            3,
+                                            |ui, palette| {
+                                                ui.label(
+                                                    egui::RichText::new(
+                                                        "Scan the QR code again to link your account",
+                                                    )
+                                                    .size(14.0)
+                                                    .color(palette.text),
+                                                );
+                                            },
+                                        );
+                                        ui.add_space(14.0);
+                                        if gate_link(ui, &palette, "Need help?")
+                                            .on_hover_text(
+                                                "Open WhatsApp on your phone, then Linked devices \
+                                                 → Link a device.",
+                                            )
+                                            .clicked()
+                                        {
+                                            self.notice = Some((
+                                                "WhatsApp on your phone → Linked devices → \
+                                                 Link a device"
+                                                    .to_string(),
+                                                std::time::Instant::now(),
+                                            ));
+                                        }
+                                    });
+
+                                    // Right: the QR (or the pairing code) and the links.
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Min),
+                                        |ui| {
+                                            ui.vertical(|ui| {
+                                                let side = 268.0;
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(egui::Align::Min),
+                                                    |ui| {
+                                                        ui.allocate_ui(
+                                                            egui::vec2(side + 24.0, side + 24.0),
+                                                            |ui| {
+                                                                let (rect, _) =
+                                                                    ui.allocate_exact_size(
+                                                                        egui::vec2(
+                                                                            side + 24.0,
+                                                                            side + 24.0,
+                                                                        ),
+                                                                        egui::Sense::hover(),
+                                                                    );
+                                                                ui.painter().rect_filled(
+                                                                    rect,
+                                                                    egui::CornerRadius::same(16),
+                                                                    egui::Color32::WHITE,
+                                                                );
+                                                                let qr_rect = rect.shrink(12.0);
+                                                                match self.model.login.clone() {
+                                                                    LoginState::Qr(svg) => {
+                                                                        if let Some(texture) =
+                                                                            self.qr_texture(ctx, &svg)
+                                                                        {
+                                                                            ui.painter().image(
+                                                                                texture.id(),
+                                                                                qr_rect,
+                                                                                egui::Rect::from_min_max(
+                                                                                    egui::pos2(0.0, 0.0),
+                                                                                    egui::pos2(1.0, 1.0),
+                                                                                ),
+                                                                                egui::Color32::WHITE,
+                                                                            );
+                                                                        }
+                                                                    }
+                                                                    LoginState::PairCode(code) => {
+                                                                        let galley = ui
+                                                                            .painter()
+                                                                            .layout_no_wrap(
+                                                                                code,
+                                                                                egui::FontId::monospace(26.0),
+                                                                                egui::Color32::from_rgb(17, 27, 33),
+                                                                            );
+                                                                        ui.painter().galley(
+                                                                            egui::pos2(
+                                                                                rect.center().x
+                                                                                    - galley.size().x
+                                                                                        / 2.0,
+                                                                                rect.center().y
+                                                                                    - galley.size().y
+                                                                                        / 2.0,
+                                                                            ),
+                                                                            galley,
+                                                                            egui::Color32::from_rgb(
+                                                                                17, 27, 33,
+                                                                            ),
+                                                                        );
+                                                                    }
+                                                                    LoginState::Expired
+                                                                    | LoginState::Waiting
+                                                                    | LoginState::Linked => {}
+                                                                }
+                                                            },
+                                                        );
+                                                    },
+                                                );
+                                                ui.add_space(14.0);
+                                                if self.gate_phone {
+                                                    ui.vertical_centered(|ui| {
+                                                        let width =
+                                                            (ui.available_width()).min(240.0);
+                                                        ui.add_sized(
+                                                            [width, 30.0],
+                                                            egui::TextEdit::singleline(
+                                                                &mut self.model.pair_phone,
+                                                            )
+                                                            .hint_text("628123456789"),
+                                                        );
+                                                        ui.add_space(6.0);
+                                                        let (rect, response) =
+                                                            ui.allocate_exact_size(
+                                                                egui::vec2(120.0, 30.0),
+                                                                egui::Sense::click(),
+                                                            );
+                                                        ui.painter().rect_filled(
+                                                            rect,
+                                                            egui::CornerRadius::same(24),
+                                                            palette.accent,
+                                                        );
+                                                        ui.painter().text(
+                                                            rect.center(),
+                                                            egui::Align2::CENTER_CENTER,
+                                                            "Get code",
+                                                            egui::FontId::proportional(13.5),
+                                                            egui::Color32::from_rgb(11, 20, 26),
+                                                        );
+                                                        if response.clicked() {
+                                                            let phone: String = self
+                                                                .model
+                                                                .pair_phone
+                                                                .chars()
+                                                                .filter(|c| c.is_ascii_digit())
+                                                                .collect();
+                                                            if !phone.is_empty() {
+                                                                self.send(Command::PairCode {
+                                                                    phone,
+                                                                });
+                                                            }
+                                                        }
+                                                    });
+                                                } else {
+                                                    ui.with_layout(
+                                                        egui::Layout::right_to_left(
+                                                            egui::Align::Center,
+                                                        ),
+                                                        |ui| {
+                                                            if gate_link(
+                                                                ui,
+                                                                &palette,
+                                                                "Log in with phone number",
+                                                            )
+                                                            .clicked()
+                                                            {
+                                                                go_phone = true;
+                                                            }
+                                                            draw_icon(
+                                                                ui,
+                                                                egui::Rect::from_center_size(
+                                                                    egui::pos2(
+                                                                        ui.cursor().left() + 8.0,
+                                                                        ui.cursor().top() + 8.0,
+                                                                    ),
+                                                                    egui::vec2(16.0, 16.0),
+                                                                ),
+                                                                Icon::ChevronRight,
+                                                                palette.accent,
+                                                            );
+                                                        },
+                                                    );
+                                                }
+                                            });
+                                        },
+                                    );
+                                });
+
+                                ui.add_space(16.0);
+                                // The session is stored on disk, so this is a
+                                // truthful checked box rather than a switch.
+                                ui.horizontal(|ui| {
+                                    let (rect, _) = ui
+                                        .allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        egui::CornerRadius::same(4),
+                                        palette.accent,
+                                    );
+                                    draw_icon(
+                                        ui,
+                                        rect.shrink(3.0),
+                                        Icon::Check,
+                                        egui::Color32::from_rgb(11, 20, 26),
+                                    );
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        egui::RichText::new("Stay logged in on this device")
+                                            .size(13.5)
+                                            .color(palette.text),
+                                    );
+                                    draw_icon(
+                                        ui,
+                                        egui::Rect::from_min_size(
+                                            egui::pos2(ui.cursor().left() + 6.0, ui.cursor().top() + 2.0),
+                                            egui::vec2(15.0, 15.0),
+                                        ),
+                                        Icon::Lock,
+                                        palette.secondary,
+                                    );
+                                    ui.add_space(21.0);
+                                    if crate::login::can_restart(&self.model.login)
+                                        && gate_link(ui, &palette, "Request a new code").clicked()
+                                    {
+                                        new_code = true;
+                                    }
+                                });
+                            });
+
+                            ui.add_space(22.0);
+                            ui.vertical_centered(|ui| {
+                                ui.horizontal(|ui| {
+                                    let text = ui.painter().layout_no_wrap(
+                                        "Don't have a WhatsApp account?".to_string(),
+                                        egui::FontId::proportional(14.0),
+                                        palette.text,
+                                    );
+                                    let link = ui.painter().layout_no_wrap(
+                                        "Get started".to_string(),
+                                        egui::FontId::proportional(14.0),
+                                        palette.accent,
+                                    );
+                                    let total = text.size().x + 6.0 + link.size().x + 16.0;
+                                    ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
+                                    ui.label(
+                                        egui::RichText::new("Don't have a WhatsApp account?")
+                                            .size(14.0)
+                                            .color(palette.text),
+                                    );
+                                    ui.add_space(2.0);
+                                    ui.label(
+                                        egui::RichText::new("Get started")
+                                            .size(14.0)
+                                            .color(palette.accent)
+                                            .underline(),
+                                    );
+                                });
+                                ui.add_space(14.0);
+                                ui.horizontal(|ui| {
+                                    let galley = ui.painter().layout_no_wrap(
+                                        "Your personal messages are end-to-end encrypted"
+                                            .to_string(),
+                                        egui::FontId::proportional(13.0),
+                                        palette.secondary,
+                                    );
+                                    let total = galley.size().x + 22.0;
+                                    ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(15.0, 15.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    draw_icon(ui, rect, Icon::Lock, palette.secondary);
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Your personal messages are end-to-end encrypted",
+                                        )
+                                        .size(13.0)
+                                        .color(palette.secondary),
+                                    );
+                                });
+                                ui.add_space(12.0);
+                                ui.label(
+                                    egui::RichText::new("Terms & Privacy Policy")
+                                        .size(12.0)
+                                        .color(palette.secondary.gamma_multiply(0.8)),
+                                );
+                            });
+                            ui.add_space(28.0);
+                        });
+
+                        if go_phone {
+                            self.gate_phone = true;
                         }
-                    }
-                });
-                ui.add_space(10.0);
-                ui.label(egui::RichText::new(&self.model.status).small().weak());
+                        if new_code {
+                            self.model.login_restarted();
+                            self.send(Command::Restart);
+                        }
+                    });
             });
-        });
     }
 
     /// Rasterise the QR SVG once per code.
@@ -3757,8 +4156,31 @@ fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
 /// Fallback faces the bundled set lacks, in fallback order: emoji, Chinese
 /// (simplified *and* traditional), Japanese, then Korean. Before this, non-Latin
 /// text drew as empty boxes.
+/// Base-OS faces for symbol text that the Latin, emoji and CJK faces do not
+/// carry: Mathematical Alphanumeric Symbols (U+1D400-U+1D7FF, e.g. "𝕋𝕒𝕦𝕗𝕚𝕢"),
+/// arrows, box drawing, dingbat *letters* (U+2701-U+27BE without emoji
+/// presentation). Segoe UI Symbol ships with stock Windows; the Linux and
+/// macOS entries are the same coverage for other platforms, so a missing file
+/// is simply skipped.
+const SYMBOL_FONTS: &[&str] = &[
+    "C:\\Windows\\Fonts\\seguisym.ttf",
+    "C:\\Windows\\Fonts\\cambria.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    "/System/Library/Fonts/Apple Symbols.ttf",
+];
+
+/// Fallback faces the bundled set lacks, in fallback order: symbols, emoji,
+/// Chinese (simplified *and* traditional), Japanese, then Korean. Before this,
+/// non-Latin text drew as empty boxes.
 fn install_fonts(ctx: &egui::Context) {
-    let groups: [(&str, &[&str]); 4] = [
+    let groups: [(&str, &[&str]); 5] = [
+        // Symbols and mathematical letters *before* the emoji face: a chat
+        // titled "𝕋𝕒𝕦𝕗𝕚𝕢" (U+1D54B ...) used to draw as six missing-glyph
+        // boxes because no face in the chain carried U+1D400-U+1D7FF. Segoe UI
+        // Symbol ships with every Windows 10/11 install.
+        ("system-symbols", SYMBOL_FONTS),
         (
             "system-emoji",
             &[
@@ -4701,6 +5123,169 @@ fn day_chip(ui: &mut egui::Ui, palette: &crate::theme::Palette, label: &str) {
     ui.add_space(4.0);
 }
 
+/// A dummy QR bitmap for `--preview` (`WA_DESK_LOGIN=qr`): it looks like a
+/// code without being one, which is all a layout screenshot needs.
+fn demo_qr_svg() -> String {
+    let modules = 25;
+    let mut path = String::new();
+    let mut seed = 0x2545_F491_4F6C_DD1Du64;
+    for y in 0..modules {
+        for x in 0..modules {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            if seed % 100 < 46 {
+                path.push_str(&format!("M{x} {y}h1v1h-1z"));
+            }
+        }
+    }
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"300\" height=\"300\" \
+         viewBox=\"0 0 {modules} {modules}\">\
+         <rect width=\"{modules}\" height=\"{modules}\" fill=\"#ffffff\"/>\
+         <path d=\"{path}\" fill=\"#111b21\"/></svg>"
+    )
+}
+
+/// One card of the login page: rounded, bordered, generous padding.
+fn gate_card(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    width: f32,
+    contents: impl FnOnce(&mut egui::Ui),
+) {
+    let margin = 26.0;
+    ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+        egui::Frame::new()
+            .fill(palette.elevated)
+            .stroke(egui::Stroke::new(
+                1.0_f32,
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 22),
+            ))
+            .corner_radius(egui::CornerRadius::same(24))
+            .inner_margin(egui::Margin::same(margin as i8))
+            .show(ui, |ui| {
+                ui.set_width(width - margin * 2.0);
+                contents(ui);
+            });
+    });
+}
+
+/// One numbered step of the scan card: the outlined disc and its text.
+fn gate_step(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    number: i32,
+    contents: impl FnOnce(&mut egui::Ui, &crate::theme::Palette),
+) {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::hover());
+        ui.painter().circle_stroke(
+            rect.center(),
+            11.0,
+            egui::Stroke::new(1.2_f32, palette.secondary),
+        );
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            number.to_string(),
+            egui::FontId::proportional(12.5),
+            palette.secondary,
+        );
+        ui.add_space(8.0);
+        contents(ui, palette);
+    });
+}
+
+/// A green underlined link, the way the official page draws them.
+fn gate_link(ui: &mut egui::Ui, palette: &crate::theme::Palette, text: &str) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        egui::FontId::proportional(14.0),
+        palette.accent,
+    );
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(galley.size().x, galley.size().y + 2.0),
+        egui::Sense::click(),
+    );
+    let color = if response.hovered() {
+        palette.accent.gamma_multiply(0.85)
+    } else {
+        palette.accent
+    };
+    let underline_y = rect.bottom() - 1.0;
+    ui.painter().line_segment(
+        [
+            egui::pos2(rect.left(), underline_y),
+            egui::pos2(rect.right(), underline_y),
+        ],
+        egui::Stroke::new(1.0_f32, color),
+    );
+    ui.painter()
+        .galley(egui::pos2(rect.left(), rect.top()), galley, color);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// The WhatsApp glyph: a speech bubble outline with a handset inside.
+fn draw_whatsapp_mark(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
+    let radius = rect.width() * 0.42;
+    ui.painter()
+        .circle_stroke(rect.center(), radius, egui::Stroke::new(1.6_f32, color));
+    // The tail: a small triangle at the bottom left.
+    let center = rect.center();
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(center.x - radius * 0.72, center.y + radius * 0.68),
+            egui::pos2(center.x - radius * 0.30, center.y + radius * 0.74),
+            egui::pos2(center.x - radius * 0.62, center.y + radius * 1.16),
+        ],
+        color,
+        egui::Stroke::NONE,
+    ));
+    // The handset: a short thick stroke on a diagonal inside the disc.
+    ui.painter().line_segment(
+        [
+            egui::pos2(center.x - radius * 0.34, center.y + radius * 0.30),
+            egui::pos2(center.x + radius * 0.36, center.y - radius * 0.34),
+        ],
+        egui::Stroke::new(rect.width() * 0.22, color),
+    );
+}
+
+/// The laptop drawing of the download card, in the accent green.
+fn draw_laptop(ui: &egui::Ui, rect: egui::Rect, palette: &crate::theme::Palette) {
+    let painter = ui.painter();
+    let green = palette.accent;
+    let screen = egui::Rect::from_min_size(
+        egui::pos2(
+            rect.left() + rect.width() * 0.13,
+            rect.top() + rect.height() * 0.06,
+        ),
+        egui::vec2(rect.width() * 0.74, rect.height() * 0.62),
+    );
+    painter.rect_stroke(
+        screen,
+        egui::CornerRadius::same(6),
+        egui::Stroke::new(2.0_f32, green),
+        egui::StrokeKind::Inside,
+    );
+    let bar = egui::Rect::from_min_size(
+        screen.min + egui::vec2(6.0, 6.0),
+        egui::vec2(screen.width() * 0.34, screen.height() - 12.0),
+    );
+    painter.rect_filled(bar, egui::CornerRadius::same(3), green);
+    let phone = egui::Rect::from_min_size(
+        egui::pos2(screen.right() - 26.0, screen.top() + 10.0),
+        egui::vec2(18.0, 30.0),
+    );
+    painter.rect_filled(phone, egui::CornerRadius::same(4), green);
+    let base = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + rect.width() * 0.06, screen.bottom() + 3.0),
+        egui::vec2(rect.width() * 0.88, 5.0),
+    );
+    painter.rect_filled(base, egui::CornerRadius::same(3), green);
+}
+
 /// Drop invisible formatting characters (zero-width space/joiner, word joiner,
 /// BOM): WhatsApp passes them through, and the bundled fonts paint them as
 /// missing-glyph boxes.
@@ -4812,12 +5397,19 @@ fn layout_body(
                         placed.push((egui::pos2(x, y + offset), Inline::Emoji(texture)));
                     }
                     None => {
-                        // No colour glyph for this codepoint: leave the cell
-                        // empty rather than painting a missing-glyph box.
-                        let _ = &font;
+                        // No colour glyph for this codepoint: draw it as text
+                        // (the symbol face carries most of these) instead of
+                        // leaving a hole where a character should be.
+                        let galley =
+                            ui.painter()
+                                .layout_no_wrap(ch.to_string(), font.clone(), color);
+                        let width = galley.size().x;
+                        let text_offset = (row_height - galley.size().y) * 0.5;
+                        placed.push((egui::pos2(x, y + text_offset), Inline::Text(galley)));
+                        x += width.max(1.0);
                     }
                 }
-                x += emoji_size;
+                widest = widest.max(x);
                 widest = widest.max(x);
             }
             Token::Word(word) => {
@@ -5270,6 +5862,9 @@ impl WaDesk {
 
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Texture caches are capped so memory does not grow with a long session.
+        prune_textures(ctx, &mut self.textures, 96);
+        prune_textures(ctx, &mut self.sticker_textures, 240);
         self.palette = crate::theme::palette(&self.settings.theme, self.system_dark);
         crate::theme::apply(ctx, &self.palette);
         self.model.now = std::time::SystemTime::now()
@@ -5620,6 +6215,7 @@ impl WaDesk {
                                                     &mut self.textures,
                                                     &key,
                                                     (!path.is_empty()).then(|| path.clone()),
+                                                    QUOTE_PX,
                                                 ) {
                                                     let size = texture.size_vec2();
                                                     let scale = (100.0 / size.x.max(1.0))
@@ -6021,6 +6617,7 @@ impl WaDesk {
                                                         &mut self.sticker_textures,
                                                         &key,
                                                         Some(item.path.clone()),
+                                                        STICKER_PX,
                                                     ) else {
                                                         continue;
                                                     };
@@ -6129,6 +6726,7 @@ impl WaDesk {
                                             &mut self.sticker_textures,
                                             &key,
                                             Some(path.clone()),
+                                            STICKER_PX,
                                         ) else {
                                             continue;
                                         };
@@ -6374,6 +6972,7 @@ impl WaDesk {
         };
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.stop_video();
+            self.release_video();
             self.model.close_viewer();
             return;
         }
@@ -6430,7 +7029,6 @@ impl WaDesk {
 
         let items = self.model.media_items();
         let index = self.model.media_viewer.unwrap_or(0);
-        let counter = format!("{} / {}", index + 1, items.len());
         let chat_name = self
             .model
             .chats
@@ -6443,6 +7041,7 @@ impl WaDesk {
             &mut self.textures,
             &item.id,
             self.model.media_path(&item.id),
+            PHOTO_PX,
         );
         let thumbs: Vec<(String, Option<egui::TextureHandle>)> = items
             .iter()
@@ -6452,179 +7051,519 @@ impl WaDesk {
                     &mut self.textures,
                     &entry.id,
                     self.model.media_path(&entry.id),
+                    PHOTO_PX,
                 );
                 (entry.id.clone(), texture)
             })
             .collect();
 
         let screen = ctx.screen_rect();
+        // Paint at the clip's own rate: a 30 fps clip sampled by a 10 fps timer
+        // looks like it stutters no matter how well the frames are decoded.
+        if item.kind == "video" && self.video_playing {
+            let fps = match self.videos.get(&item.id) {
+                Some(VideoState::Ready(video)) => video.fps,
+                _ => 30.0,
+            };
+            ctx.request_repaint_after(std::time::Duration::from_secs_f32(1.0 / fps.max(1.0)));
+        }
+
+        let avatar = self.avatar_for(&item.chat).cloned();
+        let chat_title = self
+            .model
+            .chats
+            .get(&item.chat)
+            .map(|row| self.model.row_title(row))
+            .unwrap_or(chat_name.clone());
+        let when = format!("Today at {}", stamp);
+        let items_len = items.len();
+        let selected = index;
+        let mut open: Option<String> = None;
+        let mut close = false;
+        let mut toggle = false;
+        let mut seek_to: Option<f32> = None;
+        let mut toggle_mute = false;
+        let mut starred = false;
+        let mut save = false;
+        let mut nav: Option<bool> = None;
+        let description = item.text.clone();
+        let note = self.note.clone();
+        let kind = item.kind.clone();
+        let item_id = item.id.clone();
+
         egui::Area::new(egui::Id::new("media-viewer"))
             .order(egui::Order::Foreground)
             .fixed_pos(screen.min)
             .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(11, 20, 26))
-                    .inner_margin(egui::Margin::same(12))
-                    .show(ui, |ui| {
-                        ui.set_min_size(screen.size() - egui::vec2(24.0, 24.0));
-                        ui.horizontal(|ui| {
-                            let white = egui::Color32::from_gray(240);
-                            ui.label(egui::RichText::new(&chat_name).strong().color(white));
-                            ui.label(egui::RichText::new(&stamp).small().weak());
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if viewer_icon(ui, Icon::Close).clicked() {
-                                        self.model.close_viewer();
-                                    }
-                                    if viewer_icon(ui, Icon::Download).clicked() {
-                                        self.note = match self.model.save_media(&item.id) {
-                                            Ok(path) => format!("Saved to {path}"),
-                                            Err(err) => err,
-                                        };
-                                    }
-                                    ui.label(egui::RichText::new(&counter).small().weak());
-                                },
-                            );
-                        });
+                let painter = ui.painter().clone();
+                let backdrop = egui::Color32::from_rgb(11, 20, 26);
+                painter.rect_filled(screen, 0.0, backdrop);
 
-                        // An `Area`'s `available_height` is effectively unbounded
-                        // (83k px here), which pushed the stage off screen, so the
-                        // stage is measured from the window instead: margins,
-                        // header, transport bar and the caption/filmstrip row.
-                        let bar_height = if item.kind == "video" { 158.0 } else { 124.0 };
-                        let stage_height = (screen.height() - 24.0 - 40.0 - bar_height).max(160.0);
-                        let mut stage_clicked = false;
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(ui.available_width(), stage_height),
-                            egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                            |ui| {
-                                if item.kind == "video" {
-                                    match self.video_frame_handle(ctx, &item.id) {
-                                        Some(frame) => {
-                                            let size = frame.size_vec2();
-                                            // Fill the stage like the official
-                                            // player (frames are decoded 640 wide).
-                                            let scale = (ui.available_width() / size.x)
-                                                .min(ui.available_height() / size.y);
-                                            let response = ui.add(
-                                                egui::Image::new((frame.id(), size * scale))
-                                                    .sense(egui::Sense::click()),
-                                            );
-                                            stage_clicked = response.clicked();
-                                            if !self.video_playing {
-                                                // Paused, like the official viewer: a dim
-                                                // scrim with a big translucent play disc.
-                                                let rect = response.rect;
-                                                let painter = ui.painter();
-                                                painter.rect_filled(
-                                                    rect,
-                                                    egui::CornerRadius::same(2),
-                                                    egui::Color32::from_black_alpha(70),
-                                                );
-                                                painter.circle_filled(
-                                                    rect.center(),
-                                                    32.0,
-                                                    egui::Color32::from_black_alpha(130),
-                                                );
-                                                draw_icon(
-                                                    ui,
-                                                    egui::Rect::from_center_size(
-                                                        rect.center(),
-                                                        egui::vec2(30.0, 30.0),
-                                                    ),
-                                                    Icon::Play,
-                                                    egui::Color32::from_gray(240),
-                                                );
-                                            }
-                                        }
-                                        None => {
-                                            let text = match self.videos.get(&item.id) {
-                                                Some(VideoState::Failed(err)) => {
-                                                    format!("Cannot play: {err}")
-                                                }
-                                                Some(VideoState::Ready(_)) => {
-                                                    "Loading frame.".to_string()
-                                                }
-                                                _ => "Preparing video.".to_string(),
-                                            };
-                                            ui.label(
-                                                egui::RichText::new(text)
-                                                    .color(egui::Color32::from_gray(200)),
-                                            );
-                                        }
-                                    }
-                                    return;
-                                }
-                                match &texture {
-                                    Some(texture) => {
-                                        let size = texture.size_vec2();
-                                        let scale = (ui.available_width() / size.x)
-                                            .min(ui.available_height() / size.y)
-                                            .min(1.0);
-                                        ui.image((texture.id(), size * scale));
-                                    }
-                                    None => {
-                                        ui.label(
-                                            egui::RichText::new("Loading.")
-                                                .color(egui::Color32::from_gray(200)),
-                                        );
-                                    }
-                                }
-                            },
+                // ---- header: who sent it, and the toolbar -----------------
+                let header = 58.0;
+                let avatar_rect = egui::Rect::from_min_size(
+                    egui::pos2(screen.left() + 20.0, screen.top() + 12.0),
+                    egui::vec2(33.0, 33.0),
+                );
+                if let Some(texture) = &avatar {
+                    painter.image(
+                        texture.id(),
+                        avatar_rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                } else {
+                    painter.circle_filled(avatar_rect.center(), 16.5, avatar_color(&chat_title));
+                    painter.text(
+                        avatar_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        initials(&chat_title),
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::WHITE,
+                    );
+                }
+                painter.text(
+                    egui::pos2(screen.left() + 62.0, screen.top() + 12.0),
+                    egui::Align2::LEFT_TOP,
+                    fit_text(
+                        &painter,
+                        &chat_title,
+                        egui::FontId::proportional(14.5),
+                        egui::Color32::from_gray(238),
+                        (screen.width() * 0.4).max(120.0),
+                    ),
+                    egui::FontId::proportional(14.5),
+                    egui::Color32::from_gray(238),
+                );
+                painter.text(
+                    egui::pos2(screen.left() + 62.0, screen.top() + 30.0),
+                    egui::Align2::LEFT_TOP,
+                    &when,
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::from_gray(150),
+                );
+
+                // The toolbar, right to left: close, menu, forward, pin, star,
+                // reply - the official order.
+                let mut icons: Vec<(Icon, &str)> = vec![
+                    (Icon::Close, "close"),
+                    (Icon::Menu, "menu"),
+                    (Icon::Forward, "forward"),
+                    (Icon::Star, "star"),
+                    (Icon::Reply, "reply"),
+                ];
+                icons.push((Icon::Download, "download"));
+                let mut x = screen.right() - 18.0;
+                for (icon, name) in icons {
+                    let rect = egui::Rect::from_center_size(
+                        egui::pos2(x - 17.0, screen.top() + header / 2.0),
+                        egui::vec2(34.0, 34.0),
+                    );
+                    let response = ui.interact(rect, ui.id().with(name), egui::Sense::click());
+                    let color = if response.hovered() {
+                        egui::Color32::from_gray(245)
+                    } else {
+                        egui::Color32::from_gray(200)
+                    };
+                    if response.hovered() {
+                        painter.rect_filled(
+                            rect,
+                            egui::CornerRadius::same(17),
+                            egui::Color32::from_white_alpha(22),
                         );
-                        if stage_clicked {
-                            self.toggle_video(&item.id);
+                    }
+                    draw_icon(ui, rect.shrink(8.0), icon, color);
+                    if response.clicked() {
+                        match name {
+                            "close" => close = true,
+                            "star" => starred = true,
+                            "forward" => open = Some(String::new()),
+                            "download" => save = true,
+                            _ => {}
                         }
+                    }
+                    x -= 38.0;
+                }
 
-                        if item.kind == "video" {
-                            self.video_transport(ui, ctx, &item.id);
-                        }
-
-                        ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            ui.vertical(|ui| {
-                                if !item.text.trim().is_empty() {
-                                    ui.label(
-                                        egui::RichText::new(&item.text)
-                                            .color(egui::Color32::from_gray(220)),
-                                    );
-                                }
-                                ui.horizontal(|ui| {
-                                    if viewer_icon(ui, Icon::ChevronLeft).clicked() {
-                                        self.stop_video();
-                                        self.model.step_viewer(false);
-                                    }
-                                    if viewer_icon(ui, Icon::ChevronRight).clicked() {
-                                        self.stop_video();
-                                        self.model.step_viewer(true);
-                                    }
-                                    if !self.note.is_empty() {
-                                        ui.label(egui::RichText::new(&self.note).small().weak());
-                                    }
-                                });
-                            });
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    for (id, thumb) in thumbs.iter().rev() {
-                                        let Some(thumb) = thumb else { continue };
-                                        let size = thumb.size_vec2();
-                                        let scale = (44.0 / size.x).min(1.0);
-                                        let response = ui.add(
-                                            egui::Image::new((thumb.id(), size * scale))
-                                                .sense(egui::Sense::click()),
-                                        );
-                                        if response.clicked() {
-                                            self.model.open_viewer(id);
-                                        }
-                                    }
-                                },
+                // ---- the media itself ------------------------------------
+                let strip = 74.0;
+                let counter_row = 26.0;
+                let stage = egui::Rect::from_min_max(
+                    egui::pos2(screen.left() + 24.0, screen.top() + header),
+                    egui::pos2(
+                        screen.right() - 24.0,
+                        screen.bottom() - strip - counter_row - 12.0,
+                    ),
+                );
+                let mut media_rect = stage;
+                if kind == "video" {
+                    // The transport bar is an overlay inside the media, so the
+                    // stage is measured to the frame, not around a separate row.
+                    match self.video_frame_handle(ctx, &item_id) {
+                        Some(frame) => {
+                            let size = frame.size_vec2();
+                            let scale = (stage.width() / size.x)
+                                .min(stage.height() / size.y)
+                                .max(0.01);
+                            let target = egui::Rect::from_center_size(stage.center(), size * scale);
+                            media_rect = target;
+                            painter.image(
+                                frame.id(),
+                                target,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
                             );
-                        });
-                    });
+                            if !self.video_playing {
+                                painter.rect_filled(
+                                    target,
+                                    egui::CornerRadius::same(2),
+                                    egui::Color32::from_black_alpha(40),
+                                );
+                            }
+                        }
+                        None => {
+                            let message = match self.videos.get(&item_id) {
+                                Some(VideoState::Failed(err)) => format!("Cannot play: {err}"),
+                                Some(VideoState::Ready(_)) => "Loading frame.".to_string(),
+                                _ => "Preparing video.".to_string(),
+                            };
+                            painter.text(
+                                stage.center(),
+                                egui::Align2::CENTER_CENTER,
+                                message,
+                                egui::FontId::proportional(14.0),
+                                egui::Color32::from_gray(190),
+                            );
+                        }
+                    }
+                } else {
+                    match &texture {
+                        Some(texture) => {
+                            let size = texture.size_vec2();
+                            let scale = (stage.width() / size.x)
+                                .min(stage.height() / size.y)
+                                .clamp(0.01, 1.0);
+                            let target = egui::Rect::from_center_size(stage.center(), size * scale);
+                            media_rect = target;
+                            painter.image(
+                                texture.id(),
+                                target,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                        None => {
+                            painter.text(
+                                stage.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "Loading.",
+                                egui::FontId::proportional(14.0),
+                                egui::Color32::from_gray(190),
+                            );
+                        }
+                    }
+                }
+
+                // Previous / next arrows in the gutters, like the official
+                // viewer (they only appear when the chat has more than one).
+                if items_len > 1 {
+                    for (left, icon, step, name) in [
+                        (true, Icon::ChevronLeft, false, "prev-media"),
+                        (false, Icon::ChevronRight, true, "next-media"),
+                    ] {
+                        let x = if left {
+                            stage.left() + 20.0
+                        } else {
+                            stage.right() - 20.0
+                        };
+                        let rect = egui::Rect::from_center_size(
+                            egui::pos2(x, stage.center().y),
+                            egui::vec2(40.0, 40.0),
+                        );
+                        let response = ui.interact(rect, ui.id().with(name), egui::Sense::click());
+                        let fill = if response.hovered() {
+                            egui::Color32::from_black_alpha(150)
+                        } else {
+                            egui::Color32::from_black_alpha(90)
+                        };
+                        painter.circle_filled(rect.center(), 20.0, fill);
+                        draw_icon(ui, rect.shrink(10.0), icon, egui::Color32::from_gray(235));
+                        if response.clicked() {
+                            nav = Some(step);
+                        }
+                    }
+                }
+
+                // Clicking the frame plays or pauses, like the official viewer.
+                let hit = ui.interact(
+                    media_rect,
+                    ui.id().with("media-stage"),
+                    egui::Sense::click(),
+                );
+                if hit.clicked() && kind == "video" {
+                    toggle = true;
+                }
+
+                // ---- video transport overlay ------------------------------
+                if kind == "video" {
+                    let bar = egui::Rect::from_min_max(
+                        egui::pos2(media_rect.left(), media_rect.bottom() - 46.0),
+                        media_rect.right_bottom(),
+                    );
+                    painter.rect_filled(
+                        bar,
+                        egui::CornerRadius {
+                            nw: 0,
+                            ne: 0,
+                            sw: 2,
+                            se: 2,
+                        },
+                        egui::Color32::from_black_alpha(90),
+                    );
+                    let middle = bar.center().y;
+                    let play_rect = egui::Rect::from_center_size(
+                        egui::pos2(bar.left() + 27.0, middle),
+                        egui::vec2(34.0, 34.0),
+                    );
+                    let play = ui.interact(play_rect, ui.id().with("v-play"), egui::Sense::click());
+                    draw_icon(
+                        ui,
+                        play_rect.shrink(7.0),
+                        if self.video_playing {
+                            Icon::Pause
+                        } else {
+                            Icon::Play
+                        },
+                        egui::Color32::from_gray(240),
+                    );
+                    if play.clicked() {
+                        toggle = true;
+                    }
+
+                    let duration = match self.videos.get(&item_id) {
+                        Some(VideoState::Ready(video)) => video.duration,
+                        _ => 0.0,
+                    };
+                    let elapsed = self.video_elapsed().clamp(0.0, duration.max(0.0));
+                    let seek_rect = egui::Rect::from_min_max(
+                        egui::pos2(bar.left() + 52.0, middle - 9.0),
+                        egui::pos2(bar.right() - 130.0, middle + 9.0),
+                    );
+                    let response = ui.interact(
+                        seek_rect,
+                        ui.id().with("v-seek"),
+                        egui::Sense::click_and_drag(),
+                    );
+                    let line_y = middle;
+                    painter.line_segment(
+                        [
+                            egui::pos2(seek_rect.left(), line_y),
+                            egui::pos2(seek_rect.right(), line_y),
+                        ],
+                        egui::Stroke::new(3.0_f32, egui::Color32::from_white_alpha(70)),
+                    );
+                    let ratio = if duration > 0.0 {
+                        (elapsed / duration).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    let head = seek_rect.left() + seek_rect.width() * ratio;
+                    painter.line_segment(
+                        [
+                            egui::pos2(seek_rect.left(), line_y),
+                            egui::pos2(head, line_y),
+                        ],
+                        egui::Stroke::new(3.0_f32, egui::Color32::from_gray(240)),
+                    );
+                    painter.circle_filled(
+                        egui::pos2(head, line_y),
+                        6.0,
+                        egui::Color32::from_gray(245),
+                    );
+                    if (response.clicked() || response.dragged())
+                        && let Some(pos) = response.interact_pointer_pos()
+                    {
+                        let ratio =
+                            ((pos.x - seek_rect.left()) / seek_rect.width()).clamp(0.0, 1.0);
+                        seek_to = Some(ratio * duration);
+                    }
+                    painter.text(
+                        egui::pos2(bar.right() - 120.0, middle),
+                        egui::Align2::LEFT_CENTER,
+                        "1.0×",
+                        egui::FontId::proportional(12.5),
+                        egui::Color32::from_gray(230),
+                    );
+                    let mute_rect = egui::Rect::from_center_size(
+                        egui::pos2(bar.right() - 74.0, middle),
+                        egui::vec2(28.0, 28.0),
+                    );
+                    let mute = ui.interact(mute_rect, ui.id().with("v-mute"), egui::Sense::click());
+                    draw_icon(
+                        ui,
+                        mute_rect.shrink(6.0),
+                        if self.video_muted {
+                            Icon::Mute
+                        } else {
+                            Icon::Volume
+                        },
+                        egui::Color32::from_gray(235),
+                    );
+                    if mute.clicked() {
+                        toggle_mute = true;
+                    }
+                    let full_rect = egui::Rect::from_center_size(
+                        egui::pos2(bar.right() - 40.0, middle),
+                        egui::vec2(28.0, 28.0),
+                    );
+                    draw_icon(
+                        ui,
+                        full_rect.shrink(6.0),
+                        Icon::Fullscreen,
+                        egui::Color32::from_gray(235),
+                    );
+                }
+
+                // ---- caption, counter and the filmstrip -------------------
+                let caption_y = stage.bottom() + 2.0;
+                if !description.trim().is_empty() {
+                    painter.text(
+                        egui::pos2(media_rect.left(), caption_y),
+                        egui::Align2::LEFT_TOP,
+                        fit_text(
+                            &painter,
+                            &description,
+                            egui::FontId::proportional(13.0),
+                            egui::Color32::from_gray(200),
+                            media_rect.width(),
+                        ),
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::from_gray(200),
+                    );
+                }
+                let counter = format!("{} of {}", selected + 1, items_len.max(1));
+                let counter_y = screen.bottom() - strip - counter_row + 2.0;
+                painter.text(
+                    egui::pos2(screen.center().x, counter_y),
+                    egui::Align2::CENTER_TOP,
+                    counter,
+                    egui::FontId::proportional(12.5),
+                    egui::Color32::from_gray(180),
+                );
+
+                // The strip: 64 px rounded thumbnails, the open one ringed green.
+                let thumb_side = 58.0;
+                let gap = 4.0;
+                let total = items_len as f32 * (thumb_side + gap) - gap;
+                let mut thumb_x = (screen.center().x - total / 2.0)
+                    .max(screen.left() + 8.0)
+                    .min(screen.right() - total - 8.0);
+                let thumb_y = screen.bottom() - strip + 6.0;
+                for (position, (id, thumb)) in thumbs.iter().enumerate() {
+                    let rect = egui::Rect::from_min_size(
+                        egui::pos2(thumb_x, thumb_y),
+                        egui::vec2(thumb_side, 62.0),
+                    );
+                    thumb_x += thumb_side + gap;
+                    match thumb {
+                        Some(texture) => {
+                            let size = texture.size_vec2();
+                            let scale = (thumb_side / size.x).min(62.0 / size.y);
+                            let fitted = egui::Rect::from_center_size(rect.center(), size * scale);
+                            painter.image(
+                                texture.id(),
+                                fitted,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                        None => {
+                            painter.rect_filled(rect, egui::CornerRadius::same(4), palette_thumb());
+                        }
+                    }
+                    if position == selected {
+                        painter.rect_stroke(
+                            rect.expand(1.0),
+                            egui::CornerRadius::same(4),
+                            egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(0, 168, 132)),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
+                    let response = ui.interact(
+                        rect,
+                        ui.id().with(("thumb", position)),
+                        egui::Sense::click(),
+                    );
+                    if response.clicked() && position != selected {
+                        open = Some(id.clone());
+                    }
+                }
+
+                if !note.is_empty() {
+                    painter.text(
+                        egui::pos2(screen.right() - 24.0, screen.bottom() - 18.0),
+                        egui::Align2::RIGHT_BOTTOM,
+                        note,
+                        egui::FontId::proportional(11.5),
+                        egui::Color32::from_gray(170),
+                    );
+                }
             });
+
+        if close {
+            self.stop_video();
+            self.release_video();
+            self.model.close_viewer();
+            return;
+        }
+        if starred {
+            self.model.toggle_star(&item.id);
+        }
+        if save {
+            self.note = match self.model.save_media(&item.id) {
+                Ok(path) => format!("Saved to {path}"),
+                Err(err) => err,
+            };
+        }
+        if open == Some(String::new()) {
+            self.model.forward_target = Some(item.clone());
+            self.model.forward_search.clear();
+            self.model.forward_chosen.clear();
+        } else if let Some(id) = open {
+            self.stop_video();
+            self.model.open_viewer(&id);
+        }
+        if let Some(step) = nav {
+            self.stop_video();
+            self.model.step_viewer(step);
+            return;
+        }
+        if toggle {
+            self.toggle_video(&item.id);
+        }
+        if toggle_mute {
+            self.video_muted = !self.video_muted;
+            self.audio
+                .set_volume(if self.video_muted { 0.0 } else { 1.0 });
+        }
+        if let Some(seconds) = seek_to {
+            self.seek_video(&item.id, seconds);
+        }
     }
+}
+
+/// The placeholder fill behind a filmstrip cell that has no thumbnail yet.
+fn palette_thumb() -> egui::Color32 {
+    egui::Color32::from_rgb(38, 42, 44)
 }
 
 /// Trim `text` until it measures inside `max_width`, adding an ellipsis.
@@ -6697,7 +7636,6 @@ enum Icon {
     Volume,
     Mute,
     Fullscreen,
-    FullscreenExit,
     ChevronLeft,
     ChevronRight,
     Phone,
@@ -6707,6 +7645,7 @@ enum Icon {
     SelectChats,
     MarkRead,
     Lock,
+    Check,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -6721,22 +7660,6 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -
         palette.secondary
     };
     draw_icon(ui, rect.shrink(6.0), icon, color);
-    response
-}
-
-/// A white icon button for the dark media-viewer chrome.
-fn viewer_icon(ui: &mut egui::Ui, icon: Icon) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(34.0, 34.0), egui::Sense::click());
-    if response.hovered() {
-        ui.painter()
-            .circle_filled(rect.center(), 17.0, egui::Color32::from_white_alpha(34));
-    }
-    let color = if response.hovered() {
-        egui::Color32::WHITE
-    } else {
-        egui::Color32::from_gray(225)
-    };
-    draw_icon(ui, rect.shrink(8.0), icon, color);
     response
 }
 
@@ -6786,7 +7709,6 @@ impl Icon {
             Icon::Volume => "volume_up",
             Icon::Mute => "volume_off",
             Icon::Fullscreen => "fullscreen",
-            Icon::FullscreenExit => "fullscreen_exit",
             Icon::ChevronLeft => "chevron_left",
             Icon::ChevronRight => "chevron_right",
             Icon::Phone => "call",
@@ -6796,6 +7718,7 @@ impl Icon {
             Icon::SelectChats => "done_all",
             Icon::MarkRead => "mark_chat_read",
             Icon::Lock => "lock",
+            Icon::Check => "check",
         }
     }
 }
@@ -7070,6 +7993,9 @@ fn chat_row(
     }
 
     let center = egui::pos2(rect.left() + 40.0, rect.center().y);
+    // The `~` mark and a number are for the text only: the disc keeps the
+    // person's initials.
+    let avatar_name = title.trim_start_matches('~').trim();
     if let Some(texture) = texture {
         painter.image(
             texture.id(),
@@ -7078,11 +8004,11 @@ fn chat_row(
             egui::Color32::WHITE,
         );
     } else {
-        painter.circle_filled(center, 24.0, avatar_color(title));
+        painter.circle_filled(center, 24.0, avatar_color(avatar_name));
         painter.text(
             center,
             egui::Align2::CENTER_CENTER,
-            initials(title),
+            initials(avatar_name),
             egui::FontId::proportional(15.0),
             egui::Color32::WHITE,
         );
@@ -7171,5 +8097,49 @@ mod notification_tests {
         assert_eq!(notification_body("audio", "   "), "Voice message");
         assert_eq!(notification_body("document", ""), "Document");
         assert_eq!(notification_body("text", "  hi there "), "hi there");
+    }
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+
+    /// "𝕋𝕒𝕦𝕗𝕚𝕢" is Mathematical Alphanumeric Symbols, not emoji: it must go
+    /// through the text font chain (where the symbol face carries it), never
+    /// through the colour-emoji rasteriser, and `clean_text` must keep it.
+    #[test]
+    fn mathematical_letters_stay_text() {
+        let title = "𝕋𝕒𝕦𝕗𝕚𝕢";
+        assert_eq!(title.chars().count(), 6);
+        for ch in title.chars() {
+            assert!(
+                (0x1D400..=0x1D7FF).contains(&(ch as u32)),
+                "U+{:04X}",
+                ch as u32
+            );
+            assert!(!is_emoji_char(ch));
+        }
+        assert_eq!(clean_text(title), title);
+    }
+
+    #[test]
+    fn the_symbol_group_prefers_a_base_windows_face() {
+        assert_eq!(
+            SYMBOL_FONTS.first().copied(),
+            Some("C:\\Windows\\Fonts\\seguisym.ttf")
+        );
+        #[cfg(windows)]
+        assert!(
+            std::path::Path::new(SYMBOL_FONTS[0]).exists(),
+            "Segoe UI Symbol ships with stock Windows"
+        );
+    }
+
+    /// Invisible formatting codepoints are dropped; real text is untouched.
+    #[test]
+    fn clean_text_only_drops_invisible_formatting() {
+        assert_eq!(clean_text("a\u{2060}b\u{200D}c"), "abc");
+        assert_eq!(clean_text("Halo, apa kabar?"), "Halo, apa kabar?");
+        assert_eq!(clean_text("🙏🏻"), "🙏🏻");
     }
 }

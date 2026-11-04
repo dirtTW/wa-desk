@@ -24,7 +24,8 @@ impl LoginState {
         matches!(self, LoginState::Linked)
     }
 
-    /// The line under the title.
+    /// The line under the title (the tests pin the wording).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn hint(&self) -> &'static str {
         match self {
             LoginState::Waiting => "Connecting…",

@@ -8,7 +8,7 @@
 //! ffmpeg buffers more than a pipe's worth of output.
 
 use std::io::{Read, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -68,7 +68,7 @@ impl CallVideo {
     /// Start the decoder. `None` when ffmpeg is not installed.
     pub fn start() -> Option<Self> {
         let ffmpeg = crate::video::ffmpeg()?;
-        let mut child = Command::new(ffmpeg)
+        let mut child = crate::spawn::quiet(ffmpeg)
             .args([
                 "-hide_banner",
                 "-loglevel",
@@ -162,7 +162,7 @@ mod tests {
     fn sample_stream(dir: &std::path::Path) -> Option<Vec<u8>> {
         let ffmpeg = crate::video::ffmpeg()?;
         let path = dir.join("call.h264");
-        let status = Command::new(ffmpeg)
+        let status = crate::spawn::quiet(ffmpeg)
             .args([
                 "-y",
                 "-loglevel",
@@ -193,7 +193,11 @@ mod tests {
 
     #[test]
     fn an_access_unit_stream_decodes_to_a_frame() {
-        if Command::new("ffmpeg").arg("-version").output().is_err() {
+        if crate::spawn::quiet("ffmpeg")
+            .arg("-version")
+            .output()
+            .is_err()
+        {
             eprintln!("skipping: no ffmpeg on PATH");
             return;
         }

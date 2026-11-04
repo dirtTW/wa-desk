@@ -54,7 +54,7 @@ pub fn device() -> Option<String> {
         return Some(name);
     }
     let ffmpeg = crate::video::ffmpeg()?;
-    let output = Command::new(ffmpeg)
+    let output = crate::spawn::quiet(ffmpeg)
         .args([
             "-hide_banner",
             "-list_devices",
@@ -81,7 +81,8 @@ pub fn device() -> Option<String> {
 
 /// The capture child: DirectShow frames as RGBA rawvideo on stdout.
 fn capture_command(device: &str) -> Command {
-    let mut command = Command::new(crate::video::ffmpeg().unwrap_or_else(|| "ffmpeg".into()));
+    let mut command =
+        crate::spawn::quiet(crate::video::ffmpeg().unwrap_or_else(|| "ffmpeg".into()));
     command.args([
         "-hide_banner",
         "-loglevel",
@@ -107,7 +108,8 @@ fn capture_command(device: &str) -> Command {
 
 /// The encoder child: RGBA frames in, Annex-B H.264 out.
 pub fn encoder_command() -> Command {
-    let mut command = Command::new(crate::video::ffmpeg().unwrap_or_else(|| "ffmpeg".into()));
+    let mut command =
+        crate::spawn::quiet(crate::video::ffmpeg().unwrap_or_else(|| "ffmpeg".into()));
     command.args([
         "-hide_banner",
         "-loglevel",
@@ -334,7 +336,7 @@ mod tests {
     fn sample_stream(dir: &std::path::Path) -> Option<Vec<u8>> {
         let ffmpeg = crate::video::ffmpeg()?;
         let path = dir.join("camera.h264");
-        let status = Command::new(ffmpeg)
+        let status = crate::spawn::quiet(ffmpeg)
             .args([
                 "-y",
                 "-loglevel",
@@ -401,7 +403,11 @@ mod tests {
             eprintln!("skipping: no ffmpeg");
             return;
         };
-        if Command::new(ffmpeg).arg("-version").output().is_err() {
+        if crate::spawn::quiet(ffmpeg)
+            .arg("-version")
+            .output()
+            .is_err()
+        {
             eprintln!("skipping: no ffmpeg");
             return;
         }
