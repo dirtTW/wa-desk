@@ -173,6 +173,10 @@ pub struct WaDesk {
     call_video: Option<crate::callvideo::CallVideo>,
     /// The newest decoded remote frame, uploaded as a texture.
     call_frame: Option<egui::TextureHandle>,
+    /// Preview hook: an image used as the self-view in `--preview`.
+    call_self_source: Option<String>,
+    /// Our own camera preview shown in the call sheet corner.
+    call_self_frame: Option<egui::TextureHandle>,
     /// Which decoder generation call_frame holds.
     call_frame_generation: u64,
     /// The Windows tray icon and menu (None when the shell refuses it).
@@ -279,6 +283,8 @@ impl WaDesk {
             call_video: None,
             call_frame: None,
             call_frame_generation: 0,
+            call_self_frame: None,
+            call_self_source: None,
             sticker_tab: 0,
             sticker_query: String::new(),
             emoji_group: 0,
@@ -359,6 +365,9 @@ impl WaDesk {
                 muted: false,
                 started_at: connected.then(|| now_ms() - 42_000),
             });
+            if video && let Ok(path) = std::env::var("WA_DESK_CALL_SELF") {
+                self.call_self_source = Some(path);
+            }
             if video
                 && let Ok(path) = std::env::var("WA_DESK_CALL_VIDEO")
                 && let Ok(bytes) = std::fs::read(path)
@@ -1253,9 +1262,27 @@ impl WaDesk {
                             );
                         }
                     }
+                    // Our own camera preview: a mirror thumbnail in the corner,
+                    // the way the official client floats the self-view.
+                    if let Some(texture) = &self.call_self_frame {
+                        let size = texture.size_vec2();
+                        let scale = (196.0 / size.x.max(1.0)).min(147.0 / size.y.max(1.0));
+                        let thumb = egui::Rect::from_center_size(
+                            egui::pos2(
+                                stage.right() - 12.0 - size.x * scale / 2.0,
+                                stage.bottom() - 12.0 - size.y * scale / 2.0,
+                            ),
+                            size * scale,
+                        );
+                        // Mirrored horizontally, like a selfie camera.
+                        painter.image(
+                            texture.id(),
+                            thumb,
+                            egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                    }
                 }
-
-                // Avatar: the chat's photo, or the name's initials.
                 self.ensure_avatar(ui.ctx(), &call.peer);
                 let avatar = self.avatar_for(&call.peer).cloned();
                 let video = plan.video_stage;
@@ -1471,6 +1498,27 @@ impl WaDesk {
                 )),
                 UiEvent::CallAudio { samples, .. } => {
                     self.audio.play_call_audio(samples.clone());
+                    None
+                }
+                UiEvent::CallSelfVideo {
+                    data,
+                    width,
+                    height,
+                } => {
+                    use base64::Engine as _;
+                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data)
+                        && bytes.len() == (*width as usize) * (*height as usize) * 4
+                    {
+                        let image = egui::ColorImage::from_rgba_unmultiplied(
+                            [*width as usize, *height as usize],
+                            &bytes,
+                        );
+                        self.call_self_frame = Some(ctx.load_texture(
+                            "call-self-frame",
+                            image,
+                            egui::TextureOptions::LINEAR,
+                        ));
+                    }
                     None
                 }
                 UiEvent::CallVideo { data, .. } => {
@@ -4721,6 +4769,18 @@ impl eframe::App for WaDesk {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
+        // A preview-only self-view image (screenshots without a camera).
+        if let Some(path) = self.call_self_source.clone()
+            && self.call_self_frame.is_none()
+            && let Ok(bytes) = std::fs::read(&path)
+            && let Ok(image) = image::load_from_memory(&bytes)
+        {
+            let image = image.to_rgba8();
+            let size = [image.width() as usize, image.height() as usize];
+            let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+            self.call_self_frame =
+                Some(ctx.load_texture("call-self-preview", color, egui::TextureOptions::LINEAR));
+        }
         self.drain_events(ctx);
         self.poll_tray(ctx);
         // A new remote call frame becomes a texture once per generation.

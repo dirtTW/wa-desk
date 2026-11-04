@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.86] - 2026-11-04
+
+- **Outgoing call video works**: the webcam is captured, encoded and sent, so a video call is now
+  two-way. `camera.rs` spawns two `ffmpeg` children - DirectShow capture (`-f dshow -i
+  video=<device>`) into RGBA, then `libx264 -preset ultrafast -tune zerolatency -profile:v
+  baseline` into Annex-B H.264 - and splits the encoded stream into access units that go to
+  `Session::send_call_video` while the call is connected. The device is `WA_DESK_CAMERA` or the
+  first one ffmpeg lists.
+- **Self-view**: every third captured frame is downscaled to 160x120, sent to the window as
+  `UiEvent::CallSelfVideo` and painted as a mirrored thumbnail in the call stage's bottom-right
+  corner - the official layout. Screenshot: `target/call_selfview.png`.
+- **Access-unit splitting** is a pure function (`split_access_units`), which is what makes this
+  testable without a camera: read a start code, end a unit where a picture NAL follows another
+  picture NAL or a new SPS. Tests:
+  `camera::tests::the_stream_splits_into_one_unit_per_frame` (byte-exact reassembly, ≥1 unit per
+  frame), `raw_frames_encode_into_access_units` (the real encoder args) and
+  `the_preview_is_a_quarter_of_the_capture`.
+- Screenshot hook: `WA_DESK_CALL_SELF=<png>` stands in for the camera in `--preview`.
+- Tests: 72 native, clippy clean, selftest green.
+
+
 ## [0.2.0-rc.85] - 2026-11-04
 
 - **Remote call video is decoded and painted.** `callvideo.rs` runs `ffmpeg` as a child

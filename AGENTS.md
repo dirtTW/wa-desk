@@ -478,6 +478,12 @@ device until you remove it from the phone).
   ringing, mute/hang-up once live, timer from `CallOverlay::status`). `audio.rs` plays
   `UiEvent::CallAudio` on a dedicated sink and `mic.rs` (cpal) resamples the microphone to
   16 kHz/960-sample frames for `Session::send_call_audio`. Remote H.264 is not decoded yet.
+- **Our own call video is sent too.** `camera.rs` uses ffmpeg for both stages - DirectShow
+  capture into RGBA, then libx264 (`ultrafast`, `zerolatency`, baseline) into Annex-B - and
+  `split_access_units` (pure, unit tested) turns the stream into the access units
+  `Session::send_call_video` expects. `WA_DESK_CAMERA` picks the device, otherwise the first
+  video device ffmpeg lists. Every third frame is downscaled to 160x120 and sent to the window as
+  `UiEvent::CallSelfVideo` for the mirrored self-view thumbnail.
 - **Remote call video is decoded with ffmpeg.** `callvideo.rs` spawns `ffmpeg -f h264 -i -` and
   runs two threads (access units in, fixed 480x270 RGBA frames out) because one thread would
   deadlock once ffmpeg's output pipe fills; the UI uploads the newest frame per generation and

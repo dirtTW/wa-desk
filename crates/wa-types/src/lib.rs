@@ -156,6 +156,12 @@ pub enum UiEvent {
     },
     /// Coarse call state for the overlay ("calling", "connected", ...).
     CallState { call_id: String, state: String },
+    /// Our own camera preview (RGBA, base64) for the call sheet's self-view.
+    CallSelfVideo {
+        data: String,
+        width: u32,
+        height: u32,
+    },
 }
 
 impl UiEvent {
@@ -198,6 +204,7 @@ impl UiEvent {
             UiEvent::CallAudio { .. } => "call_audio",
             UiEvent::CallVideo { .. } => "call_video",
             UiEvent::CallState { .. } => "call_state",
+            UiEvent::CallSelfVideo { .. } => "call_self_video",
         }
     }
 }

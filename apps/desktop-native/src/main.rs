@@ -18,6 +18,7 @@ mod app;
 mod audio;
 mod autostart;
 mod callvideo;
+mod camera;
 mod clipboard;
 mod emoji_glyph;
 mod icon;
@@ -227,6 +228,8 @@ fn main() {
     tracing::info!(store = %store, media = %media, "starting session");
 
     let handle = runtime.handle().clone();
+    // Set when the call in progress negotiated video, read by the event bridge.
+    let call_video_wanted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let session_slot: Arc<std::sync::Mutex<Option<Arc<wa_core::Session>>>> =
         Arc::new(std::sync::Mutex::new(None));
     // A clone kept for synthetic events (seeding the chat list from the address
@@ -244,13 +247,67 @@ fn main() {
         let ai_commands = command_tx.clone();
         let ai_dir = settings::NativeSettings::data_dir();
         let ai_slot = session_slot.clone();
+        let bridge_video = call_video_wanted.clone();
         handle.spawn(async move {
             let mut ai = ai::Runtime::new(ai_dir);
             // The microphone only runs while a call is connected.
             let mut microphone: Option<mic::Mic> = None;
+            // (camera, its forwarding thread's stop flag)
+            #[allow(clippy::type_complexity)]
+            let mut camera: Option<(
+                std::sync::Arc<camera::Camera>,
+                std::sync::Arc<std::sync::atomic::AtomicBool>,
+            )> = None;
             while let Some(event) = core_rx.recv().await {
                 match &event {
                     wa_types::UiEvent::CallState { state, .. } if state == "connected" => {
+                        // Outgoing video: capture, encode, send. The camera runs
+                        // only for the call that asked for video.
+                        if camera.is_none()
+                            && bridge_video.load(std::sync::atomic::Ordering::Relaxed)
+                            && let Some(session) = ai_slot.lock().expect("session slot").clone()
+                        {
+                            match camera::Camera::start() {
+                                Some(running) => {
+                                    let running = std::sync::Arc::new(running);
+                                    let sender = running.clone();
+                                    let stop = std::sync::Arc::new(
+                                        std::sync::atomic::AtomicBool::new(false),
+                                    );
+                                    let thread_stop = stop.clone();
+                                    let preview_tx = ui_tx.clone();
+                                    std::thread::spawn(move || {
+                                        use base64::Engine as _;
+                                        let mut sent_preview = 0u64;
+                                        while !thread_stop
+                                            .load(std::sync::atomic::Ordering::Relaxed)
+                                        {
+                                            if let Some(unit) = sender
+                                                .recv_timeout(std::time::Duration::from_millis(120))
+                                            {
+                                                let _ = session.send_call_video(unit);
+                                            }
+                                            let generation = sender.preview().generation();
+                                            if generation != sent_preview
+                                                && let Some(frame) = sender.preview().frame()
+                                            {
+                                                sent_preview = generation;
+                                                let _ = preview_tx
+                                                    .send(wa_types::UiEvent::CallSelfVideo {
+                                                    data: base64::engine::general_purpose::STANDARD
+                                                        .encode(frame),
+                                                    width: camera::PREVIEW_WIDTH as u32,
+                                                    height: camera::PREVIEW_HEIGHT as u32,
+                                                });
+                                            }
+                                        }
+                                    });
+                                    camera = Some((running, stop));
+                                    app::diag("call: camera started");
+                                }
+                                None => app::diag("call: no camera"),
+                            }
+                        }
                         if microphone.is_none()
                             && let Some(session) = ai_slot.lock().expect("session slot").clone()
                         {
@@ -276,6 +333,10 @@ fn main() {
                         let was_running = microphone.take().is_some();
                         if was_running {
                             app::diag("call: microphone stopped");
+                        }
+                        if let Some((_, stop)) = camera.take() {
+                            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                            app::diag("call: camera stopped");
                         }
                     }
                     _ => {}
@@ -309,6 +370,8 @@ fn main() {
     let sync_cursor: Arc<std::sync::Mutex<usize>> = Arc::new(std::sync::Mutex::new(0));
     let command_contacts = sync_contacts.clone();
     let command_cursor = sync_cursor.clone();
+    // The command loop records whether the call wants video (the bridge reads it).
+    let call_video = call_video_wanted.clone();
     // Media downloads run in their own tasks; three at a time keeps the UI
     // responsive without flooding the CDN or the phone.
     let media_limit = Arc::new(tokio::sync::Semaphore::new(3));
@@ -332,11 +395,13 @@ fn main() {
                     let _ = session.set_typing(&chat, typing).await;
                 }
                 model::Command::CallStart { chat, video } => {
+                    call_video.store(video, std::sync::atomic::Ordering::Relaxed);
                     if let Err(err) = session.start_call(&chat, video).await {
                         tracing::warn!(%err, "call start failed");
                     }
                 }
                 model::Command::CallAccept { call_id, video } => {
+                    call_video.store(video, std::sync::atomic::Ordering::Relaxed);
                     if let Err(err) = session.accept_call(&call_id, video).await {
                         tracing::warn!(%err, "call accept failed");
                     }

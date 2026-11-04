@@ -60,8 +60,9 @@ account. Issues and pull requests are welcome.
 - **Sticker picker**: the official panel with Recents / Favourites / Packs tabs, store search, the
   Create tile and the shared Emoji/GIF/Stickers footer.
 - **Voice and video calls**: start from the chat header or the kebab, accept/decline a call, mute
-  and hang up; audio is captured at 16 kHz and plays through a dedicated sink, and the peer's
-  H.264 video is decoded with ffmpeg into the full-sheet stage.
+  and hang up; audio is captured at 16 kHz and plays through a dedicated sink, the peer's H.264
+  video is decoded into the stage, and your own camera is captured, encoded and sent with a
+  mirrored self-view thumbnail.
 - **Tray and notifications** (Windows): the WA Desk icon in the system tray with an Open / Quit
   menu, plus a desktop toast for messages that arrive while the window is in the background
   (a Settings switch, `--test-notification` from the CLI, session-bus notifications on Linux).
