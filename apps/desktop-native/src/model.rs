@@ -432,6 +432,23 @@ impl Model {
             .insert(id.to_string(), MediaState::Path(path.to_string()));
     }
 
+    /// A sticker message whose file is `path` (used by `--preview` to check
+    /// still and animated WebP stickers without an account).
+    pub fn demo_sticker(&mut self, chat: &str, id: &str, path: &str) {
+        let name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let mut message = view(chat, &name, id, "", self.now - 30_000, false);
+        message.kind = "sticker".to_string();
+        message.sender = Some("1@s.whatsapp.net".to_string());
+        message.sender_name = Some("Ada".to_string());
+        self.apply(&UiEvent::Message(message));
+        self.media
+            .insert(id.to_string(), MediaState::Path(path.to_string()));
+    }
+
     pub fn demo() -> Self {
         let mut model = Model::new();
         let now = std::time::SystemTime::now()

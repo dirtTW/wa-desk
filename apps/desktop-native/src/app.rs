@@ -132,6 +132,11 @@ pub struct WaDesk {
     preview: bool,
     /// When the last `memory:` line was written (diagnostics only).
     last_memory_log: std::time::Instant,
+    /// Paint clock for the `paint:` diagnostic: the previous frame's time and
+    /// the interval seen since the last report.
+    last_paint: std::time::Instant,
+    paint_gap_sum: f32,
+    paint_gap_count: u32,
     /// Screenshot support: start the demo video as soon as it is decoded.
     preview_autoplay: bool,
     /// Progressive history sync: batches left and when the last one went out.
@@ -257,6 +262,9 @@ impl WaDesk {
             system_dark,
             screenshot: None,
             last_memory_log: std::time::Instant::now(),
+            last_paint: std::time::Instant::now(),
+            paint_gap_sum: 0.0,
+            paint_gap_count: 0,
             cache_path,
             cache_dirty: false,
             cache_saved: std::time::Instant::now(),
@@ -356,6 +364,12 @@ impl WaDesk {
             && let Ok(index) = section.parse::<usize>()
         {
             self.settings_section = index.min(4);
+        }
+        // `WA_DESK_STICKER_WEBP=<file.webp>` puts a real (animated) sticker in
+        // the demo group, so the animation can be checked frame by frame.
+        if let Ok(path) = std::env::var("WA_DESK_STICKER_WEBP") {
+            self.model.demo_sticker("1203@g.us", "sticker-webp", &path);
+            self.model.active = Some("1203@g.us".to_string());
         }
         // `WA_DESK_GIFS=<dir>` seeds GIF messages and opens the GIF tab.
         if let Ok(dir) = std::env::var("WA_DESK_GIFS") {
@@ -1877,6 +1891,7 @@ impl WaDesk {
                                 let empty = row.messages.is_empty();
                                 self.audio.stop();
                                 crate::gif::clear();
+                                crate::webp_anim::clear();
                                 self.model.open_chat(&jid);
                                 if jid.ends_with("@g.us") && self.model.request_group(&jid) {
                                     self.send(Command::GroupInfo { chat: jid.clone() });
@@ -2564,9 +2579,13 @@ fn bubble_content(
         // A sticker: still WebP or animated (WhatsApp's animated stickers are
         // WebP with an `ANIM` chunk - the `image` crate only shows frame one, so
         // those are decoded to frames and stepped like a GIF).
+        // Animated stickers are WebP animations: `webp_anim` parses the RIFF
+        // container and composites the frames itself (this machine's ffmpeg has
+        // no `webp_anim` demuxer, so the old "treat it like a GIF" path produced
+        // nothing and the sticker stayed a placeholder).
         let sticker_texture = model.media_path(&message.id).and_then(|path| {
-            if crate::sticker::is_animated_webp(std::path::Path::new(&path)) {
-                crate::gif::frame(ctx, textures, &message.id, &path)
+            if crate::webp_anim::is_animated(std::path::Path::new(&path)) {
+                crate::webp_anim::frame(ctx, textures, &message.id, &path)
             } else {
                 texture_at(ctx, textures, &message.id, Some(path), STICKER_PX)
             }
@@ -2598,24 +2617,64 @@ fn bubble_content(
         // A photo paints its bytes once wa-core has the file; a video shows the
         // same texture as its poster. Anything else falls back to the caption or
         // the kind's word from wa-ui.
+        // Media that is not on disk yet is still a bubble: the empty tile, the
+        // caption and the clock live inside the same rounded background as a
+        // loaded photo, exactly like the official client.
         if matches!(message.kind.as_str(), "image" | "video")
             && model.media_path(&message.id).is_none()
         {
-            let width = max_width.min(260.0);
             let failed = model.media_error(&message.id);
-            let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(width, width * 0.62), egui::Sense::click());
+            let pad = 3.0;
+            let gallery = max_width.min(260.0);
+            let tile_size = egui::vec2(gallery - pad * 2.0, (gallery - pad * 2.0) * 0.62);
+            let time = ui.painter().layout_no_wrap(
+                model.bubble_stamp(message),
+                egui::FontId::proportional(11.0),
+                palette.secondary,
+            );
+            let tick_width = if message.from_me { 16.0 } else { 0.0 };
+            let width = (tile_size.x + pad * 2.0)
+                .max(time.size().x + tick_width + 40.0)
+                .min(max_width);
+            let caption = clean_text(message.text.trim());
+            let caption_galley = (!caption.is_empty()).then(|| {
+                ui.painter().layout(
+                    caption,
+                    egui::FontId::proportional(14.0),
+                    palette.text,
+                    (width - 18.0).max(80.0),
+                )
+            });
+            let caption_pad = 9.0;
+            let clock_h = time.size().y + 4.0;
+            let mut height = pad + tile_size.y + clock_h + 2.0;
+            if let Some(galley) = &caption_galley {
+                height += galley.size().y + 8.0;
+            }
             let fill = if message.from_me {
                 palette.bubble_out
             } else {
                 palette.bubble_in
             };
-            ui.painter()
-                .rect_filled(rect, egui::CornerRadius::same(8), fill);
+            let square = if tail { 2 } else { 8 };
+            let radius = egui::CornerRadius {
+                nw: 8,
+                ne: 8,
+                sw: if message.from_me { 8 } else { square },
+                se: if message.from_me { square } else { 8 },
+            };
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+            let painter = ui.painter();
+            painter.rect_filled(rect, radius, fill);
+            let tile = egui::Rect::from_min_size(
+                egui::pos2(rect.left() + pad, rect.top() + pad),
+                tile_size,
+            );
+            painter.rect_filled(tile, egui::CornerRadius::same(6), palette.hover);
             // A play disc for a video, a picture glyph for a photo.
-            let disc = egui::Rect::from_center_size(rect.center(), egui::vec2(46.0, 46.0));
-            ui.painter()
-                .circle_filled(disc.center(), 23.0, egui::Color32::from_black_alpha(90));
+            let disc = egui::Rect::from_center_size(tile.center(), egui::vec2(46.0, 46.0));
+            painter.circle_filled(disc.center(), 23.0, egui::Color32::from_black_alpha(90));
             draw_icon(
                 ui,
                 disc.shrink(12.0),
@@ -2631,33 +2690,62 @@ fn bubble_content(
             } else {
                 "photo"
             };
-            let label = match failed {
+            let label = match &failed {
                 Some(err) => format!("Couldn't load the {kind_label} - tap to retry ({err})"),
-                None => format!("Loading the {kind_label}..."),
+                None => format!("Loading the {kind_label}…"),
             };
-            ui.painter().text(
-                egui::pos2(rect.center().x, rect.bottom() - 22.0),
-                egui::Align2::CENTER_CENTER,
+            painter.text(
+                egui::pos2(tile.center().x, tile.bottom() - 12.0),
+                egui::Align2::CENTER_BOTTOM,
                 label,
                 egui::FontId::proportional(11.0),
                 palette.secondary,
             );
+            let mut y = tile.bottom() + 5.0;
+            if let Some(galley) = &caption_galley {
+                let caption_height = galley.size().y;
+                painter.galley(
+                    egui::pos2(rect.left() + caption_pad, y),
+                    galley.clone(),
+                    palette.text,
+                );
+                y += caption_height;
+            }
+            let _ = y;
+            painter.galley(
+                egui::pos2(
+                    rect.right() - caption_pad - tick_width - time.size().x,
+                    rect.bottom() - 5.0 - time.size().y,
+                ),
+                time,
+                palette.secondary,
+            );
+            if message.from_me {
+                let status = model.tick_status(message);
+                let read = matches!(status, "read" | "played");
+                let delivered = matches!(status, "delivered" | "read" | "played");
+                let name = if delivered { "done_all" } else { "check" };
+                let color = if read {
+                    palette.read
+                } else {
+                    palette.secondary
+                };
+                if let Some(icon) = crate::icons::texture(ui.ctx(), name, 14, color) {
+                    painter.image(
+                        icon.id(),
+                        egui::Rect::from_min_size(
+                            egui::pos2(rect.right() - caption_pad - 14.0, rect.bottom() - 19.0),
+                            egui::vec2(14.0, 14.0),
+                        ),
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
+            }
             if response.clicked() {
                 action = Some(BubbleAction::LoadMedia(message.id.clone()));
             }
             context_menu(&response, palette, model, message, &mut action);
-            if !message.text.trim().is_empty() {
-                ui.label(
-                    egui::RichText::new(&message.text)
-                        .size(14.0)
-                        .color(palette.text),
-                );
-            }
-            ui.label(
-                egui::RichText::new(model.bubble_stamp(message))
-                    .size(11.0)
-                    .color(palette.secondary),
-            );
             pills_row(ui, palette, model, message, rect);
             ui.add_space(if tail { 14.0 } else { 8.0 });
             return;
@@ -6016,6 +6104,32 @@ impl eframe::App for WaDesk {
         // Texture caches are capped so memory does not grow with a long session.
         prune_textures(ctx, &mut self.textures, 96);
         prune_textures(ctx, &mut self.sticker_textures, 240);
+        // Frame pacing: while a clip plays, average the gap between paints and
+        // report it once per 30 frames, so "smooth" is a measured number.
+        let paint_now = std::time::Instant::now();
+        let gap_ms = paint_now.duration_since(self.last_paint).as_secs_f32() * 1000.0;
+        self.last_paint = paint_now;
+        if self.video_playing && self.model.media_viewer.is_some() {
+            // A resume frame carries the whole pause; ignore anything long.
+            if gap_ms < 250.0 {
+                self.paint_gap_sum += gap_ms;
+                self.paint_gap_count += 1;
+            }
+            if self.paint_gap_count >= 30 {
+                let average = self.paint_gap_sum / self.paint_gap_count as f32;
+                diag(&format!(
+                    "paint: {:.1} ms average over {} frames ({:.1} fps)",
+                    average,
+                    self.paint_gap_count,
+                    1000.0 / average.max(0.01),
+                ));
+                self.paint_gap_sum = 0.0;
+                self.paint_gap_count = 0;
+            }
+        } else {
+            self.paint_gap_sum = 0.0;
+            self.paint_gap_count = 0;
+        }
         // `WA_DESK_DIAG=1` gets a line every ten seconds, so a long session's
         // growth (or lack of it) can be read from diagnostics.log.
         if self.last_memory_log.elapsed() >= std::time::Duration::from_secs(10) {
@@ -6239,8 +6353,22 @@ impl eframe::App for WaDesk {
                 .model
                 .active_row()
                 .is_some_and(|row| row.messages.iter().any(|message| message.gif));
-        if self.audio.state().playing || self.video_playing || gif_on_screen {
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        let sticker_on_screen = crate::webp_anim::any_ready()
+            && self
+                .model
+                .active_row()
+                .is_some_and(|row| row.messages.iter().any(|message| message.kind == "sticker"));
+        if self.audio.state().playing || self.video_playing || gif_on_screen || sticker_on_screen {
+            // An animated sticker knows its own frame duration; otherwise the
+            // 100 ms tick is enough for GIFs and audio meters.
+            let per_frame = if sticker_on_screen {
+                crate::webp_anim::shortest_frame_ms()
+                    .map(|ms| ms.clamp(16, 100))
+                    .unwrap_or(100)
+            } else {
+                100
+            };
+            ctx.request_repaint_after(std::time::Duration::from_millis(u64::from(per_frame)));
         } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }

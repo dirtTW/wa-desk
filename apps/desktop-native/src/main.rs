@@ -38,6 +38,7 @@ mod theme;
 mod tray;
 mod updates;
 mod video;
+mod webp_anim;
 
 use std::sync::Arc;
 

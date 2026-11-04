@@ -8,19 +8,6 @@ use std::process::Stdio;
 /// The sticker canvas WhatsApp uses.
 pub const SIZE: u32 = 512;
 
-/// Is this WebP animated? WhatsApp's animated stickers carry an `ANIM` chunk
-/// in the RIFF container; a still one does not, and the `image` crate only
-/// decodes the first frame of an animation.
-pub fn is_animated_webp(path: &Path) -> bool {
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
-    };
-    if bytes.len() < 16 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
-        return false;
-    }
-    bytes.windows(4).take(4096).any(|window| window == b"ANIM")
-}
-
 /// Encode `source` into a 512x512 WebP sticker (RGBA, lossy, square crop).
 pub fn make_sticker(source: &Path) -> Result<Vec<u8>, String> {
     if !source.is_file() {
@@ -70,37 +57,6 @@ pub fn make_sticker(source: &Path) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A WebP with an `ANIM` chunk is animated; a still one is not, and a
-    /// non-WebP file is never treated as an animation.
-    #[test]
-    fn animated_webp_is_recognised() {
-        let dir = std::env::temp_dir().join("wa-desk-sticker-anim");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("dir");
-
-        let mut animated = Vec::new();
-        animated.extend_from_slice(b"RIFF");
-        animated.extend_from_slice(&[0, 0, 0, 0]);
-        animated.extend_from_slice(b"WEBP");
-        animated.extend_from_slice(b"VP8X");
-        animated.extend_from_slice(&[0; 8]);
-        animated.extend_from_slice(b"ANIM");
-        animated.extend_from_slice(&[0; 8]);
-        let animated_path = dir.join("animated.webp");
-        std::fs::write(&animated_path, &animated).expect("write");
-        assert!(is_animated_webp(&animated_path));
-
-        let still_path = dir.join("still.webp");
-        std::fs::write(&still_path, b"RIFF\0\0\0\0WEBPVP8 \0\0\0\0").expect("write");
-        assert!(!is_animated_webp(&still_path));
-
-        let png_path = dir.join("picture.png");
-        std::fs::write(&png_path, b"\x89PNG\r\n\x1a\n").expect("write");
-        assert!(!is_animated_webp(&png_path));
-        assert!(!is_animated_webp(&dir.join("missing.webp")));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 
     /// Is a usable ffmpeg on this machine? CI images have none, so the tests
     /// that need it skip instead of failing.

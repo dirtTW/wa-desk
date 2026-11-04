@@ -4,6 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.5] - 2026-11-04
+
+- **Animated WebP stickers actually animate now.** They never did: this machine's `ffmpeg` has no
+  `webp_anim` demuxer (`ffmpeg -demuxers` lists only `webp_pipe`), so the "prepare it like a GIF"
+  path produced zero frames and the bubble stayed a placeholder. `src/webp_anim.rs` now parses the
+  RIFF container itself - `VP8X` canvas, `ANIM` background, `ANMF` frames - rebuilds each frame's
+  nested `VP8`/`VP8L` payload into a still WebP for the `image` crate's pure-Rust decoder, and
+  composites it with the specification's blend (`flags & 0b10`) and disposal (`flags & 0b1`) rules.
+  Decoding happens on a worker; the bubble paints the newest ready frame and the window repaints at
+  **the animation's own frame duration** (`shortest_frame_ms`).
+  Evidence: two runs of `WA_DESK_STICKER_WEBP=target/evi/animated.webp` captured 1 s apart hash
+  differently (`0a9f77c8d1fb5fd6` vs `b889bf41715e868b` over the sticker crop) and the screenshot
+  shows the 18-frame testsrc animation drawn in the bubble. Tests:
+  `webp_anim::tests::{the_chunk_walker_reads_the_animation_and_frames, frame_timing_wraps_around_the_loop, a_still_webp_is_not_animated}`.
+- **A media bubble keeps its background with a caption.** The "not on disk yet" branch painted a
+  bare tile and then printed the caption and clock *outside* it, so a captioned photo/video had no
+  rounded bubble around the caption. It now paints the same bubble as a loaded photo: 3 px inset
+  tile, caption at the 9 px padding, clock and ticks on their own row inside (`target/evi/sticker_g.png`).
+- **Smoothness is measured, not claimed.** While a clip plays the app averages the gap between
+  paints and writes `paint: <ms> average over 30 frames (<fps>)` to `diagnostics.log` under
+  `WA_DESK_DIAG=1`. A 30 fps clip measured `18.4 ms average over 30 frames (54.3 fps)` repeatedly,
+  with no spike above 21 ms.
+- `sticker::is_animated_webp` is gone: `webp_anim::is_animated` is the single implementation.
+- Tests: 110 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.4] - 2026-11-04
 
 - **Composer matches the official bar.** The message field is one rounded 8 px container in
