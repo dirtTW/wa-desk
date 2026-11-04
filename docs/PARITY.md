@@ -5,6 +5,28 @@ live client: `web.whatsapp.com` (sampled through the browser MCP: DOM test ids, 
 colours) and the official desktop screenshots the maintainer sends. **✅** = done and verified,
 **🟡** = works but the layout or behaviour still differs, **❌** = missing.
 
+## How these samples are taken
+
+The live client is reached through the browser MCP. Two things matter:
+
+- **Opening a chat needs a real pointer sequence.** A synthetic `.click()` on
+  `[data-testid="cell-frame-container"]` does nothing in this profile; dispatching
+  `pointerdown → mousedown → pointerup → mouseup → click` as `PointerEvent`s does, after which
+  `[data-testid="conversation-compose-box-input"]` appears. That is what finally unblocked the
+  attach-menu sample (rc.26).
+- **Panels are found by `aria-label`.** The rail buttons are `Chats`, `Calls`, `Status`,
+  `Channels`, `Communities`, `You`; the composer's attach button is `Attach`; the settings rows and
+  the attach entries are plain `role=button` rows with their label as inner text.
+
+Re-confirmed on 2026-11-05: the Settings screen (behind `You`) lists **Profile · Account · Privacy ·
+Chats · Notifications · Keyboard shortcuts · Help** with the subtitles "Name, profile picture,
+username", "Security notifications, account info", "Blocked contacts, disappearing messages",
+"Theme, wallpaper, chat settings", "Messages, groups, sounds" - the same list and order this client
+renders (`target/our_settings_account.png`). Clicking a *section* to open its detail pane did not
+take with the same dispatch, so the Settings sub-pages are still compared only through our capture;
+the recipe to finish them is to target the section row's inner `role=button` element the same way
+the chat row was targeted.
+
 ## Shell and navigation
 
 | Official | Ours | State |

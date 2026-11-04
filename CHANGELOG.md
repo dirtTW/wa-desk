@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.27] - 2026-11-05
+
+- **`docs/PARITY.md` now documents the sampling recipe** that unblocked the live work: the
+  `PointerEvent` sequence for opening a chat (a plain `.click()` does nothing in this profile), the
+  `aria-label`s of the rail buttons and the attach button, and the fact that panels and menu entries
+  are `role=button` rows. It also records the 2026-11-05 re-sample of the Settings screen: **Profile ·
+  Account · Privacy · Chats · Notifications · Keyboard shortcuts · Help** with their subtitles, the
+  same list and order this client renders (`target/our_settings_account.png`).
+- Honest gap left in the same row: opening a *section's detail pane* did not take with that same
+  dispatch, so the Settings sub-pages are still compared only against our capture; the file names the
+  next step (target the section row's inner `role=button`, as with the chat row).
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.26] - 2026-11-05
 
 - **The attach menu was finally sampled from the live client** - the blocker for four turns. What
