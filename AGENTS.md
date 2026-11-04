@@ -497,6 +497,10 @@ device until you remove it from the phone).
   WebP) and sends it with Command::SendSticker -> Session::send_sticker. Sticker packs are
   blocked: whatsapp-rust only exposes etch_sticker_pack(pack_id), not the stickerPack
   app-state, so there is no pack list to ask about.
+- **Echo cancellation.** `aec.rs` runs an NLMS filter (2048 taps) from the playout reference
+  (`audio::call_reference`, a 256 ms ring read `aec::DELAY` = 120 ms back) and subtracts the
+  predicted echo before the `echo` ducking, which remains the backstop for real rooms. The filter
+  only updates while the reference has energy.
 - **Echo suppression.** The call playout publishes an RMS (udio::call_level, 400 ms stale
   window) and mic.rs ducks the captured frames with echo::EchoGuard (-12 dB while the peer is
   loud, ~300 ms release). Half-duplex, not a WebRTC-style adaptive filter.

@@ -24,6 +24,22 @@ pub struct PlaybackState {
 static CALL_LEVEL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static CALL_LEVEL_AT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
+/// The recent playout samples, for the echo canceller.
+static CALL_REFERENCE: std::sync::OnceLock<std::sync::Mutex<crate::aec::Reference>> =
+    std::sync::OnceLock::new();
+
+fn reference_ring() -> &'static std::sync::Mutex<crate::aec::Reference> {
+    CALL_REFERENCE.get_or_init(|| std::sync::Mutex::new(crate::aec::Reference::default()))
+}
+
+/// The last `len` playout samples, `crate::aec::DELAY` behind the newest one.
+pub fn call_reference(len: usize) -> Vec<f32> {
+    match reference_ring().lock() {
+        Ok(reference) => reference.take(len, crate::aec::DELAY),
+        Err(_) => vec![0.0; len],
+    }
+}
+
 /// The peer's level right now (RMS, 0.0 when silent or stale).
 pub fn call_level() -> f32 {
     if let Ok(at) = CALL_LEVEL_AT.lock()
@@ -38,6 +54,11 @@ pub fn call_level() -> f32 {
 fn publish_call_level(samples: &[i16]) {
     if samples.is_empty() {
         return;
+    }
+    if let Ok(mut reference) = reference_ring().lock() {
+        for sample in samples {
+            reference.push(*sample as f32 / 32_768.0);
+        }
     }
     let sum: f64 = samples
         .iter()

@@ -50,6 +50,9 @@ impl Mic {
             let mut pending: Vec<i16> = Vec::new();
             let mut carry = 0.0f64;
             let mut guard = crate::echo::EchoGuard::default();
+            // 128 ms of taps: covers the speaker delay once the reference ring
+            // has been aligned by `aec::DELAY`.
+            let mut canceller = crate::aec::Aec::new(2048);
             let stream = device.build_input_stream(
                 &config,
                 move |data: &[f32], _| {
@@ -70,8 +73,19 @@ impl Mic {
                     carry = pos - mono.len() as f64;
                     while pending.len() >= FRAME {
                         let mut frame: Vec<i16> = pending.drain(..FRAME).collect();
-                        // Duck while the peer talks, so the speaker does not
-                        // feed back into our microphone (see `echo`).
+                        // Adaptive cancellation first: subtract the echo the
+                        // playout reference predicts (see `aec`).
+                        let reference = crate::audio::call_reference(FRAME);
+                        let energy: f32 = reference.iter().map(|sample| sample * sample).sum();
+                        if energy > 1e-4 {
+                            for (slot, played) in frame.iter_mut().zip(reference) {
+                                let mic = *slot as f32 / 32_768.0;
+                                let cleaned = canceller.process(mic, played);
+                                *slot = (cleaned.clamp(-1.0, 1.0) * 32_767.0) as i16;
+                            }
+                        }
+                        // Then duck while the peer talks, so a residual echo does
+                        // not feed back (see `echo`).
                         let gain = guard.next(crate::audio::call_level());
                         if gain < 0.99 {
                             for sample in &mut frame {

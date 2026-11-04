@@ -13,6 +13,7 @@
 // builds keep the console so `--selftest` and the update checks stay readable.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod aec;
 mod ai;
 mod app;
 mod audio;

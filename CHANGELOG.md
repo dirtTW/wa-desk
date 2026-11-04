@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.92] - 2026-11-04
+
+- **Adaptive echo cancellation replaces ducking as the first line of defence.** `aec.rs` is an
+  NLMS filter: the playout reference is kept in a ring (`aec::Reference`, 256 ms) and read 120 ms
+  behind the newest sample (`aec::DELAY`) to line up with the speaker latency, then a 2048-tap
+  filter predicts the echo and subtracts it from each microphone sample before `mic.rs` applies
+  the existing ducking as a backstop. It only runs while the reference has real energy
+  (`energy > 1e-4`), so silence costs nothing.
+- Test: `aec::tests::the_filter_cancels_a_delayed_echo` builds a synthetic echo (0.6 gain, 200
+  sample delay), adapts for 2 s and measures **94.6 dB** ERLE over the next second (the assertion
+  is > 10 dB). Also: silence passes through unchanged, and the reference ring returns the delayed
+  tail and pads when asked for more history than it holds.
+- Note: an idealised acoustic path is not a real room; this is a genuine adaptive canceller, but
+  the ducking stays because the residual echo after a real room is larger.
+- Tests: 87 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.91] - 2026-11-04
 
 - **Bubbles tail like the official client.** The square "tail" corner was on every bubble; now it
