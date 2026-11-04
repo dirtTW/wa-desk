@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libssl-dev \
-            libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev libasound2-dev pkg-config
       # Keyed on the Rust version, NOT Cargo.lock: a version bump must not throw
       # away the compiled dependency tree (that was most of the run time).
       - id: rustc
@@ -66,7 +66,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libssl-dev \
-            libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev libasound2-dev pkg-config
       - id: rustc
         shell: bash
         run: echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
@@ -107,7 +107,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libssl-dev \
-            libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev libasound2-dev pkg-config
       - id: rustc
         shell: bash
         run: echo "version=$(rustc -V | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"

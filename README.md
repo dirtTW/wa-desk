@@ -89,8 +89,9 @@ ships the plain `wa-desk-native` binary.
 - Rust **1.94+** (edition 2024) — install with [rustup](https://rustup.rs/).
 - **Windows**: MSVC build tools ("Desktop development with C++").
 - **Linux** (Debian/Ubuntu): `sudo apt install build-essential libssl-dev pkg-config
-  libxkbcommon-dev libwayland-dev libgl1-mesa-dev`. Fedora/Arch: `openssl-devel`,
-  `libxkbcommon-devel`, `wayland-devel`, `mesa-libGL-devel`.
+  libasound2-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev` (ALSA is needed for audio
+  playback). Fedora/Arch: `openssl-devel`, `alsa-lib-devel`, `libxkbcommon-devel`,
+  `wayland-devel`, `mesa-libGL-devel`.
 
 ## Run from source
 
