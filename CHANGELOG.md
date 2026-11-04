@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.88] - 2026-11-04
+
+- **The Create tile makes stickers.** Picking an image now crops and scales it to the 512×512 WebP
+  WhatsApp expects (`sticker.rs` drives ffmpeg: `scale=512:512:force_original_aspect_ratio=increase`,
+  `crop=512:512`, `libwebp`), then uploads it as a real `stickerMessage` through a new
+  `Command::SendSticker` -> `Session::send_sticker`. Failures land in the toast instead of being
+  silent.
+- Tests: `sticker::tests::a_picture_becomes_a_square_webp_sticker` (RIFF/WEBP and a 512×512
+  decode), `the_sticker_keeps_alpha`, `a_missing_picture_is_an_error`.
+- **Sticker packs are blocked by the library surface, not by the UI**: whatsapp-rust exposes
+  `fetch_sticker_pack(pack_id, locale)` but nothing that lists the `stickerPack` app-state, so we
+  have no pack ids to ask about. The Packs tab keeps saying so; porting packs needs a vendor
+  patch that surfaces that collection.
+- Tests: 76 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.87] - 2026-11-04
 
 - **The GIF tab works** (it used to say "not supported yet"). WhatsApp GIFs are videos with

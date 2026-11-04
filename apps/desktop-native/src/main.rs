@@ -28,6 +28,7 @@ mod mic;
 mod model;
 mod notify;
 mod settings;
+mod sticker;
 mod theme;
 mod tray;
 mod updates;
@@ -409,6 +410,11 @@ fn main() {
                 model::Command::CallReject { call_id } => {
                     if let Err(err) = session.reject_call(&call_id).await {
                         tracing::warn!(%err, "call reject failed");
+                    }
+                }
+                model::Command::SendSticker { chat, payload } => {
+                    if let Err(err) = session.send_sticker(&chat, &payload).await {
+                        tracing::warn!(%err, "sticker send failed");
                     }
                 }
                 model::Command::ForwardMessage { chat, id } => {

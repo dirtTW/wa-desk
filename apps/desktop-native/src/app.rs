@@ -5462,11 +5462,35 @@ impl WaDesk {
                                             palette.secondary,
                                         );
                                         if response.clicked() {
-                                            self.notice = Some((
-                                                "Creating stickers is not supported yet."
-                                                    .to_string(),
-                                                std::time::Instant::now(),
-                                            ));
+                                            // The official Create tile turns a picture
+                                            // into a 512x512 WebP and sends it.
+                                            if let Some(path) = rfd::FileDialog::new()
+                                                .add_filter(
+                                                    "Image",
+                                                    &["png", "jpg", "jpeg", "webp"],
+                                                )
+                                                .pick_file()
+                                            {
+                                                match crate::sticker::make_sticker(&path) {
+                                                    Ok(bytes) => {
+                                                        use base64::Engine as _;
+                                                        if !chat.is_empty() {
+                                                            send = Some(Command::SendSticker {
+                                                                chat: chat.clone(),
+                                                                payload:
+                                                                    base64::engine::general_purpose::STANDARD
+                                                                        .encode(bytes),
+                                                            });
+                                                        }
+                                                    }
+                                                    Err(err) => {
+                                                        self.notice = Some((
+                                                            err,
+                                                            std::time::Instant::now(),
+                                                        ));
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     for (id, path, favorite) in &rows {

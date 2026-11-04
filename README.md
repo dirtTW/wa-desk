@@ -59,7 +59,7 @@ account. Issues and pull requests are welcome.
   chat state) and refreshes on a timer; profile photos are cached on disk.
 - **Sticker picker**: the official panel with Recents / Favourites / Packs tabs, store search, the
   Create tile and the shared Emoji/GIF/Stickers footer; the GIF tab lists the chat and re-sends
-  one of them.
+  one, and Create turns a picture into a 512×512 WebP sticker and sends it.
 - **Voice and video calls**: start from the chat header or the kebab, accept/decline a call, mute
   and hang up; audio is captured at 16 kHz and plays through a dedicated sink, the peer's H.264
   video is decoded into the stage, and your own camera is captured, encoded and sent with a

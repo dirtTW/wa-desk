@@ -51,6 +51,11 @@ pub enum Command {
         chat: String,
         id: String,
     },
+    /// Upload a base64 WebP and send it as a sticker (the Create tile).
+    SendSticker {
+        chat: String,
+        payload: String,
+    },
     /// Mute or unmute our microphone.
     CallMute {
         muted: bool,
