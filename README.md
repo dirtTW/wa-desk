@@ -57,6 +57,8 @@ account. Issues and pull requests are welcome.
   General holds launch-at-login and the version; chat-history/group/status sync and relink sit
   next to it. Sync runs automatically on every connection (history batches, groups, statuses,
   chat state) and refreshes on a timer; profile photos are cached on disk.
+- **Sticker picker**: the official panel with Recents / Favourites / Packs tabs, store search, the
+  Create tile and the shared Emoji/GIF/Stickers footer.
 - **Voice and video calls**: start from the chat header or the kebab, accept/decline a call, mute
   and hang up; audio is captured at 16 kHz and plays through a dedicated sink (remote video is
   not decoded yet).

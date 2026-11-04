@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.84] - 2026-11-04
+
+- **The sticker picker is the official panel** (it was still the plain window with two stacked
+  lists). `stickers_window` now paints the same card as the emoji picker: **Recents / Favourites /
+  Packs** tabs with the accent underline, a rounded "Search stickers" field (filters the loaded
+  stickers by file name), a 74 px grid with hover pills, the **Create** tile in Recents (explains
+  that creating stickers is not supported), and the shared **Emoji / GIF / Stickers** footer -
+  switching tab closes this panel and opens the emoji panel on the matching view. One tap still
+  sends through `SendFavoriteSticker` / `ForwardSticker` and closes the panel immediately.
+  Packs are not fetched yet; that tab says so.
+- `WA_DESK_STICKERS=<dir>` loads PNGs as favourites in `--preview`, so the layout can be checked
+  without a session. Screenshot: `target/stickers.png`.
+- Tests: 68 native tests, clippy clean, selftest green.
+
 ## [0.2.0-rc.83] - 2026-11-04
 
 - **Read receipts (the checkmarks) are back.** The window never recorded delivery state, so our

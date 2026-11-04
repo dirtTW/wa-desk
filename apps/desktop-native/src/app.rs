@@ -160,6 +160,9 @@ pub struct WaDesk {
     settings_section: usize,
     /// The audio player, kept alive for the window's lifetime.
     audio: crate::audio::Audio,
+    /// The sticker picker tab (0 recents, 1 favourites, 2 packs) and search.
+    sticker_tab: usize,
+    sticker_query: String,
     /// The emoji picker's selected category (0 = recents, 1.. = catalogue groups).
     emoji_group: usize,
     /// The picker's GIF tab (no GIF search yet, so it explains itself).
@@ -267,6 +270,8 @@ impl WaDesk {
             contacts_rx: native.contacts,
             audio: crate::audio::Audio::new(),
             tray: crate::tray::Tray::new(&crate::icon::window_icon()),
+            sticker_tab: 0,
+            sticker_query: String::new(),
             emoji_group: 0,
             emoji_gif: false,
             emoji_textures: std::collections::HashMap::new(),
@@ -299,6 +304,35 @@ impl WaDesk {
             self.settings_section = index.min(4);
         }
         // `WA_DESK_EMOJI=1` opens the emoji picker for a screenshot.
+        // `WA_DESK_STICKERS=<dir>` loads PNGs as favourites and opens the sticker
+        // panel, so the official layout can be checked without a session.
+        if let Ok(dir) = std::env::var("WA_DESK_STICKERS") {
+            let mut favorites = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                let mut paths: Vec<std::path::PathBuf> = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+                    })
+                    .collect();
+                paths.sort();
+                for (index, path) in paths.into_iter().enumerate() {
+                    favorites.push(wa_types::FavoriteStickerView {
+                        id: format!("demo-{index}"),
+                        path: path.to_string_lossy().into_owned(),
+                        width: 128,
+                        height: 128,
+                    });
+                }
+            }
+            self.model.favorites = favorites;
+            self.model.active = Some("1203@g.us".to_string());
+            self.model.stickers_open = true;
+            self.sticker_tab = 1;
+        }
         if std::env::var("WA_DESK_EMOJI").is_ok() {
             self.model.emoji_open = true;
         }
@@ -4200,6 +4234,60 @@ fn call_initials(name: &str) -> String {
     letters.to_uppercase()
 }
 
+/// One tab of the sticker picker: label with the accent underline the official
+/// panel uses for the active tab.
+fn sticker_tab(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    let width = ui
+        .painter()
+        .layout_no_wrap(
+            label.to_string(),
+            egui::FontId::proportional(13.0),
+            palette.text,
+        )
+        .size()
+        .x
+        + 18.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 30.0), egui::Sense::click());
+    if selected || response.hovered() {
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(8),
+            if selected {
+                palette.selected
+            } else {
+                palette.hover
+            },
+        );
+    }
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(13.0),
+        if selected {
+            palette.text
+        } else {
+            palette.secondary
+        },
+    );
+    if selected {
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(rect.left() + 8.0, rect.bottom() - 2.0),
+                egui::vec2(rect.width() - 16.0, 2.0),
+            ),
+            egui::CornerRadius::same(1),
+            palette.accent,
+        );
+    }
+    response
+}
+
 /// One row of the settings section list.
 fn settings_list_row(
     ui: &mut egui::Ui,
@@ -4970,97 +5058,294 @@ impl WaDesk {
 
     /// The sticker picker: the account's favourites, then the stickers the
     /// session already downloaded from the chats. Clicking sends one.
+    /// The sticker picker: the official panel - Recents / Favourites / Packs
+    /// tabs, a store search field, a grid of stickers, the Create tile and the
+    /// shared Emoji / GIF / Stickers footer.
     fn stickers_window(&mut self, ctx: &egui::Context) {
         if !self.model.stickers_open {
             return;
         }
-        let mut open = true;
+        let palette = self.palette.clone();
         let chat = self.model.active.clone().unwrap_or_default();
         let favorites = self.model.favorites.clone();
         let error = self.model.favorites_error.clone();
         let recent = self.model.sticker_collection();
-        egui::Window::new("Stickers")
-            .open(&mut open)
-            .default_pos([420.0, 180.0])
-            .default_width(340.0)
+        let mut send: Option<Command> = None;
+        let mut close = false;
+        let mut emoji_tab = false;
+        let mut gif_tab = false;
+
+        egui::Area::new(egui::Id::new("sticker-panel"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-96.0, -84.0))
             .show(ctx, |ui| {
-                if chat.is_empty() {
-                    ui.label(egui::RichText::new("Open a chat to send a sticker").weak());
-                    return;
-                }
-                if let Some(err) = error {
-                    ui.label(
-                        egui::RichText::new(format!("Favourites: {err}"))
-                            .small()
-                            .weak(),
-                    );
-                }
-                if !favorites.is_empty() {
-                    ui.label(egui::RichText::new("Favourites").small().strong());
-                    ui.horizontal_wrapped(|ui| {
-                        for favorite in &favorites {
-                            let key = format!("fav:{}", favorite.id);
-                            if let Some(texture) = texture_at(
-                                ctx,
-                                &mut self.sticker_textures,
-                                &key,
-                                Some(favorite.path.clone()),
-                            ) {
-                                let size = texture.size_vec2();
-                                let scale = (64.0 / size.x).min(1.0);
-                                if ui
-                                    .add(
-                                        egui::Image::new((texture.id(), size * scale))
-                                            .sense(egui::Sense::click()),
-                                    )
-                                    .clicked()
-                                {
-                                    self.send(Command::SendFavoriteSticker {
-                                        chat: chat.clone(),
-                                        id: favorite.id.clone(),
-                                    });
-                                    self.model.stickers_open = false;
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .corner_radius(egui::CornerRadius::same(14))
+                    .inner_margin(egui::Margin::same(12))
+                    .show(ui, |ui| {
+                        ui.set_width(364.0);
+                        // Tabs: recents, favourites, packs.
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 1.0;
+                            if sticker_tab(ui, &palette, "Recents", self.sticker_tab == 0).clicked()
+                            {
+                                self.sticker_tab = 0;
+                            }
+                            if sticker_tab(ui, &palette, "Favourites", self.sticker_tab == 1)
+                                .clicked()
+                            {
+                                self.sticker_tab = 1;
+                            }
+                            if sticker_tab(ui, &palette, "Packs", self.sticker_tab == 2).clicked() {
+                                self.sticker_tab = 2;
+                            }
+                        });
+                        ui.add_space(8.0);
+                        egui::Frame::new()
+                            .fill(palette.rail)
+                            .corner_radius(egui::CornerRadius::same(9))
+                            .inner_margin(egui::Margin::symmetric(10, 5))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(16.0, 16.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    draw_icon(ui, rect, Icon::Search, palette.secondary);
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.sticker_query)
+                                            .frame(false)
+                                            .hint_text("Search stickers")
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                });
+                            });
+                        ui.add_space(6.0);
+
+                        if chat.is_empty() {
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new("Open a chat to send a sticker")
+                                    .size(12.5)
+                                    .color(palette.secondary),
+                            );
+                        }
+                        if let Some(err) = error {
+                            ui.label(
+                                egui::RichText::new(format!("Favourites: {err}"))
+                                    .size(11.5)
+                                    .color(palette.danger),
+                            );
+                        }
+
+                        let query = self.sticker_query.trim().to_lowercase();
+                        let mut rows: Vec<(String, String, bool)> = Vec::new();
+                        match self.sticker_tab {
+                            1 => {
+                                for favorite in &favorites {
+                                    rows.push((favorite.id.clone(), favorite.path.clone(), true));
+                                }
+                            }
+                            2 => {}
+                            _ => {
+                                for (id, path) in &recent {
+                                    rows.push((id.clone(), path.clone(), false));
                                 }
                             }
                         }
-                    });
-                    ui.separator();
-                }
-                ui.label(egui::RichText::new("Recent").small().strong());
-                if recent.is_empty() {
-                    ui.label(
-                        egui::RichText::new("Send or receive a sticker and it shows up here")
-                            .small()
-                            .weak(),
-                    );
-                    return;
-                }
-                ui.horizontal_wrapped(|ui| {
-                    for (id, path) in recent {
-                        let key = format!("msg:{id}");
-                        if let Some(texture) =
-                            texture_at(ctx, &mut self.sticker_textures, &key, Some(path))
-                        {
-                            let size = texture.size_vec2();
-                            let scale = (64.0 / size.x).min(1.0);
+                        if !query.is_empty() {
+                            rows.retain(|(_, path, _)| path.to_lowercase().contains(&query));
+                        }
+
+                        egui::ScrollArea::vertical()
+                            .max_height(300.0)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                if self.sticker_tab == 2 {
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Sticker packs are not part of this build yet - \
+                                             favourites and recent stickers work.",
+                                        )
+                                        .size(12.5)
+                                        .color(palette.secondary),
+                                    );
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                                    if self.sticker_tab == 0 {
+                                        // The Create tile leads the recents grid.
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(74.0, 74.0),
+                                            egui::Sense::click(),
+                                        );
+                                        if response.hovered() {
+                                            ui.painter().rect_filled(
+                                                rect,
+                                                egui::CornerRadius::same(10),
+                                                palette.hover,
+                                            );
+                                        }
+                                        draw_icon(
+                                            ui,
+                                            egui::Rect::from_center_size(
+                                                rect.center(),
+                                                egui::vec2(26.0, 26.0),
+                                            ),
+                                            Icon::Add,
+                                            palette.secondary,
+                                        );
+                                        if response.clicked() {
+                                            self.notice = Some((
+                                                "Creating stickers is not supported yet."
+                                                    .to_string(),
+                                                std::time::Instant::now(),
+                                            ));
+                                        }
+                                    }
+                                    for (id, path, favorite) in &rows {
+                                        let key = format!("sticker:{id}");
+                                        let Some(texture) = texture_at(
+                                            ui.ctx(),
+                                            &mut self.sticker_textures,
+                                            &key,
+                                            Some(path.clone()),
+                                        ) else {
+                                            continue;
+                                        };
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(74.0, 74.0),
+                                            egui::Sense::click(),
+                                        );
+                                        if response.hovered() {
+                                            ui.painter().rect_filled(
+                                                rect,
+                                                egui::CornerRadius::same(10),
+                                                palette.hover,
+                                            );
+                                        }
+                                        let size = texture.size_vec2();
+                                        let scale =
+                                            (66.0 / size.x.max(1.0)).min(66.0 / size.y.max(1.0));
+                                        ui.painter().image(
+                                            texture.id(),
+                                            egui::Rect::from_center_size(
+                                                rect.center(),
+                                                size * scale,
+                                            ),
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(0.0, 0.0),
+                                                egui::pos2(1.0, 1.0),
+                                            ),
+                                            egui::Color32::WHITE,
+                                        );
+                                        if response.clicked() && !chat.is_empty() {
+                                            send = Some(if *favorite {
+                                                Command::SendFavoriteSticker {
+                                                    chat: chat.clone(),
+                                                    id: id.clone(),
+                                                }
+                                            } else {
+                                                Command::ForwardSticker {
+                                                    chat: chat.clone(),
+                                                    message_id: id.clone(),
+                                                }
+                                            });
+                                        }
+                                    }
+                                });
+                                if rows.is_empty() && self.sticker_tab != 2 {
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new(if self.sticker_tab == 1 {
+                                            "No favourite stickers yet."
+                                        } else {
+                                            "Send or receive a sticker and it shows up here."
+                                        })
+                                        .size(12.5)
+                                        .color(palette.secondary),
+                                    );
+                                }
+                            });
+
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 18.0;
                             if ui
                                 .add(
-                                    egui::Image::new((texture.id(), size * scale))
-                                        .sense(egui::Sense::click()),
+                                    egui::Button::new(
+                                        egui::RichText::new("Emoji")
+                                            .size(12.5)
+                                            .color(palette.secondary),
+                                    )
+                                    .frame(false),
                                 )
                                 .clicked()
                             {
-                                self.send(Command::ForwardSticker {
-                                    chat: chat.clone(),
-                                    message_id: id.clone(),
-                                });
-                                self.model.stickers_open = false;
+                                emoji_tab = true;
                             }
-                        }
-                    }
-                });
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("GIF")
+                                            .size(12.5)
+                                            .color(palette.secondary),
+                                    )
+                                    .frame(false),
+                                )
+                                .clicked()
+                            {
+                                gif_tab = true;
+                            }
+                            ui.label(
+                                egui::RichText::new("Stickers")
+                                    .size(12.5)
+                                    .strong()
+                                    .color(palette.accent),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new("Close")
+                                                    .size(12.0)
+                                                    .color(palette.secondary),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .clicked()
+                                    {
+                                        close = true;
+                                    }
+                                },
+                            );
+                        });
+                    });
             });
-        if !open {
+
+        if let Some(command) = send {
+            self.send(command);
+            // One tap sends one sticker; the panel closes immediately like the
+            // official picker instead of letting a slow upload double-send.
+            self.model.stickers_open = false;
+        }
+        if emoji_tab {
+            self.model.stickers_open = false;
+            self.model.emoji_open = true;
+            self.emoji_gif = false;
+        }
+        if gif_tab {
+            self.model.stickers_open = false;
+            self.model.emoji_open = true;
+            self.emoji_gif = true;
+        }
+        if close {
             self.model.stickers_open = false;
         }
     }
