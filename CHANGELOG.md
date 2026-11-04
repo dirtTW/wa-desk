@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.26] - 2026-11-05
+
+- **The attach menu was finally sampled from the live client** - the blocker for four turns. What
+  made the difference: dispatching `PointerEvent`s on a chat row (`pointerdown`, `mousedown`,
+  `pointerup`, `mouseup`, `click`) instead of `.click()`; after that
+  `[data-testid="conversation-compose-box-input"]` appears. The attach button carries
+  `aria-label="Attach"` and the entries are `role=button` rows.
+- Sampled order: **Photos & videos, Camera, Document, Audio, Contact, Poll** - no Location on this
+  account, and Contact/Poll come *after* Audio (our menu had Poll before Contact, Location in the
+  middle). The menu now follows the sampled order, with Location kept last as our extra.
+- `docs/PARITY.md` records the sample date, the order and the entries.
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.25] - 2026-11-05
 
 - **`app.rs` split, third module: `src/bubbles.rs`.** The message menu (`context_menu`), the reaction
