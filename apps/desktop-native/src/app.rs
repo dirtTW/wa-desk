@@ -84,6 +84,8 @@ pub struct WaDesk {
     poll_draft: Option<crate::app::PollDraft>,
     contact_draft: Option<crate::app::ContactDraft>,
     location_draft: Option<crate::app::LocationDraft>,
+    /// The name being typed for a new custom list.
+    list_draft: Option<String>,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
@@ -268,6 +270,7 @@ impl WaDesk {
             poll_draft: None,
             contact_draft: None,
             location_draft: None,
+            list_draft: None,
             status_compose: None,
             status_compose_background: 0,
             status_compose_font: 0,
@@ -925,6 +928,66 @@ impl WaDesk {
             self.contact_draft = None;
         } else if close {
             self.contact_draft = None;
+        }
+    }
+
+    /// The "New list" dialog: a name, and the open chat joins it.
+    fn list_window(&mut self, ctx: &egui::Context) {
+        if self.list_draft.is_none() {
+            return;
+        }
+        let palette = self.palette.clone();
+        let viewport = ctx.screen_rect();
+        let mut create = false;
+        let mut close = false;
+        let draft = self.list_draft.as_mut().expect("draft is open");
+        dialog_card(
+            ctx,
+            "list-dialog",
+            320.0,
+            "New list",
+            &palette,
+            viewport,
+            |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(draft)
+                        .hint_text("List name")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("The open chat joins the list; more can be added later.")
+                        .size(12.0)
+                        .color(palette.secondary),
+                );
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if dialog_button(ui, &palette, "Cancel", false).clicked() {
+                        close = true;
+                    }
+                    if dialog_button(ui, &palette, "Create", true).clicked() {
+                        create = true;
+                    }
+                });
+            },
+        );
+        if create {
+            let name = self.list_draft.clone().unwrap_or_default();
+            let chat = self.model.active.clone();
+            match self.model.create_list(&name, chat.as_deref()) {
+                Some(id) => {
+                    self.model.chat_filter = crate::model::ChatFilter::List(id);
+                }
+                None => {
+                    self.notice = Some((
+                        "The list needs a name".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+            self.list_draft = None;
+        } else if close {
+            self.list_draft = None;
         }
     }
 
@@ -2282,6 +2345,18 @@ impl WaDesk {
                     // Favorites hides behind the caret, as on the desktop.
                     if pill_button(ui, &palette, &format!("v {favourites}"), false) {
                         self.model.chat_filter = crate::model::ChatFilter::Favourites;
+                    }
+                    // Custom lists land here as their own pills, after the
+                    // official "+ New list" control.
+                    for list in self.model.lists.clone() {
+                        let selected =
+                            self.model.chat_filter == crate::model::ChatFilter::List(list.id);
+                        if pill_button(ui, &palette, &list.name, selected) {
+                            self.model.chat_filter = crate::model::ChatFilter::List(list.id);
+                        }
+                    }
+                    if pill_button(ui, &palette, "+ New list", false) {
+                        self.list_draft = Some(String::new());
                     }
                 });
                 ui.add_space(2.0);
@@ -8267,6 +8342,7 @@ impl eframe::App for WaDesk {
                 self.poll_window(ctx);
                 self.contact_window(ctx);
                 self.location_window(ctx);
+                self.list_window(ctx);
                 self.stickers_window(ctx);
                 self.delete_window(ctx);
                 self.forward_window(ctx);

@@ -310,6 +310,17 @@ pub enum ChatFilter {
     Favourites,
     Communities,
     Groups,
+    /// A custom list, by its id.
+    List(u64),
+}
+
+/// A user-made list of chats (the official "New list" pill).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChatList {
+    pub id: u64,
+    pub name: String,
+    #[serde(default)]
+    pub chats: std::collections::BTreeSet<String>,
 }
 
 #[derive(Debug, Default)]
@@ -400,6 +411,10 @@ pub struct Model {
     pub call_note: Option<(String, std::time::Instant)>,
     /// Chats marked as favourites (the official Favorites filter).
     pub favourites: std::collections::BTreeSet<String>,
+    /// Custom chat lists (the official "New list" pills).
+    pub lists: Vec<ChatList>,
+    /// Next custom-list id.
+    pub next_list_id: u64,
     /// Recent calls, newest first: what the Calls screen lists.
     pub call_log: Vec<CallLogEntry>,
     /// The current call was placed from this device.
@@ -607,6 +622,10 @@ impl Model {
 
         // A long body, so wrapping, the bubble width limit and the list preview
         // can be inspected in `--preview`.
+        // Two custom lists, for the sidebar pills in `--preview`.
+        model.create_list("Work", Some("1@s.whatsapp.net"));
+        model.create_list("Family", Some("2@s.whatsapp.net"));
+
         // Two stories for the Status screen: one unseen (Recent) and one that
         // has been watched (Viewed).
         for (jid, name, id, viewed) in [
@@ -1944,6 +1963,12 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 ChatFilter::Communities => row.community,
                 ChatFilter::Unread => row.unread > 0,
                 ChatFilter::Favourites => self.favourites.contains(&row.jid),
+                ChatFilter::List(id) => self
+                    .lists
+                    .iter()
+                    .find(|list| list.id == id)
+                    .map(|list| list.chats.contains(&row.jid))
+                    .unwrap_or(false),
             })
             .filter(|row| {
                 needle.is_empty()
@@ -2006,6 +2031,27 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 (parent, children)
             })
             .collect()
+    }
+
+    /// Create a custom list; when `chat` is set the open chat joins it, which is
+    /// how the official "New list" flow starts.
+    pub fn create_list(&mut self, name: &str, chat: Option<&str>) -> Option<u64> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        self.next_list_id += 1;
+        let id = self.next_list_id;
+        let mut chats = std::collections::BTreeSet::new();
+        if let Some(jid) = chat.filter(|jid| !jid.is_empty()) {
+            chats.insert(jid.to_string());
+        }
+        self.lists.push(ChatList {
+            id,
+            name: name.to_string(),
+            chats,
+        });
+        Some(id)
     }
 
     /// Add or remove a chat from the favourites (the official "Add to
@@ -2516,6 +2562,8 @@ impl Model {
             "me": self.me_name,
             "chats": chats,
             "favourites": self.favourites.iter().cloned().collect::<Vec<_>>(),
+            "lists": self.lists,
+            "next_list_id": self.next_list_id,
         })
         .to_string()
     }
@@ -2532,6 +2580,15 @@ impl Model {
                 .iter()
                 .filter_map(|id| id.as_str().map(str::to_owned))
                 .collect();
+        }
+        if let Some(lists) = value["lists"].as_array() {
+            self.lists = lists
+                .iter()
+                .filter_map(|item| serde_json::from_value::<ChatList>(item.clone()).ok())
+                .collect();
+        }
+        if let Some(next) = value["next_list_id"].as_u64() {
+            self.next_list_id = next;
         }
         let Some(chats) = value["chats"].as_array() else {
             return;
@@ -3135,6 +3192,33 @@ mod tests {
     /// The Favorites pill lists exactly the chats marked in the chat menu.
     /// The Communities screen lists each community with its groups, the
     /// announcement group first.
+    /// A custom list filters the sidebar to the chats it holds.
+    #[test]
+    fn a_custom_list_filters_the_chat_list() {
+        let mut model = Model::new();
+        for (jid, name) in [("1@s.whatsapp.net", "Ada"), ("2@s.whatsapp.net", "Budi")] {
+            model.apply(&UiEvent::Message(view(
+                jid,
+                name,
+                "m1",
+                "hi",
+                1_770_000_000_000,
+                false,
+            )));
+        }
+        let id = model
+            .create_list("Work", Some("2@s.whatsapp.net"))
+            .expect("a list");
+        model.chat_filter = ChatFilter::List(id);
+        let rows = model.visible_chats();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(model.title(rows[0]), "Budi");
+        assert!(
+            model.create_list("   ", None).is_none(),
+            "empty names are refused"
+        );
+    }
+
     /// Unseen stories are "Recent", the rest are "Viewed" - the official split.
     #[test]
     fn status_sections_split_recent_and_viewed() {

@@ -4,6 +4,17 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.23] - 2026-11-05
+
+- **Custom chat lists (the last ❌ in the filter row).** `ChatList { id, name, chats }` lives in the
+  model and in `chats.json`, `ChatFilter::List(id)` filters `visible_chats`, and the sidebar shows a
+  **+ New list** pill plus one pill per list in the official position (after the caret). "New list"
+  opens a card dialog with a name; the open chat joins it and more can be added later.
+  Test: `model::tests::a_custom_list_filters_the_chat_list` (creates "Work" with one chat, filters
+  to it, refuses an empty name). Capture: `target/our_lists.png` (Work / Family / + New list).
+- `docs/PARITY.md` records custom lists as ✅.
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.22] - 2026-11-05
 
 - **Location messages, end to end.** `wa-types` gains `LocationView` (lat, lng, optional name and

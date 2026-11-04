@@ -12,6 +12,7 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | Rail: Chats, Calls, Status, Channels, Communities, Meta AI | Chats, Status, Channels, Communities, Settings, own avatar | 🟡 Calls panel missing; Meta AI is replaced by our own AI assistant; Media/You drawer missing |
 | Chat list header 64 px, `10px 12px`, `#1D1F1F` | 64 px, 12 px padding, `Palette::elevated` | ✅ |
 | Rows 583x72, radius 12 | 72 px rows, 12 px cards inset 6 px | ✅ |
+| Custom chat lists: "New list" creates a pill that filters to its chats | `ChatList` in the model (persisted in `chats.json`), `ChatFilter::List(id)`, a **+ New list** pill and one pill per list; the dialog names it and the open chat joins | ✅ (`target/our_lists.png`) |
 | Filters All / Unread / Favorites / Communities / Groups + "New list" | the same five in the official order with live counts; Favorites is a real filter (`Model::favourites`, toggled from the chat menu's **Add to / Remove from favourites**, persisted in `chats.json`) | ✅ filter (`target/our_filters_crop.png`); custom lists ❌ |
 | Search field `raised` (#2A3942) | same | ✅ |
 | Chat header 64 px | 64 px | ✅ |
