@@ -1013,15 +1013,59 @@ impl Model {
 
     /// The delivery marker for one of our own messages: `sent`, `delivered` or
     /// `read`. Unknown ids count as sent (the stanza was accepted).
-    /// The name a quoted reply shows: the author's display name, or "You" for
-    /// our own messages.
-    pub fn quote_author(reply: &wa_types::ReplyView) -> String {
-        reply
+    /// The name a quoted reply shows: the push name, the chat/contact name for
+    /// that JID, or "You" for our own messages (never a raw LID).
+    pub fn quote_author(&self, reply: &wa_types::ReplyView) -> String {
+        if let Some(name) = reply
             .sender_name
             .clone()
             .filter(|name| !name.trim().is_empty())
-            .or_else(|| reply.sender.clone().filter(|jid| !jid.is_empty()))
-            .unwrap_or_else(|| "You".to_string())
+        {
+            return name;
+        }
+        let Some(sender) = reply.sender.clone().filter(|jid| !jid.is_empty()) else {
+            return "You".to_string();
+        };
+        if let Some(name) = self
+            .chats
+            .get(&sender)
+            .map(|row| self.title(row))
+            .filter(|name| !name.trim().is_empty() && name != &sender)
+        {
+            return name;
+        }
+        // A LID has no readable user part at all; a phone number does.
+        if sender.ends_with("@lid") {
+            return "Unknown contact".to_string();
+        }
+        sender.split('@').next().unwrap_or(&sender).to_string()
+    }
+
+    /// What a quoted reply shows as its one line: the media kind when it is not
+    /// text, and emoji stripped from text so the bubble never paints glyph boxes.
+    pub fn quote_line(reply: &wa_types::ReplyView) -> String {
+        let text: String = reply
+            .text
+            .chars()
+            .filter(|ch| {
+                !(crate::app::is_emoji_char(*ch)
+                    || *ch == '\u{FE0F}'
+                    || *ch == '\u{200D}'
+                    || *ch == '\u{20E3}')
+            })
+            .collect();
+        let trimmed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+        match reply.kind.as_str() {
+            "sticker" => "Sticker".to_string(),
+            "image" => "Photo".to_string(),
+            "video" => "Video".to_string(),
+            "audio" => "Voice message".to_string(),
+            "document" => "Document".to_string(),
+            _ => "Message".to_string(),
+        }
     }
 
     /// The stickers of the pack open in the Packs tab.
@@ -2686,12 +2730,34 @@ mod tests {
             text: "hi".into(),
             thumb: None,
         };
-        assert_eq!(Model::quote_author(&reply), "You");
+        let model = Model::new();
+        assert_eq!(model.quote_author(&reply), "You");
         reply.sender_name = Some("Ada".into());
-        assert_eq!(Model::quote_author(&reply), "Ada");
+        assert_eq!(model.quote_author(&reply), "Ada");
         reply.sender_name = Some("   ".into());
         reply.sender = Some("2@s.whatsapp.net".into());
-        assert_eq!(Model::quote_author(&reply), "2@s.whatsapp.net");
+        assert_eq!(model.quote_author(&reply), "2");
+        reply.sender = Some("107872566427657@lid".into());
+        assert_eq!(model.quote_author(&reply), "Unknown contact");
+    }
+
+    #[test]
+    fn a_quote_line_never_shows_glyph_boxes() {
+        let sticker = wa_types::ReplyView {
+            id: "m1".into(),
+            sender: Some("1@s.whatsapp.net".into()),
+            sender_name: Some("Ada".into()),
+            kind: "sticker".into(),
+            text: "👍👍👍".into(),
+            thumb: None,
+        };
+        assert_eq!(Model::quote_line(&sticker), "Sticker");
+        let mixed = wa_types::ReplyView {
+            kind: "text".into(),
+            text: "ok 👍 done".into(),
+            ..sticker
+        };
+        assert_eq!(Model::quote_line(&mixed), "ok done");
     }
 
     #[test]

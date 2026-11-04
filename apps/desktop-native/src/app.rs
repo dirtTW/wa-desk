@@ -2144,8 +2144,14 @@ impl WaDesk {
                     .take(24)
                     .map(|message| message.id.clone())
                     .collect();
+                diag(&format!(
+                    "chat {jid} messages {} media wanted {}",
+                    row.messages.len(),
+                    wanted.len()
+                ));
                 for id in wanted {
                     if self.model.request_media(&id) {
+                        diag(&format!("request media {id}"));
                         self.send(Command::FetchMedia { id });
                     }
                 }
@@ -2724,10 +2730,94 @@ fn bubble_content(
                 .flatten()
                 .or_else(|| texture_at(ctx, textures, &message.id, model.media_path(&message.id)))
         {
+            // The photo/video sits inside the same bubble as text: padding,
+            // rounded corners with the run's tail, caption and clock inside.
             let size = texture.size_vec2();
-            let scale = (240.0 / size.x).min(1.0);
-            let response =
-                ui.add(egui::Image::new((texture.id(), size * scale)).sense(egui::Sense::click()));
+            let pad = 3.0;
+            let scale = (240.0 / size.x.max(1.0)).min(1.0);
+            let image_size = size * scale;
+            let width = (image_size.x + pad * 2.0).min(max_width);
+            let caption = clean_text(message.text.trim());
+            let caption_galley = (!caption.is_empty()).then(|| {
+                ui.painter().layout(
+                    caption,
+                    egui::FontId::proportional(14.0),
+                    palette.text,
+                    (width - pad * 2.0).max(80.0),
+                )
+            });
+            let time = ui.painter().layout_no_wrap(
+                model.bubble_stamp(message),
+                egui::FontId::proportional(11.0),
+                palette.secondary,
+            );
+            let tick_width = if message.from_me { 16.0 } else { 0.0 };
+            let mut height = image_size.y + pad * 2.0 + time.size().y + 2.0;
+            if let Some(galley) = &caption_galley {
+                height += galley.size().y + 2.0;
+            }
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            let square = if tail { 2 } else { 8 };
+            let radius = egui::CornerRadius {
+                nw: 8,
+                ne: 8,
+                sw: if message.from_me { 8 } else { square },
+                se: if message.from_me { square } else { 8 },
+            };
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+            ui.painter().rect_filled(rect, radius, fill);
+            // The photo carries the bubble's rounding, not square corners.
+            ui.put(
+                egui::Rect::from_min_size(
+                    egui::pos2(rect.left() + pad, rect.top() + pad),
+                    image_size,
+                ),
+                egui::Image::new((texture.id(), image_size))
+                    .corner_radius(egui::CornerRadius::same(6)),
+            );
+            let painter = ui.painter();
+            let mut y = rect.top() + pad + image_size.y + 2.0;
+            if let Some(galley) = caption_galley {
+                let height = galley.size().y;
+                painter.galley(egui::pos2(rect.left() + pad, y), galley, palette.text);
+                y += height;
+            }
+            let _ = y;
+            painter.galley(
+                egui::pos2(
+                    rect.right() - pad - tick_width - time.size().x,
+                    rect.bottom() - 3.0 - time.size().y,
+                ),
+                time,
+                palette.secondary,
+            );
+            if message.from_me {
+                let status = model.tick_status(message);
+                let read = matches!(status, "read" | "played");
+                let delivered = matches!(status, "delivered" | "read" | "played");
+                let name = if delivered { "done_all" } else { "check" };
+                let color = if read {
+                    palette.read
+                } else {
+                    palette.secondary
+                };
+                if let Some(icon) = crate::icons::texture(ui.ctx(), name, 14, color) {
+                    painter.image(
+                        icon.id(),
+                        egui::Rect::from_min_size(
+                            egui::pos2(rect.right() - pad - 14.0, rect.bottom() - 17.0),
+                            egui::vec2(14.0, 14.0),
+                        ),
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
+            }
             if scroll {
                 response.scroll_to_me(Some(egui::Align::Center));
             }
@@ -2735,18 +2825,6 @@ fn bubble_content(
                 action = Some(BubbleAction::OpenMedia(message.id.clone()));
             }
             context_menu(&response, palette, model, message, &mut action);
-            if !message.text.trim().is_empty() {
-                ui.label(
-                    egui::RichText::new(&message.text)
-                        .size(14.0)
-                        .color(palette.text),
-                );
-            }
-            ui.label(
-                egui::RichText::new(model.bubble_stamp(message))
-                    .size(11.0)
-                    .color(palette.secondary),
-            );
             pills_row(ui, palette, model, message);
             ui.add_space(if tail { 8.0 } else { 2.0 });
             return;
@@ -2966,7 +3044,7 @@ fn bubble_content(
             return;
         }
 
-        let body = model.bubble_body(message);
+        let body = clean_text(&model.bubble_body(message));
         let fill = if message.from_me {
             palette.bubble_out
         } else {
@@ -3059,7 +3137,7 @@ fn bubble_content(
                 egui::pos2(rect.left() + 6.0, rect.top() + 5.0),
                 egui::vec2((rect.width() - 12.0).max(60.0), 28.0),
             );
-            let author = Model::quote_author(quote);
+            let author = model.quote_author(quote);
             let bar = sender_color(&author, palette);
             let card_fill = if message.from_me {
                 egui::Color32::from_black_alpha(28)
@@ -3079,11 +3157,7 @@ fn bubble_content(
                 egui::FontId::proportional(11.5),
                 bar,
             );
-            let quoted = if quote.text.trim().is_empty() {
-                quote.kind.clone()
-            } else {
-                quote.text.clone()
-            };
+            let quoted = Model::quote_line(quote);
             let galley =
                 painter.layout_no_wrap(quoted, egui::FontId::proportional(12.0), palette.secondary);
             let clipped = painter.with_clip_rect(card.shrink2(egui::vec2(9.0, 0.0)));
@@ -4619,6 +4693,21 @@ fn day_chip(ui: &mut egui::Ui, palette: &crate::theme::Palette, label: &str) {
     ui.add_space(4.0);
 }
 
+/// Drop invisible formatting characters (zero-width space/joiner, word joiner,
+/// BOM): WhatsApp passes them through, and the bundled fonts paint them as
+/// missing-glyph boxes.
+fn clean_text(text: &str) -> String {
+    text.chars()
+        .filter(|ch| {
+            let code = *ch as u32;
+            !(0x200B..=0x200F).contains(&code)
+                && !(0x2060..=0x2064).contains(&code)
+                && code != 0xFEFF
+                && code != 0x00AD
+        })
+        .collect()
+}
+
 /// One laid-out piece of a message body: text or a colour emoji.
 enum Inline {
     Text(std::sync::Arc<egui::Galley>),
@@ -4633,7 +4722,7 @@ struct BodyLayout {
 }
 
 /// Is this a character the official client draws as an emoji picture?
-fn is_emoji_char(ch: char) -> bool {
+pub(crate) fn is_emoji_char(ch: char) -> bool {
     let code = ch as u32;
     code >= 0x1F000
         || (0x2600..=0x27BF).contains(&code)
@@ -4715,10 +4804,9 @@ fn layout_body(
                         placed.push((egui::pos2(x, y + offset), Inline::Emoji(texture)));
                     }
                     None => {
-                        let galley =
-                            ui.painter()
-                                .layout_no_wrap(ch.to_string(), font.clone(), color);
-                        placed.push((egui::pos2(x, y + offset), Inline::Text(galley)));
+                        // No colour glyph for this codepoint: leave the cell
+                        // empty rather than painting a missing-glyph box.
+                        let _ = &font;
                     }
                 }
                 x += emoji_size;
@@ -5213,6 +5301,24 @@ impl eframe::App for WaDesk {
         self.model.now = now_ms();
         // Screenshot testing: open a seeded chat so history can be exercised
         // without clicking.
+        // `WA_DESK_OPEN_CHAT=<text>` opens the first chat whose title contains it
+        // (diagnosing a specific conversation without clicking).
+        if let Ok(needle) = std::env::var("WA_DESK_OPEN_CHAT") {
+            let needle = needle.to_lowercase();
+            if let Some(jid) = self
+                .model
+                .visible_chats()
+                .iter()
+                .find(|row| self.model.title(row).to_lowercase().contains(&needle))
+                .map(|row| row.jid.clone())
+            {
+                self.model.open_chat(&jid);
+                self.send(Command::MarkRead { chat: jid.clone() });
+                self.send(Command::ChatHistory { chat: jid });
+                self.auto_opened = true;
+                // Opened once; auto_opened keeps it from repeating.
+            }
+        }
         if !self.auto_opened
             && self.model.active.is_none()
             && std::env::var("WA_DESK_OPEN_FIRST").is_ok()

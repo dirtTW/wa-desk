@@ -4,6 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.98] - 2026-11-04
+
+- **Photos and videos sit inside the bubble now.** The media branch paints the same rounded
+  bubble as text (tail corner on the last of a run) with the photo inset at 3 px, the caption
+  inside the bubble and the clock/ticks at the bottom right - the official look instead of a bare
+  image with loose labels. The image itself carries a 6 px radius so it follows the bubble's
+  corners (`target/media_round.png`).
+- **Quoted replies show a readable author and line.** `Model::quote_author` resolves the JID
+  through the chat list and returns "Unknown contact" for a LID instead of printing
+  `107872566427657@lid`; `Model::quote_line` drops emoji from the quoted text (photo/sticker
+  quotes read "Photo"/"Sticker") so the card never paints glyph boxes. Tests:
+  `a_quote_names_its_author`, `a_quote_line_never_shows_glyph_boxes`.
+- **Invisible formatting characters are stripped** from message bodies
+  (`clean_text`: U+200B-U+200F, U+2060-U+2064, U+FEFF, U+00AD). WhatsApp passes them through and
+  the bundled fonts paint them as empty boxes.
+- **Verified against the linked session**: with `WA_DESK_DIAG=1` the log shows the media cache
+  serving the files, and `target/media_frame2.png` / `target/media_round.png` show the group photo
+  with its caption inside the gutter-aligned bubble.
+- Diagnostics hooks: `WA_DESK_OPEN_CHAT=<text>` opens a chat by name; `FetchMedia` logs
+  `media <id> failed: <reason>` so a stuck photo can be diagnosed from `diagnostics.log`.
+- Tests: 96 native + 38 wa-core, clippy clean, selftest green.
+
 ## [0.2.0-rc.97] - 2026-11-04
 
 - **Photos and videos that cannot download now say so.** A missing photo/video drew a bubble that
