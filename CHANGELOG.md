@@ -4,6 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.18] - 2026-11-04
+
+- **Bubbles no longer touch the window edge.** The message list is wrapped in a frame with a 20 px
+  side margin, so both incoming and own bubbles keep a gap from the panel border - measured on the
+  capture: the right-most green bubble pixel sits **25 px** from the window edge
+  (`target/bubble_space4.png`). An `add_space(side)` inside a horizontal row only pushed the left
+  column, which is why the earlier attempt left the green bubbles flush.
+- **Dialogs are drawn as official cards, not egui windows.** The poll and contact composers use a
+  new shared `dialog_card` (rounded 14, elevated fill, hairline border, drop shadow, no title bar,
+  accent section labels, green filled *Send* pill and a quiet *Cancel*) - egui's default window
+  chrome never matched WhatsApp. Capture: `target/poll_dialog_custom.png`.
+- **`app.rs` starts to come apart**: the five painters with no window state
+  (`dialog_card`, `dialog_button`, `hex_colour`, `status_share_tile`, `status_send_button`) moved to
+  a new `src/widgets.rs` (`pub(crate)`), imported by `app.rs`.
+- **Polls and contact cards can be sent** (`Command::SendPoll` / `SendContact` →
+  `Session::send_poll` via the client's `polls().create`, `Session::send_contact` with a vCard 3.0
+  body). `contact_vcard` has a unit test. Captures: `target/our_poll_dialog.png`,
+  `target/our_contact_dialog.png`.
+- Receiving the two kinds is still missing (`events.rs` does not map `pollCreationMessage` /
+  `contactMessage`), so `docs/PARITY.md` records them as *send ✅ render ✅ receive ❌*.
+- Tests: 116 native + 39 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.17] - 2026-11-04
 
 - **Poll and contact bubbles render like the official client.** A `poll` message draws its question

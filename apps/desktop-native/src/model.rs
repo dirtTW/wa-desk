@@ -144,6 +144,19 @@ pub enum Command {
         background: u32,
         font: String,
     },
+    /// Create a poll in the open chat.
+    SendPoll {
+        chat: String,
+        question: String,
+        options: Vec<String>,
+        multiple: bool,
+    },
+    /// Share a contact card in the open chat.
+    SendContact {
+        chat: String,
+        name: String,
+        phone: String,
+    },
     /// Send a recorded voice note (Ogg/Opus, base64) with its length and the
     /// 64-bar waveform.
     SendVoiceNote {

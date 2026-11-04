@@ -533,6 +533,74 @@ impl Session {
     }
 
     /// React to a message with an emoji. An empty emoji removes our reaction.
+    /// Create a poll in `chat`. `selectable` is how many options a voter may
+    /// pick (1 for a single-choice poll, the option count for multi-select).
+    pub async fn send_poll(
+        &self,
+        chat: &str,
+        question: &str,
+        options: Vec<String>,
+        multiple: bool,
+    ) -> Result<String, String> {
+        let question = question.trim();
+        if question.is_empty() {
+            return Err("the poll needs a question".into());
+        }
+        let options: Vec<String> = options
+            .into_iter()
+            .map(|option| option.trim().to_string())
+            .filter(|option| !option.is_empty())
+            .collect();
+        if options.len() < 2 {
+            return Err("a poll needs at least two options".into());
+        }
+        let jid = self.resolve_chat(chat)?;
+        let selectable = if multiple {
+            options.len().min(12) as u32
+        } else {
+            1
+        };
+        let (sent, _secret) = self
+            .client
+            .polls()
+            .create(jid, question, &options, selectable)
+            .await
+            .map_err(|e| format!("could not create the poll: {e}"))?;
+        Ok(sent.message_id)
+    }
+
+    /// Share a contact card (`contactMessage`) with a vCard 3.0 body.
+    pub async fn send_contact(
+        &self,
+        chat: &str,
+        name: &str,
+        phone: &str,
+    ) -> Result<String, String> {
+        let name = name.trim();
+        let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
+        if name.is_empty() || digits.len() < 7 {
+            return Err("the contact needs a name and a full number".into());
+        }
+        let jid = self.resolve_chat(chat)?;
+        let vcard = contact_vcard(name, &digits);
+        // `MessageField`/`ContactMessage` come from the vendored prelude, the same
+        // way every other builder in this crate reaches them.
+        let message = wa::Message {
+            contact_message: MessageField::some(wa::message::ContactMessage {
+                display_name: Some(name.to_string()),
+                vcard: Some(vcard),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let sent = self
+            .client
+            .send_message(jid, message)
+            .await
+            .map_err(|e| format!("could not send the contact: {e}"))?;
+        Ok(sent.message_id)
+    }
+
     pub async fn send_reaction(
         &self,
         chat: &str,
@@ -578,5 +646,25 @@ impl Session {
             .mark_as_read(&jid, None, &refs)
             .await
             .map_err(|e| format!("read receipt failed: {e}"))
+    }
+}
+
+/// The vCard 3.0 body WhatsApp puts in a `contactMessage`. `waid` is the
+/// digits-only WhatsApp id, the `TEL` value the international number.
+pub fn contact_vcard(name: &str, digits: &str) -> String {
+    format!("BEGIN:VCARD\nVERSION:3.0\nFN:{name}\nTEL;type=CELL;waid={digits}:+{digits}\nEND:VCARD")
+}
+
+#[cfg(test)]
+mod vcard_tests {
+    use super::*;
+
+    #[test]
+    fn a_contact_card_carries_the_name_and_number() {
+        let card = contact_vcard("Ada Lovelace", "628111000111");
+        assert!(card.starts_with("BEGIN:VCARD\nVERSION:3.0"));
+        assert!(card.contains("FN:Ada Lovelace"));
+        assert!(card.contains("waid=628111000111:+628111000111"));
+        assert!(card.ends_with("END:VCARD"));
     }
 }

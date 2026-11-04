@@ -12,6 +12,10 @@ use crate::login::LoginState;
 use crate::model::{BubbleAction, ChatRow, Command, Model};
 use crate::settings::NativeSettings;
 use crate::updates::{self, Release, UpdateMsg, UpdateState};
+use crate::widgets::{
+    avatar_color, dialog_button, dialog_card, fit_text, hex_colour, initials, paint_avatar,
+    status_send_button, status_share_tile,
+};
 
 /// What `main` assembles before the window exists.
 pub struct NativeApp {
@@ -76,6 +80,9 @@ pub struct WaDesk {
     voice: Option<crate::voicenote::Recording>,
     /// The attach menu is open.
     show_attach: bool,
+    /// Poll and contact-card drafts (the attach menu's two dialogs).
+    poll_draft: Option<crate::app::PollDraft>,
+    contact_draft: Option<crate::app::ContactDraft>,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
@@ -257,6 +264,8 @@ impl WaDesk {
             communities_active: None,
             voice: None,
             show_attach: std::env::var("WA_DESK_ATTACH").is_ok(),
+            poll_draft: None,
+            contact_draft: None,
             status_compose: None,
             status_compose_background: 0,
             status_compose_font: 0,
@@ -409,6 +418,23 @@ impl WaDesk {
         }
         // `WA_DESK_POLL=1` / `WA_DESK_CONTACT=1` put the two new message kinds in
         // the demo group so their bubbles can be captured.
+        if std::env::var("WA_DESK_POLL_DIALOG").is_ok() {
+            self.poll_draft = Some(PollDraft {
+                question: "Where do we eat on Friday?".to_string(),
+                options: [
+                    "Warung nasi".to_string(),
+                    "Pizza".to_string(),
+                    "Sushi".to_string(),
+                ],
+                multiple: false,
+            });
+        }
+        if std::env::var("WA_DESK_CONTACT_DIALOG").is_ok() {
+            self.contact_draft = Some(ContactDraft {
+                name: "Ada Lovelace".to_string(),
+                phone: "628111000111".to_string(),
+            });
+        }
         if std::env::var("WA_DESK_POLL").is_ok() {
             self.model.demo_poll(
                 "1203@g.us",
@@ -757,6 +783,144 @@ impl WaDesk {
         chosen
     }
 
+    /// The poll composer: a question and three option rows, like the official
+    /// dialog (more options can be added later; WhatsApp needs two).
+    fn poll_window(&mut self, ctx: &egui::Context) {
+        if self.poll_draft.is_none() {
+            return;
+        }
+        let palette = self.palette.clone();
+        let viewport = ctx.screen_rect();
+        let mut send = false;
+        let mut close = false;
+        let draft = self.poll_draft.as_mut().expect("draft is open");
+        dialog_card(
+            ctx,
+            "poll-dialog",
+            360.0,
+            "Create poll",
+            &palette,
+            viewport,
+            |ui| {
+                ui.label(
+                    egui::RichText::new("QUESTION")
+                        .size(11.5)
+                        .color(palette.accent),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut draft.question)
+                        .hint_text("Ask a question")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new("OPTIONS")
+                        .size(11.5)
+                        .color(palette.accent),
+                );
+                for option in &mut draft.options {
+                    ui.add(
+                        egui::TextEdit::singleline(option)
+                            .hint_text("Option")
+                            .desired_width(f32::INFINITY),
+                    );
+                }
+                ui.add_space(8.0);
+                ui.checkbox(&mut draft.multiple, "Allow multiple answers");
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    if dialog_button(ui, &palette, "Cancel", false).clicked() {
+                        close = true;
+                    }
+                    if dialog_button(ui, &palette, "Send", true).clicked() {
+                        send = true;
+                    }
+                });
+            },
+        );
+        if send {
+            let draft = self.poll_draft.clone().expect("draft is open");
+            let options: Vec<String> = draft
+                .options
+                .into_iter()
+                .map(|option| option.trim().to_string())
+                .filter(|option| !option.is_empty())
+                .collect();
+            if let Some(chat) = self.model.active.clone() {
+                if options.len() >= 2 && !draft.question.trim().is_empty() {
+                    self.send(Command::SendPoll {
+                        chat,
+                        question: draft.question.trim().to_string(),
+                        options,
+                        multiple: draft.multiple,
+                    });
+                } else {
+                    self.notice = Some((
+                        "A poll needs a question and two options".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+            self.poll_draft = None;
+        } else if close {
+            self.poll_draft = None;
+        }
+    }
+
+    /// The contact-card composer: a name and a number.
+    fn contact_window(&mut self, ctx: &egui::Context) {
+        if self.contact_draft.is_none() {
+            return;
+        }
+        let palette = self.palette.clone();
+        let viewport = ctx.screen_rect();
+        let mut send = false;
+        let mut close = false;
+        let draft = self.contact_draft.as_mut().expect("draft is open");
+        dialog_card(
+            ctx,
+            "contact-dialog",
+            340.0,
+            "Share a contact",
+            &palette,
+            viewport,
+            |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut draft.name)
+                        .hint_text("Name")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut draft.phone)
+                        .hint_text("Phone number")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    if dialog_button(ui, &palette, "Cancel", false).clicked() {
+                        close = true;
+                    }
+                    if dialog_button(ui, &palette, "Send", true).clicked() {
+                        send = true;
+                    }
+                });
+            },
+        );
+        if send {
+            let draft = self.contact_draft.clone().expect("draft is open");
+            if let Some(chat) = self.model.active.clone() {
+                self.send(Command::SendContact {
+                    chat,
+                    name: draft.name.trim().to_string(),
+                    phone: draft.phone.trim().to_string(),
+                });
+            }
+            self.contact_draft = None;
+        } else if close {
+            self.contact_draft = None;
+        }
+    }
+
     /// The attach menu: the official entries (Photos & videos, Camera,
     /// Document, Audio, Poll, Location, Contact). The ones this client can send
     /// open the file picker; the rest say where they live.
@@ -814,18 +978,22 @@ impl WaDesk {
                     std::time::Instant::now(),
                 ));
             }
-            "poll" | "location" | "contact" => {
+            "poll" => {
+                self.poll_draft = Some(PollDraft {
+                    question: String::new(),
+                    options: [String::new(), String::new(), String::new()],
+                    multiple: false,
+                });
+            }
+            "contact" => {
+                self.contact_draft = Some(ContactDraft {
+                    name: String::new(),
+                    phone: String::new(),
+                });
+            }
+            "location" => {
                 self.notice = Some((
-                    format!(
-                        "Sending a {} is not supported yet",
-                        if action == "poll" {
-                            "poll"
-                        } else if action == "location" {
-                            "location"
-                        } else {
-                            "contact card"
-                        }
-                    ),
+                    "Sending a location is not supported yet".to_string(),
                     std::time::Instant::now(),
                 ));
             }
@@ -2300,63 +2468,68 @@ impl WaDesk {
                     .max_height(height.max(120.0))
                     .show(ui, |ui| {
                         let ctx = ui.ctx().clone();
-                        if spare > 0.0 {
-                            ui.add_space(spare);
-                        }
-                        let now = self.model.now;
-                        for (index, message) in row.messages.iter().enumerate() {
-                            // The official client separates days with a chip.
-                            if Model::starts_new_day(&row.messages, index, now) {
-                                day_chip(
-                                    ui,
-                                    &palette,
-                                    &wa_ui::labels::day_of(message.timestamp, now),
-                                );
-                            }
-                            // ...and marks where the unread block began.
-                            if self
-                                .model
-                                .unread_anchor
-                                .get(&row.jid)
-                                .is_some_and(|id| id == &message.id)
-                            {
-                                unread_divider(ui, &palette);
-                            }
-                            let is_hit = hits.contains(&index);
-                            let head = Model::starts_run(&row.messages, index);
-                            let avatar = if row.jid.ends_with("@g.us")
-                                && !message.from_me
-                                && head
-                                && let Some(sender) = message.sender.as_deref()
-                            {
-                                self.ensure_avatar(ui.ctx(), sender);
-                                self.avatar_for(sender).cloned()
-                            } else {
-                                None
-                            };
-                            if let Some(action) = bubble(
-                                ui,
-                                &palette,
-                                &self.model,
-                                message,
-                                &mut self.textures,
-                                &ctx,
-                                if is_hit { Some(query.as_str()) } else { None },
-                                focus == Some(index),
-                                &playback,
-                                Model::ends_run(&row.messages, index),
-                                avatar.as_ref(),
-                                head,
-                            ) {
-                                chosen = Some(action);
-                            }
-                        }
-                        ctx.data_mut(|data| {
-                            data.insert_temp(
-                                egui::Id::new("chat-content-height"),
-                                (ui.min_rect().height() - spare).max(0.0),
-                            );
-                        });
+                        // Breathing room from the window edge: the official
+                        // list never lets a bubble touch the panel border. A
+                        // frame margin insets *both* sides, which `add_space`
+                        // cannot do for a right-aligned bubble.
+                        egui::Frame::new()
+                            .inner_margin(egui::Margin::symmetric(20, 0))
+                            .show(ui, |ui| {
+                                let now = self.model.now;
+                                for (index, message) in row.messages.iter().enumerate() {
+                                    // The official client separates days with a chip.
+                                    if Model::starts_new_day(&row.messages, index, now) {
+                                        day_chip(
+                                            ui,
+                                            &palette,
+                                            &wa_ui::labels::day_of(message.timestamp, now),
+                                        );
+                                    }
+                                    // ...and marks where the unread block began.
+                                    if self
+                                        .model
+                                        .unread_anchor
+                                        .get(&row.jid)
+                                        .is_some_and(|id| id == &message.id)
+                                    {
+                                        unread_divider(ui, &palette);
+                                    }
+                                    let is_hit = hits.contains(&index);
+                                    let head = Model::starts_run(&row.messages, index);
+                                    let avatar = if row.jid.ends_with("@g.us")
+                                        && !message.from_me
+                                        && head
+                                        && let Some(sender) = message.sender.as_deref()
+                                    {
+                                        self.ensure_avatar(ui.ctx(), sender);
+                                        self.avatar_for(sender).cloned()
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(action) = bubble(
+                                        ui,
+                                        &palette,
+                                        &self.model,
+                                        message,
+                                        &mut self.textures,
+                                        &ctx,
+                                        if is_hit { Some(query.as_str()) } else { None },
+                                        focus == Some(index),
+                                        &playback,
+                                        Model::ends_run(&row.messages, index),
+                                        avatar.as_ref(),
+                                        head,
+                                    ) {
+                                        chosen = Some(action);
+                                    }
+                                }
+                                ctx.data_mut(|data| {
+                                    data.insert_temp(
+                                        egui::Id::new("chat-content-height"),
+                                        (ui.min_rect().height() - spare).max(0.0),
+                                    );
+                                });
+                            });
                     });
                 if let Some(action) = chosen {
                     self.run_action(&row, action);
@@ -6757,6 +6930,21 @@ fn draw_laptop(ui: &egui::Ui, rect: egui::Rect, palette: &crate::theme::Palette)
     painter.rect_filled(base, egui::CornerRadius::same(3), green);
 }
 
+/// The poll composer's state.
+#[derive(Clone, Default)]
+pub struct PollDraft {
+    pub question: String,
+    pub options: [String; 3],
+    pub multiple: bool,
+}
+
+/// The contact-card composer's state.
+#[derive(Clone, Default)]
+pub struct ContactDraft {
+    pub name: String,
+    pub phone: String,
+}
+
 /// One 72 px call row: avatar, name, direction + time, and a call button.
 /// Returns `Some(video)` when the call button was pressed (false = voice).
 fn call_row(
@@ -6878,78 +7066,6 @@ fn call_row(
         return Some(entry.video);
     }
     None
-}
-
-/// One "Share statuses" tile: a rounded card with an icon and a label.
-fn status_share_tile(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    icon: Icon,
-    label: &str,
-) -> bool {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(260.0, 46.0), egui::Sense::click());
-    let fill = if response.hovered() {
-        palette.hover
-    } else {
-        palette.raised
-    };
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::same(10), fill);
-    draw_icon(
-        ui,
-        egui::Rect::from_center_size(
-            egui::pos2(rect.left() + 24.0, rect.center().y),
-            egui::vec2(20.0, 20.0),
-        ),
-        icon,
-        palette.text,
-    );
-    ui.painter().text(
-        egui::pos2(rect.left() + 46.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(14.0),
-        palette.text,
-    );
-    response.clicked()
-}
-
-/// `#rrggbb` (or `#aarrggbb`) as an egui colour.
-fn hex_colour(value: &str) -> egui::Color32 {
-    let clean = value.trim_start_matches('#');
-    let parsed = u32::from_str_radix(clean, 16).unwrap_or(0xA884);
-    if clean.len() == 8 {
-        egui::Color32::from_rgba_unmultiplied(
-            (parsed >> 16) as u8,
-            (parsed >> 8) as u8,
-            parsed as u8,
-            (parsed >> 24) as u8,
-        )
-    } else {
-        egui::Color32::from_rgb((parsed >> 16) as u8, (parsed >> 8) as u8, parsed as u8)
-    }
-}
-
-/// The green "Send" pill under the text-status box.
-fn status_send_button(ui: &mut egui::Ui, palette: &crate::theme::Palette) -> bool {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(96.0, 34.0), egui::Sense::click());
-    ui.painter().rect_filled(
-        rect,
-        egui::CornerRadius::same(17),
-        if response.hovered() {
-            palette.accent.gamma_multiply(0.9)
-        } else {
-            palette.accent
-        },
-    );
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        "Send",
-        egui::FontId::proportional(14.0),
-        egui::Color32::from_rgb(11, 20, 26),
-    );
-    response.clicked()
 }
 
 /// One 72 px status row: ring avatar, name, meta line.
@@ -7976,6 +8092,8 @@ impl eframe::App for WaDesk {
                 self.conversation(ctx);
                 self.emoji_window(ctx);
                 self.attach_window(ctx);
+                self.poll_window(ctx);
+                self.contact_window(ctx);
                 self.stickers_window(ctx);
                 self.delete_window(ctx);
                 self.forward_window(ctx);
@@ -9577,47 +9695,10 @@ fn palette_thumb() -> egui::Color32 {
     egui::Color32::from_rgb(38, 42, 44)
 }
 
-/// Trim `text` until it measures inside `max_width`, adding an ellipsis.
-fn fit_text(
-    painter: &egui::Painter,
-    text: &str,
-    font: egui::FontId,
-    color: egui::Color32,
-    max_width: f32,
-) -> String {
-    if max_width <= 0.0 {
-        return String::new();
-    }
-    if painter
-        .layout_no_wrap(text.to_string(), font.clone(), color)
-        .size()
-        .x
-        <= max_width
-    {
-        return text.to_string();
-    }
-    let chars: Vec<char> = text.chars().collect();
-    let mut len = chars.len();
-    while len > 1 {
-        len -= 1;
-        let mut candidate: String = chars[..len].iter().collect();
-        candidate.push('…');
-        if painter
-            .layout_no_wrap(candidate.clone(), font.clone(), color)
-            .size()
-            .x
-            <= max_width
-        {
-            return candidate;
-        }
-    }
-    "…".to_string()
-}
-
 /// The icons the window draws itself. Emoji glyphs are not in egui's bundled
 /// fonts (they render as boxes), so every icon is a few strokes instead.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Icon {
+pub(crate) enum Icon {
     Search,
     Menu,
     Status,
@@ -9675,7 +9756,7 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -
 }
 
 /// Paint one Material Symbol inside `rect`; the texture is cached per colour.
-fn draw_icon(ui: &egui::Ui, rect: egui::Rect, icon: Icon, color: egui::Color32) {
+pub(crate) fn draw_icon(ui: &egui::Ui, rect: egui::Rect, icon: Icon, color: egui::Color32) {
     let size = rect.width().round().max(8.0) as u32;
     if let Some(texture) = crate::icons::texture(ui.ctx(), icon.name(), size, color) {
         ui.painter().image(
@@ -9890,29 +9971,6 @@ fn action_button(
     .inner
 }
 
-/// A round initials avatar, like WhatsApp's default profile photo.
-fn paint_avatar(ui: &mut egui::Ui, name: &str, size: f32, texture: Option<&egui::TextureHandle>) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
-    let painter = ui.painter();
-    if let Some(texture) = texture {
-        painter.image(
-            texture.id(),
-            rect,
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-            egui::Color32::WHITE,
-        );
-        return;
-    }
-    painter.circle_filled(rect.center(), size * 0.5, avatar_color(name));
-    painter.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        initials(name),
-        egui::FontId::proportional(size * 0.38),
-        egui::Color32::WHITE,
-    );
-}
-
 /// Decode a profile photo into a circular avatar texture.
 fn circular_avatar(ctx: &egui::Context, key: &str, bytes: &[u8]) -> Option<egui::TextureHandle> {
     let image = image::load_from_memory(bytes).ok()?.to_rgba8();
@@ -9939,30 +9997,14 @@ fn circular_avatar(ctx: &egui::Context, key: &str, bytes: &[u8]) -> Option<egui:
     Some(ctx.load_texture(key, color, egui::TextureOptions::LINEAR))
 }
 
-fn initials(name: &str) -> String {
-    let mut letters = name
-        .split_whitespace()
-        .filter_map(|word| word.chars().next());
-    match (letters.next(), letters.next()) {
-        (Some(first), Some(second)) => format!("{first}{second}").to_uppercase(),
-        (Some(first), None) => first.to_uppercase().to_string(),
-        _ => "?".to_string(),
-    }
-}
-
-/// The default-avatar palette WhatsApp uses for people without a photo.
-fn avatar_color(name: &str) -> egui::Color32 {
-    const COLORS: [u32; 8] = [
-        0x8E9BA6, 0xB5766B, 0x7C8FA8, 0x9A7EA8, 0xA48A5B, 0x5F8A76, 0xA8708A, 0x5C7E8A,
-    ];
-    hex_color(COLORS[hash(name) % COLORS.len()])
-}
+/// The official `--WDS-components-profile-photo-surface-*` palette, used for
+/// sender names and avatar fallbacks.
+pub(crate) const COLORS: [u32; 8] = [
+    0x53BDEB, 0x21C063, 0xF5A524, 0xE17E7E, 0xB39DDB, 0x7FD1C1, 0xEBA36A, 0x9FC7E8,
+];
 
 /// Group sender names are coloured per sender, like the official client.
 fn sender_color(name: &str, palette: &crate::theme::Palette) -> egui::Color32 {
-    const COLORS: [u32; 8] = [
-        0x53BDEB, 0x21C063, 0xF5A524, 0xE17E7E, 0xB39DDB, 0x7FD1C1, 0xEBA36A, 0x9FC7E8,
-    ];
     let color = hex_color(COLORS[hash(name) % COLORS.len()]);
     if palette.dark {
         color

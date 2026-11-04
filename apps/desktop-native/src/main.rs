@@ -40,6 +40,7 @@ mod updates;
 mod video;
 mod voicenote;
 mod webp_anim;
+mod widgets;
 
 use std::sync::Arc;
 
@@ -603,6 +604,21 @@ fn main() {
                         if url.is_some() { "url" } else { "none" }
                     ));
                     let _ = avatar_tx.send((jid, url));
+                }
+                model::Command::SendPoll {
+                    chat,
+                    question,
+                    options,
+                    multiple,
+                } => match session.send_poll(&chat, &question, options, multiple).await {
+                    Ok(id) => app::diag(&format!("poll sent {id}")),
+                    Err(err) => tracing::warn!(%err, "poll failed"),
+                },
+                model::Command::SendContact { chat, name, phone } => {
+                    match session.send_contact(&chat, &name, &phone).await {
+                        Ok(id) => app::diag(&format!("contact sent {id}")),
+                        Err(err) => tracing::warn!(%err, "contact failed"),
+                    }
                 }
                 model::Command::SendVoiceNote {
                     chat,
