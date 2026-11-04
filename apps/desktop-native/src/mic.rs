@@ -49,6 +49,7 @@ impl Mic {
             let ratio = input_rate / RATE as f64;
             let mut pending: Vec<i16> = Vec::new();
             let mut carry = 0.0f64;
+            let mut guard = crate::echo::EchoGuard::default();
             let stream = device.build_input_stream(
                 &config,
                 move |data: &[f32], _| {
@@ -68,7 +69,15 @@ impl Mic {
                     }
                     carry = pos - mono.len() as f64;
                     while pending.len() >= FRAME {
-                        let frame: Vec<i16> = pending.drain(..FRAME).collect();
+                        let mut frame: Vec<i16> = pending.drain(..FRAME).collect();
+                        // Duck while the peer talks, so the speaker does not
+                        // feed back into our microphone (see `echo`).
+                        let gain = guard.next(crate::audio::call_level());
+                        if gain < 0.99 {
+                            for sample in &mut frame {
+                                *sample = (*sample as f32 * gain) as i16;
+                            }
+                        }
                         if frames.send(frame).is_err() {
                             return;
                         }

@@ -497,6 +497,9 @@ device until you remove it from the phone).
   WebP) and sends it with Command::SendSticker -> Session::send_sticker. Sticker packs are
   blocked: whatsapp-rust only exposes etch_sticker_pack(pack_id), not the stickerPack
   app-state, so there is no pack list to ask about.
+- **Echo suppression.** The call playout publishes an RMS (udio::call_level, 400 ms stale
+  window) and mic.rs ducks the captured frames with echo::EchoGuard (-12 dB while the peer is
+  loud, ~300 ms release). Half-duplex, not a WebRTC-style adaptive filter.
 - **Delivery ticks.** `Model::ticks` records `sent`/`delivered`/`read` per message id (from
   `UiEvent::Sent`/`Receipt`); the bubble paints one grey `check`, grey `done_all` or the blue
   `done_all` (`palette.read`).

@@ -20,6 +20,7 @@ mod autostart;
 mod callvideo;
 mod camera;
 mod clipboard;
+mod echo;
 mod emoji_glyph;
 mod icon;
 mod icons;

@@ -5430,8 +5430,9 @@ impl WaDesk {
                                     ui.add_space(8.0);
                                     ui.label(
                                         egui::RichText::new(
-                                            "Sticker packs are not part of this build yet - \
-                                             favourites and recent stickers work.",
+                                            "Sticker packs need a protocol the client \
+                                             library does not expose yet - favourites and \
+                                             recent stickers work.",
                                         )
                                         .size(12.5)
                                         .color(palette.secondary),

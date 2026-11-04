@@ -4,7 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.89] - 2026-11-04
+
+- **Call echo suppression.** The peer's playout level is published by `audio.rs`
+  (`call_level()`, an RMS with a 400 ms staleness window) and the microphone ducks towards
+  `echo::MIN_GAIN` (-12 dB) while it is loud, releasing ~300 ms after the peer stops; attack is
+  fast (one frame) and release slow, so the end of a word does not cut off the start of ours.
+  `echo::target_gain` and `EchoGuard` are pure and unit tested (silence keeps the mic open, loud
+  playout ducks it, the ramp is monotonic, and it recovers). This is half-duplex ducking, not a
+  full adaptive-cancellation filter - it removes the speaker→mic howl, not every echo.
+- **Sticker packs: the blocker is now proven, not guessed.** The vendored protobuf has only
+  `SyncActionValue.StickerAction` and `RemoveRecentStickerAction`; there is no sticker-pack sync
+  action and no `stickerPack` schema in `wacore-appstate`, so there are no pack ids to feed
+  `fetch_sticker_pack`. The Packs tab now says exactly that.
+- Tests: 80 native (4 new `echo` tests), clippy clean, selftest green.
+
 ## [0.2.0-rc.88] - 2026-11-04
+
 
 - **The Create tile makes stickers.** Picking an image now crops and scales it to the 512×512 WebP
   WhatsApp expects (`sticker.rs` drives ffmpeg: `scale=512:512:force_original_aspect_ratio=increase`,

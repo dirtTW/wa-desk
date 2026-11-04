@@ -19,6 +19,40 @@ pub struct PlaybackState {
     pub duration: f32,
 }
 
+/// The peer's playout level, published by the audio thread as f32 bits so the
+/// microphone can duck while the speaker is loud (see `echo`).
+static CALL_LEVEL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static CALL_LEVEL_AT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// The peer's level right now (RMS, 0.0 when silent or stale).
+pub fn call_level() -> f32 {
+    if let Ok(at) = CALL_LEVEL_AT.lock()
+        && let Some(at) = *at
+        && at.elapsed() > std::time::Duration::from_millis(400)
+    {
+        return 0.0;
+    }
+    f32::from_bits(CALL_LEVEL.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+fn publish_call_level(samples: &[i16]) {
+    if samples.is_empty() {
+        return;
+    }
+    let sum: f64 = samples
+        .iter()
+        .map(|sample| {
+            let value = *sample as f64 / 32_768.0;
+            value * value
+        })
+        .sum();
+    let rms = (sum / samples.len() as f64).sqrt() as f32;
+    CALL_LEVEL.store(rms.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut at) = CALL_LEVEL_AT.lock() {
+        *at = Some(std::time::Instant::now());
+    }
+}
+
 enum Command {
     Play {
         id: String,
@@ -190,6 +224,7 @@ fn audio_thread(
                 if samples.is_empty() {
                     continue;
                 }
+                publish_call_level(&samples);
                 // 16 kHz mono PCM from the peer (`wa_ui::calls::audio_format`).
                 let pcm: Vec<f32> = samples
                     .into_iter()
@@ -205,6 +240,8 @@ fn audio_thread(
             }
             Ok(Command::CallStop) => {
                 call_sink.stop();
+                publish_call_level(&[]);
+                CALL_LEVEL.store(0, std::sync::atomic::Ordering::Relaxed);
             }
             Ok(Command::Stop) => {
                 sink.stop();
