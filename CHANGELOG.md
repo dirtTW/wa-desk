@@ -4,6 +4,16 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.30] - 2026-11-05
+
+- **Status viewer header now matches the live sample.** rc.29 recorded the delta: the official viewer
+  stacks the author over the timestamp top-left ("Daffa" / "Yesterday at 10:29 PM"), while ours ran
+  them together on one line ("Ada · 5:52 am"). The header is a `ui.vertical` inside the row now:
+  the name at 14.5 (strong) and the stamp at 12.5 in the secondary grey, with the close control still
+  pinned right. Re-captured `target/our_status_viewer.png` reads "Ada" / "6:16 am".
+- `docs/PARITY.md` flips the status-viewer paragraph from "remaining delta" to **Matched**.
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.29] - 2026-11-05
 
 - **The official status viewer was sampled.** Rail `Status` → a `aria-label="View status"` row, both

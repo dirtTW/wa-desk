@@ -5363,13 +5363,18 @@ impl WaDesk {
         });
         ui.add_space(8.0);
 
+        // The live viewer stacks the author over the timestamp, top-left
+        // (sampled 2026-11-05: "Daffa" / "Yesterday at 10:29 PM") instead of
+        // running them together on one line.
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(&update.name).strong());
-            ui.label(
-                egui::RichText::new(self.model.bubble_stamp(&status_as_message(&update)))
-                    .small()
-                    .weak(),
-            );
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new(&update.name).size(14.5).strong());
+                ui.label(
+                    egui::RichText::new(self.model.bubble_stamp(&status_as_message(&update)))
+                        .size(12.5)
+                        .color(egui::Color32::from_gray(170)),
+                );
+            });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("✕").clicked() {
                     self.model.close_status();
