@@ -150,12 +150,68 @@ cost of a slower build.
 Delete that file to unlink locally (any other linked device still shows this one until you
 remove it from the phone). Settings and the downloaded media live beside it.
 
+## Credits
+
+WA Desk is a thin layer on top of other people's work. Special thanks to everyone below - this
+client would not exist without them.
+
+### Protocol
+
+- **[whatsapp-rust](https://github.com/jlucaso1/whatsapp-rust)** by
+  [jlucaso1](https://github.com/jlucaso1) - the WhatsApp Web protocol client this app is built
+  on (`wacore`, `waproto`, `wacore-noise`, `wacore-appstate`, `whatsapp-rust-*`). This is the
+  single biggest dependency and the reason the project is possible at all.
+- **[Signal](https://signal.org/) / [libsignal](https://github.com/signalapp/libsignal)** - the
+  Double Ratchet, X3DH and the crypto primitives behind end-to-end encryption
+  (`wacore-libsignal`). Also the reason this app is AGPL.
+- **[whatsmeow](https://github.com/tulir/whatsmeow)** and
+  **[Baileys](https://github.com/WhiskeySockets/Baileys)** - the reference implementations that
+  `whatsapp-rust` checks its protocol behaviour against.
+
+### Window and assets
+
+- **[eframe](https://github.com/emilk/egui)** / **[egui](https://github.com/emilk/egui)** by
+  [emilern](https://github.com/emilk) - the native window and everything painted in it. No
+  WebView, no HTML, no JavaScript.
+- **[resvg](https://github.com/linebender/resvg)** - rasterising the pairing QR into the window.
+- **[image](https://github.com/image-rs/image)** - decoding photos, posters and stickers.
+- **[Material Symbols](https://fonts.google.com/icons)** (Google) - every icon in the UI
+  (generated into `crates/wa-ui/src/icons_data.rs`).
+- **[Unicode emoji](https://unicode.org/emoji/)** - the picker catalogue from the Unicode
+  character database, and the fonts that draw each glyph.
+
+### Crates
+
+- **[tokio](https://tokio.rs/)** - the async runtime.
+- **[serde](https://serde.rs/)** / **[serde_json](https://serde.rs/)** - serialization.
+- **[RustCrypto](https://github.com/RustCrypto)** - `aes-gcm`, `sha2`, `hmac`, `hkdf`.
+- **[ureq](https://github.com/algesten/ureq)** - the blocking HTTP client.
+- **[qrcode](https://github.com/kennytm/qrcode-rust)** - the pairing QR code matrix.
+- **[tracing](https://tokio.rs/tokio/tracing)** - logging.
+- **[anyhow](https://github.com/dtolnay/anyhow)** - error handling.
+- **[regex](https://github.com/rust-lang/regex)**, **[chrono](https://github.com/chronotope/chrono)**,
+  **[base64](https://github.com/marshallpierce/rust-base64)** and
+  **[async-channel](https://github.com/smol-rs/async-channel)** - text, dates, payloads and
+  channels.
+- ...and every other crate in `Cargo.lock`; `cargo tree` lists them all.
+
+### Tools
+
+- **[OpenCode](https://opencode.ai)** - the agentic coding environment this was built in.
+- **[DeepSeek V4.1 Flash](https://deepseek.com)** and **[GLM 5.3 Flash](https://z.ai)** - the
+  models that wrote the code (see the [Development note](#development-note)).
+
+### And
+
+- **WhatsApp / Meta** - for the protocol this reimplements. Not affiliated, not endorsed, and
+  subject to their Terms of Service.
+
 ## License
 
 AGPL-3.0-only. The distributed binary statically links `wacore-libsignal`, whose files carry
 Signal's AGPL-3.0-only headers, so the combined work is AGPL; see [`LICENSE.md`](LICENSE.md) and
-[`SECURITY.md`](SECURITY.md). Third-party crates and their licenses are listed in the
-acknowledgements section of [`AGENTS.md`](AGENTS.md).
+[`SECURITY.md`](SECURITY.md). Third-party crates and their licenses are listed in the credits
+above and in `Cargo.lock`.
 
 The full feature inventory, architecture notes, design gotchas and roadmap live in
 [`AGENTS.md`](AGENTS.md); the change log is [`CHANGELOG.md`](CHANGELOG.md).
