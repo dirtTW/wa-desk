@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.99] - 2026-11-04
+
+- **Media bubble padding polished.** The photo sits 3 px inside the bubble with a 6 px radius, the
+  caption is aligned at the text bubble's 9 px padding, the bubble is at least as wide as its clock
+  line, and the clock (with the read ticks) has its own row under the caption instead of touching
+  the edge - so a captioned photo reads exactly like the official bubble
+  (`target/media_padding.png`).
+- Confirmed on the linked session: the orange squares in the QC DIVISI message are real 🟧 emoji
+  rendered as colour glyphs, not missing-font boxes (the cached JSON for that message carries no
+  invisible characters).
+- Tests: 95 native + 38 wa-core, clippy clean, selftest green.
+
 ## [0.2.0-rc.98] - 2026-11-04
 
 - **Photos and videos sit inside the bubble now.** The media branch paints the same rounded

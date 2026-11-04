@@ -2736,25 +2736,29 @@ fn bubble_content(
             let pad = 3.0;
             let scale = (240.0 / size.x.max(1.0)).min(1.0);
             let image_size = size * scale;
-            let width = (image_size.x + pad * 2.0).min(max_width);
-            let caption = clean_text(message.text.trim());
-            let caption_galley = (!caption.is_empty()).then(|| {
-                ui.painter().layout(
-                    caption,
-                    egui::FontId::proportional(14.0),
-                    palette.text,
-                    (width - pad * 2.0).max(80.0),
-                )
-            });
             let time = ui.painter().layout_no_wrap(
                 model.bubble_stamp(message),
                 egui::FontId::proportional(11.0),
                 palette.secondary,
             );
             let tick_width = if message.from_me { 16.0 } else { 0.0 };
-            let mut height = image_size.y + pad * 2.0 + time.size().y + 2.0;
+            let width = (image_size.x + pad * 2.0)
+                .max(time.size().x + tick_width + 40.0)
+                .min(max_width);
+            let caption = clean_text(message.text.trim());
+            let caption_galley = (!caption.is_empty()).then(|| {
+                ui.painter().layout(
+                    caption,
+                    egui::FontId::proportional(14.0),
+                    palette.text,
+                    (width - 18.0).max(80.0),
+                )
+            });
+            let caption_pad = 9.0;
+            let clock_h = time.size().y + 4.0;
+            let mut height = pad + image_size.y + clock_h + 2.0;
             if let Some(galley) = &caption_galley {
-                height += galley.size().y + 2.0;
+                height += galley.size().y + 8.0;
             }
             let fill = if message.from_me {
                 palette.bubble_out
@@ -2781,17 +2785,21 @@ fn bubble_content(
                     .corner_radius(egui::CornerRadius::same(6)),
             );
             let painter = ui.painter();
-            let mut y = rect.top() + pad + image_size.y + 2.0;
+            let mut y = rect.top() + pad + image_size.y + 6.0;
             if let Some(galley) = caption_galley {
                 let height = galley.size().y;
-                painter.galley(egui::pos2(rect.left() + pad, y), galley, palette.text);
+                painter.galley(
+                    egui::pos2(rect.left() + caption_pad, y),
+                    galley,
+                    palette.text,
+                );
                 y += height;
             }
             let _ = y;
             painter.galley(
                 egui::pos2(
-                    rect.right() - pad - tick_width - time.size().x,
-                    rect.bottom() - 3.0 - time.size().y,
+                    rect.right() - caption_pad - tick_width - time.size().x,
+                    rect.bottom() - 5.0 - time.size().y,
                 ),
                 time,
                 palette.secondary,
@@ -2810,7 +2818,7 @@ fn bubble_content(
                     painter.image(
                         icon.id(),
                         egui::Rect::from_min_size(
-                            egui::pos2(rect.right() - pad - 14.0, rect.bottom() - 17.0),
+                            egui::pos2(rect.right() - caption_pad - 14.0, rect.bottom() - 19.0),
                             egui::vec2(14.0, 14.0),
                         ),
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
