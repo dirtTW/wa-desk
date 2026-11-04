@@ -13,10 +13,12 @@ const SIZES: [u32; 7] = [16, 24, 32, 48, 64, 128, 256];
 fn art() -> String {
     r##"<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
   <rect width="256" height="256" rx="58" fill="#21C063"/>
-  <path d="M128 44c-41.4 0-75 27.6-75 61.7 0 19.7 11.3 37.2 28.8 48.6l-6.7 26.4 30.2-14.2c7.3 1.9 15.1 2.9 22.7 2.9 41.4 0 75-27.6 75-61.7S169.4 44 128 44z" fill="#FFFFFF"/>
-  <circle cx="99" cy="106" r="9" fill="#21C063"/>
-  <circle cx="128" cy="106" r="9" fill="#21C063"/>
-  <circle cx="157" cy="106" r="9" fill="#21C063"/>
+  <g transform="translate(0 16)">
+    <path d="M128 44c-41.4 0-75 27.6-75 61.7 0 19.7 11.3 37.2 28.8 48.6l-6.7 26.4 30.2-14.2c7.3 1.9 15.1 2.9 22.7 2.9 41.4 0 75-27.6 75-61.7S169.4 44 128 44z" fill="#FFFFFF"/>
+    <circle cx="99" cy="106" r="9" fill="#21C063"/>
+    <circle cx="128" cy="106" r="9" fill="#21C063"/>
+    <circle cx="157" cy="106" r="9" fill="#21C063"/>
+  </g>
 </svg>"##
         .to_string()
 }

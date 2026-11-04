@@ -1734,11 +1734,57 @@ impl Model {
     /// Ask for a message's media exactly once; the window calls this while
     /// painting a bubble whose bytes are not on disk yet.
     pub fn request_media(&mut self, id: &str) -> bool {
-        if id.is_empty() || self.media.contains_key(id) {
+        if id.is_empty() {
+            return false;
+        }
+        // A path restored from `media.json` only counts while the file is still
+        // there; a media prune must not leave a bubble stuck on "Loading".
+        if let Some(MediaState::Path(path)) = self.media.get(id) {
+            if std::path::Path::new(path).is_file() {
+                return false;
+            }
+            self.media.remove(id);
+        }
+        if self.media.contains_key(id) {
             return false;
         }
         self.media.insert(id.to_string(), MediaState::Loading);
         true
+    }
+
+    /// `media.json`: the message id -> file path cache, so photos, stickers and
+    /// video posters paint from disk on the next launch instead of downloading.
+    pub fn media_cache_json(&self) -> String {
+        let mut entries: Vec<(&String, &String)> = self
+            .media
+            .iter()
+            .filter_map(|(id, state)| match state {
+                MediaState::Path(path) => Some((id, path)),
+                _ => None,
+            })
+            .filter(|(_, path)| std::path::Path::new(path).is_file())
+            .collect();
+        // Newest ids first (they are hex-ish and grow over time), then cap: the
+        // file stays a few hundred kB however long the account runs.
+        entries.sort_by(|a, b| b.0.cmp(a.0));
+        entries.truncate(4_000);
+        let map: std::collections::BTreeMap<&str, &str> = entries
+            .into_iter()
+            .map(|(id, path)| (id.as_str(), path.as_str()))
+            .collect();
+        serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    pub fn load_media_cache(&mut self, json: &str) {
+        let Ok(map) = serde_json::from_str::<std::collections::BTreeMap<String, String>>(json)
+        else {
+            return;
+        };
+        for (id, path) in map {
+            if std::path::Path::new(&path).is_file() {
+                self.media.insert(id, MediaState::Path(path));
+            }
+        }
     }
 
     pub fn media_ready(&mut self, id: &str, path: &str) {
@@ -2529,6 +2575,36 @@ mod tests {
         assert!(Model::starts_run(&messages, 0));
         assert!(!Model::starts_run(&messages, 1), "same sender continues");
         assert!(Model::starts_run(&messages, 2), "a new sender starts one");
+    }
+
+    #[test]
+    fn the_media_cache_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("wa-media-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let sticker = dir.join("sticker.webp");
+        std::fs::write(&sticker, b"RIFF0000WEBP").expect("write");
+        let gone = dir.join("pruned.jpg");
+        let mut model = Model::new();
+        model.media_ready("m1", &sticker.to_string_lossy());
+        model.media_ready("m2", &gone.to_string_lossy());
+        let json = model.media_cache_json();
+        assert!(json.contains("m1"), "the existing file is cached");
+
+        let mut restarted = Model::new();
+        restarted.load_media_cache(&json);
+        assert_eq!(
+            restarted.media_path("m1").as_deref(),
+            Some(sticker.to_string_lossy().as_ref()),
+            "a restart paints the sticker without downloading"
+        );
+        assert!(
+            restarted.media_path("m2").is_none(),
+            "paths whose file vanished are dropped"
+        );
+        // And a cached path stops the fetch.
+        assert!(!restarted.request_media("m1"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

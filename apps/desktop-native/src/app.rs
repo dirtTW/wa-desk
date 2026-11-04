@@ -214,6 +214,12 @@ impl WaDesk {
         let (video_tx, video_rx) = std::sync::mpsc::channel();
         let mut model = Model::new();
         model.load_cache_file(&cache_path);
+        // The media paths from the last run: stickers, photos and posters paint
+        // from disk immediately instead of downloading again.
+        let media_cache = cache_path.with_file_name("media.json");
+        if let Ok(text) = std::fs::read_to_string(&media_cache) {
+            model.load_media_cache(&text);
+        }
         Self {
             model,
             events: native.events,
@@ -1967,6 +1973,9 @@ impl WaDesk {
                                 self.audio.stop();
                                 crate::gif::clear();
                                 self.model.open_chat(&jid);
+                                if jid.ends_with("@g.us") && self.model.request_group(&jid) {
+                                    self.send(Command::GroupInfo { chat: jid.clone() });
+                                }
                                 self.send(Command::MarkRead { chat: jid.clone() });
                                 if empty {
                                     // WhatsApp does not replay history to an
@@ -2028,9 +2037,14 @@ impl WaDesk {
                                         .strong(),
                                 );
                                 let subtitle = if row.jid.ends_with("@g.us") {
-                                    "Group"
+                                    match self.model.group.as_ref() {
+                                        Some(info) if info.jid == row.jid => {
+                                            wa_ui::labels::group_member_count(info.members.len())
+                                        }
+                                        _ => "Group".to_string(),
+                                    }
                                 } else {
-                                    "online"
+                                    "online".to_string()
                                 };
                                 ui.label(
                                     egui::RichText::new(subtitle)
@@ -2119,7 +2133,10 @@ impl WaDesk {
                     .iter()
                     .rev()
                     .filter(|message| {
-                        matches!(message.kind.as_str(), "image" | "sticker" | "audio")
+                        matches!(
+                            message.kind.as_str(),
+                            "image" | "video" | "sticker" | "audio"
+                        )
                     })
                     .take(24)
                     .map(|message| message.id.clone())
@@ -2533,6 +2550,24 @@ fn bubble(
         ui.set_max_width(max_width);
 
         // A sticker paints on its own, without a bubble.
+        if message.kind == "sticker" && model.media_path(&message.id).is_none() {
+            // Still downloading (or the CDN refused it): the official client
+            // shows an empty sticker tile, not a text bubble.
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(96.0, 96.0), egui::Sense::click());
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(10), palette.hover);
+            draw_icon(ui, rect.shrink(34.0), Icon::Sticker, palette.secondary);
+            context_menu(&response, palette, model, message, &mut action);
+            ui.label(
+                egui::RichText::new(model.bubble_stamp(message))
+                    .size(11.0)
+                    .color(palette.secondary),
+            );
+            pills_row(ui, model, message);
+            ui.add_space(if tail { 8.0 } else { 2.0 });
+            return;
+        }
         if message.kind == "sticker"
             && let Some(texture) =
                 texture_at(ctx, textures, &message.id, model.media_path(&message.id))
@@ -2554,7 +2589,7 @@ fn bubble(
                     .color(palette.secondary),
             );
             pills_row(ui, model, message);
-            ui.add_space(4.0);
+            ui.add_space(if tail { 8.0 } else { 2.0 });
             return;
         }
 
@@ -2596,7 +2631,7 @@ fn bubble(
                     .color(palette.secondary),
             );
             pills_row(ui, model, message);
-            ui.add_space(4.0);
+            ui.add_space(if tail { 8.0 } else { 2.0 });
             return;
         }
 
@@ -2874,7 +2909,7 @@ fn bubble(
         let sender = message
             .sender_name
             .clone()
-            .filter(|_| message.is_group && !message.from_me && show_sender);
+            .filter(|_| message.is_group && !message.from_me);
         let sender_galley = sender.as_ref().map(|name| {
             ui.painter().layout_no_wrap(
                 name.clone(),
@@ -5093,6 +5128,8 @@ impl eframe::App for WaDesk {
             self.cache_dirty = false;
             self.cache_saved = std::time::Instant::now();
             self.model.save_cache_file(&self.cache_path);
+            let media_cache = self.cache_path.with_file_name("media.json");
+            let _ = std::fs::write(&media_cache, self.model.media_cache_json());
         }
         // Nothing cached and freshly connected: seed from the address book and
         // ask the phone for a small batch of history.

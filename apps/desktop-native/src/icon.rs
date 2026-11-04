@@ -47,4 +47,31 @@ mod tests {
             "no green pixels in the icon"
         );
     }
+
+    #[test]
+    fn the_bubble_sits_in_the_middle() {
+        let icon = window_icon();
+        let width = icon.width as usize;
+        let height = icon.height as usize;
+        let (mut sum_x, mut sum_y, mut count) = (0f64, 0f64, 0f64);
+        for (index, pixel) in icon.rgba.as_chunks::<4>().0.iter().enumerate() {
+            // The white bubble is the only near-white artwork on the tile.
+            if pixel[0] > 235 && pixel[1] > 235 && pixel[2] > 235 && pixel[3] > 128 {
+                sum_x += (index % width) as f64;
+                sum_y += (index / width) as f64;
+                count += 1.0;
+            }
+        }
+        assert!(count > 500.0, "only {count} bubble pixels drawn");
+        let centre_x = sum_x / count / width as f64;
+        let centre_y = sum_y / count / height as f64;
+        assert!(
+            (centre_x - 0.5).abs() < 0.06,
+            "the bubble is off-centre horizontally: {centre_x:.3}"
+        );
+        assert!(
+            (centre_y - 0.5).abs() < 0.08,
+            "the bubble is off-centre vertically: {centre_y:.3}"
+        );
+    }
 }

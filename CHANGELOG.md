@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.96] - 2026-11-04
+
+- **Media loads instantly on the next launch.** The window now keeps `media.json` beside
+  `chats.json`: message id -> cached file path, written on the same 2 s debounce and loaded at
+  startup, so stickers, photos and video posters paint from disk instead of downloading again.
+  `request_media` treats a restored path as valid only while the file still exists, and
+  `media_cache_json` drops entries whose file was pruned (capped at 4,000). Test:
+  `the_media_cache_survives_a_restart`.
+- **Videos download their poster now** - the media fetch only asked for image/sticker/audio, which
+  is why video bubbles showed the word "Video". Sticker messages whose file has not arrived draw
+  the official empty sticker tile instead of a text bubble full of glyph boxes.
+- **Group bubbles read like the official client.** The sender name repeats on every incoming
+  message (only the photo is once per run), a run's messages sit 2 px apart against 8 px between
+  runs, and the chat header shows `Group - N members` once the metadata loads (a group chat now
+  requests its info when it opens).
+- **The app icon is centred.** The bubble group is translated 16 px down, and
+  `icon::tests::the_bubble_sits_in_the_middle` measures the white pixels and fails if the centroid
+  drifts more than 6% (x) / 8% (y) from the middle, so the artwork cannot regress.
+- Media downloads run four at a time (was three).
+- Tests: 93 native + 38 wa-core, clippy clean, selftest green.
+
 ## [0.2.0-rc.95] - 2026-11-04
 
 - **The Packs tab is real now.** WhatsApp never syncs an account's pack list to linked devices,

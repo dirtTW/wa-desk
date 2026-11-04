@@ -590,6 +590,9 @@ device until you remove it from the phone).
 - **Notifications, tray and autostart** have to be rebuilt natively (the tray and
   notification plugins went with the removed WebView shell); autostart still works
   through the OS startup folder.
+- **Media paths are cached on disk** (`media.json` beside `chats.json`): id -> file path, capped
+  at 4,000 entries, loaded at startup so stickers/photos/posters paint without a download; entries
+  whose file vanished are dropped. Video posters are part of the on-demand fetch.
 - **Media is downloaded on demand.** The Rust side keeps the protobuf of recent
   media messages, downloads/decrypts on request and writes the plaintext into
   `<app data>/media`. If the CDN path has expired (always the case for photos

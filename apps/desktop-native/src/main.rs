@@ -378,7 +378,7 @@ fn main() {
     let call_video = call_video_wanted.clone();
     // Media downloads run in their own tasks; three at a time keeps the UI
     // responsive without flooding the CDN or the phone.
-    let media_limit = Arc::new(tokio::sync::Semaphore::new(3));
+    let media_limit = Arc::new(tokio::sync::Semaphore::new(4));
     // Commands from the UI thread are executed on the runtime.
     let slot = session_slot.clone();
     handle.spawn(async move {
