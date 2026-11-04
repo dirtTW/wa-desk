@@ -4,7 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.62] — 2026-11-04
+## [0.2.0-rc.63] — 2026-11-04
+
+- **The Windows installer is back.** The MSI disappeared with the Tauri bundler in rc.57; there
+  is a real installer again, written in Rust: `apps/windows-installer` holds a setup stub, and
+  `pack-setup` glues the app binary to it behind a 16-byte trailer (`WADSETUP` + length). Running
+  `WA Desk Setup.exe` installs per-user into `%LOCALAPPDATA%\Programs\WA Desk` (no admin, no
+  MSI runtime), writes `Uninstall WA Desk.cmd`, creates Start Menu and Desktop shortcuts through
+  `IShellLink` COM, and starts the app. The release job now uploads it next to the raw binaries.
+- Verified locally: packing rc.63 produced a 45,510,672-byte setup, running it installed
+  `WA Desk.exe` at exactly the app size, created both shortcuts and launched the app; the
+  payload/pack functions have four unit tests (round-trip, plain binary, truncated trailer,
+  per-user install dir).
+- **CI is much faster.** The dependency cache was keyed on `Cargo.lock`, so every version bump
+  threw away the compiled tree and each tag rebuilt the whole crypto stack. The workflow now
+  keys the cache on the Rust version instead (with `restore-keys` fallback), sets
+  `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=0`, installs `cargo-audit` from a prebuilt
+  binary instead of `cargo install`, runs `apt-get` with `--no-install-recommends`, adds a
+  `concurrency` group that cancels superseded runs, and caps each job with `timeout-minutes`.
+- The release job now needs `[check, build]`, so a red test run cannot publish a tag.
+
+
 
 - **Fixed the red `check` job on v0.2.0-rc.61.** The updater's test fixtures hardcoded the
   Windows asset name (`wa-desk-native.exe`), so on the Linux runner `parse_releases` found no

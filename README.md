@@ -106,6 +106,18 @@ cargo run -p wa-desktop-native -- --selftest
 gate, chats, unread, media lifecycle, status viewer, channels, settings and group info — and
 exits non-zero if anything disagrees.
 
+## Install on Windows
+
+Download **`WA Desk Setup.exe`** from the [releases page](https://github.com/dirtTW/wa-desk/releases)
+and run it. It needs no admin rights and no MSI/WiX runtime:
+
+- installs per-user into `%LOCALAPPDATA%\Programs\WA Desk`
+- adds Start Menu and Desktop shortcuts
+- starts the app
+- leaves `Uninstall WA Desk.cmd` beside it (and Settings → Updates keeps it current)
+
+Linux ships the plain `wa-desk-native` binary.
+
 ## Requirements
 
 - Rust **1.94+** (edition 2024). Install with [rustup](https://rustup.rs/).

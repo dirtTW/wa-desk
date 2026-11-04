@@ -517,6 +517,17 @@ device until you remove it from the phone).
   a remote resource, check the CSP allows it, and prefer moving an inline
   `on*` handler to `addEventListener` over loosening `script-src`.
 
+- **Windows installer** (`apps/windows-installer`). The setup exe is the stub binary with the
+  app appended and a 16-byte trailer (`WADSETUP` + payload length); `pack-setup` writes it and
+  refuses to ship unless the payload round-trips. The stub copies the app to
+  `%LOCALAPPDATA%\Programs\WA Desk`, writes `Uninstall WA Desk.cmd`, creates Start Menu and
+  Desktop shortcuts via `IShellLink`/`IPersistFile` COM, and launches it. It lives in its own
+  crate so the app binary never links the `windows` crate.
+- **CI** keys its `actions/cache` on the Rust version rather than `Cargo.lock` (a version bump
+  used to invalidate the whole dependency tree), disables incremental and dev debug info,
+  installs `cargo-audit` from a prebuilt binary, and publishes `WA Desk Setup.exe` beside the
+  raw binaries.
+
 ## Roadmap (native app)
 
 1. Notifications, tray and autostart
