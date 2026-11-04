@@ -69,7 +69,7 @@ again. Live traffic always works.
 ```
 Cargo.toml                     workspace
 crates/wa-types/               serializable UI vocabulary (serde only)
-crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
+crates/wa-ui/                  UI model: strings, plans, timings, HTML renderers
   src/lib.rs                   bootstrap payload, re-exports, integration tests
   src/text.rs                  WhatsApp markup, mentions, previews, ticks, phones
   src/labels.rs                clock/stamp/day labels, follower counts
@@ -101,7 +101,7 @@ crates/wa-ui/                  UI model + HTML renderers (no Tauri dependency)
   src/viewer.rs                media viewer chrome, video player, filmstrip
   src/stickers.rs              sticker picker grid, cells and empty states
   src/sidebar.rs               chat list: filters, pin order, communities, search, rail badges
-crates/wa-core/                protocol session layer (no Tauri dependency)
+crates/wa-core/                protocol session layer (no UI dependency)
   src/lib.rs                   Session struct + module wiring
   src/events.rs                protocol event -> UiEvent translation
   src/session.rs               lifecycle, identity, chat resolution
@@ -123,62 +123,14 @@ apps/desktop-native/         NATIVE front end (eframe/egui, no WebView, no JS)
   (channels: Model::channels + read-only post list)
   src/settings.rs            native settings: theme + AI form (key never on disk)
   src/app.rs                 egui window: chat list + conversation + composer
-apps/desktop/
-  src-tauri/                   Tauri 2 shell, commands, event bridge
-    src/main.rs                entry point: module wiring + `app::run()`
-    src/app.rs                 builder, plugins, tray, event pump, run loop
-    src/state.rs               AppState, Status, session lifecycle, window helpers
-    src/commands/mod.rs        re-export surface for the command modules
-    src/commands/session.rs    status, text send, read/typing, pairing, logout
-    src/commands/media.rs      media download/upload, stickers, contact photos
-    src/commands/calls.rs      1:1 call signalling
-    src/commands/history.rs    on-demand history, channels, chat cache, peers
-    src/commands/status.rs     status/stories post + interactions
-    src/commands/contacts.rs   address book read/sync/create
-    src/commands/groups.rs     group create/info/members
-    src/commands/messages.rs   reactions, deletes, edits
-    src/commands/links.rs      Open Graph link preview fallback
-    src/ai/mod.rs              AI auto-reply wiring
-    src/ai/state.rs            settings, encrypted key, bounded chat context
-    src/ai/prompt.rs           prompts, guards, mentions, reply gating
-    src/ai/provider.rs         chat completions + vision sticker picker
-    src/ai/media.rs            photo/video inputs for the vision model
-    src/ai/reply.rs            live event handler (decide/build/send)
-    src/ai/commands.rs         ai_* Tauri commands
-    src/ai/util.rs             clock, randomness, emoji/text helpers
-    src/ai/tests.rs            unit tests
-    tauri.conf.json
-  ui/                          vanilla HTML/CSS/JS frontend, no npm (13 files; the ten
-                               folded modules live in chat-list.js, chat-render.js,
-                               media-ui.js, menus.js, chats.js and wiring.js, rc.43-rc.50)
-    core.js                    constants, state, cache, helpers, avatars
-    chat-list.js               sidebar list, channels, group info, members, new-chat
-                               picker, settings pages
-    media-ui.js                media rendering, posters, link previews, media viewer
-    chat-render.js             message rendering, scroll anchoring, in-chat search painting
-    state-updates.js           incoming messages, chat state, export import
-    actions.js                 send, read, open chat, history sync
-    calls.js                   call signaling and media
-    status.js                  status/stories
-    chats.js                   aliases, merge, clipboard drafts, attachments
-    menus.js                   chat/message/sidebar/member menus, one open at a time
-    stickers.js                sticker grids/favorites, emoji picker
-    wiring.js                  DOM event wiring, bootstrap
-  scripts/gen-icons.ps1        regenerates the app icons
-  scripts/check-undefined.mjs  lists UI call sites with no definition (ReferenceErrors)
-  scripts/check-ids.mjs        lists element ids the UI reads but the document lacks
-  scripts/check-data-attrs.mjs lists data-* reads with no matching emitter
-  scripts/check-command-args.mjs flags snake_case invoke() args Tauri cannot bind
-  scripts/check-dead-functions.mjs lists top-level UI functions with no caller
-  scripts/check-state-fields.mjs lists state.* fields nothing references
 vendor/whatsapp-rust/          patched protocol client (crates.io 0.7, [patch.crates-io])
 vendor/wacore-appstate/        patched app-state crate: snapshot MAC recovery (see change log);
                                excluded from the workspace (its `simd` feature needs nightly),
                                tested standalone: `cargo test --no-default-features`
 ```
 
-The dependency direction is one-way: `wa-core` knows nothing about Tauri. That keeps
-the protocol layer reusable for a CLI, a tray daemon, or a second UI later.
+The dependency direction is one-way: `wa-core` knows nothing about the UI, and
+`wa-ui` knows nothing about the session, so either can be reused alone.
 
 ### How the pieces talk
 
@@ -186,41 +138,36 @@ the protocol layer reusable for a CLI, a tray daemon, or a second UI later.
 WhatsApp servers
       │  noise + Signal (whatsapp-rust)
       ▼
-   wa-core::Session  ──UiEvent──▶  tokio mpsc  ──▶  Tauri emit("wa:event")  ──▶  webview
-      ▲                                                                              │
-      └──────────────────── Tauri commands (send_text, mark_read, …) ────────────────┘
-```
+   wa-core::Session  ──UiEvent──▶  std mpsc  ──▶  wa-desk-native (egui window)
+      ▲                                                      │
+      └────────────  Command (send_text, mark_read, …)  ◀─────┘```
 
 Protocol payloads never cross the IPC boundary: `wa-core` reduces them to
 `MessageView` / `UiEvent`, which serialize as `{ "type": "message", ... }`.
 
 ### The UI model lives in Rust (`wa-ui`)
 
-The webview is a DOM/event shim; formatting and markup are Rust:
+The window is a painter; every decision is a function in `wa-ui` that returns
+strings, plans or numbers:
 
 ```
-webview state ──ui_sidebar(request)──▶ wa-ui::sidebar ──▶ { html, empty_text, queue }
-webview boot  ──ui_bootstrap()──────▶ icons + emoji catalogue + picker HTML
-webview keys  ──ui_emoji_search(q)──▶ one grid of matches
+chat row      -> wa-ui::labels::stamp_of + wa-ui::text::preview_of
+bubble ticks  -> wa-ui::text (read/delivered labels)
+status viewer -> wa-ui::status (groups, chrome, progress)
+group screen  -> wa-ui::labels::group_member_count
+settings      -> wa-ui::settings (theme, AI form plan)
 ```
 
-- `crates/wa-ui` has no Tauri or protocol dependency: it is pure serde in /
-  HTML out, and every module is unit-tested (`cargo test -p wa-ui`).
+- `crates/wa-ui` has no UI-framework or protocol dependency: it is pure serde
+  in / values out, and every module is unit-tested (`cargo test -p wa-ui`).
 - Data that used to ship as JavaScript is generated into Rust by
   `scripts/gen-ui-data.mjs` (`icons_data.rs`, `emoji_data.rs`). Regenerate after
-  a new Material icon set or emoji dataset; the frontend no longer ships either.
-- `ui_sidebar` is async from the webview's point of view. `renderChatList()`
-  bumps a sequence number and drops any response that is not the newest, so a
-  slow reply can never repaint an older list.
-- The request carries only what the renderer needs (one summary per chat, one
-  newest visible message), never full message arrays or media blobs.
-- Still rendered by JavaScript today: message bubbles and media hydration
-  (`chat-render.js`, `media-ui.js`), status/stories, settings, the media viewer,
-  stickers and the browser-API parts of calls (Web Audio/WebCodecs). Those are
-  the remaining migration targets.
+  a new Material icon set or emoji dataset.
+- `wa-ui` still carries the HTML renderers; they are the shared source of truth
+  for markup decisions and their tests. The native window does not consume the
+  HTML — it paints with `egui`.
 
 ---
-
 
 ## Where data lives
 
@@ -235,43 +182,13 @@ device until you remove it from the phone).
 
 ## Design notes / gotchas
 
-- **Fast iteration — dev mode vs release build.** The release/package build
-  embeds the UI into the binary via `tauri-build`, and a post-v141
-  `build.rs` sha-walk (`rg` on `frontendDist`) registers
-  `cargo:rerun-if-changed` for every UI file — plain `cargo build --release`
-  NOW stays current with frontend edits, while a `cargo clean -p` doesn't.
-  `build-portable.bat` is now a no-recompile when nothing has changed;
-  refresh `dist\WA Desk.exe` with `cargo build --release -p wa-desktop` +
-  `Copy-Item target\release\wa-desktop.exe dist\`. For live UI work use:
-  - `npx @tauri-apps/cli dev --config '{"build":{"devUrl":"http://127.0.0.1:1421"}}'`
-    with `scripts/dev-server.mjs` serving `apps/desktop/ui` from disk (13 s
-    first build, instant UI reload).
-  - `build.devUrl` points `tauri dev` at `http://127.0.0.1:1421`, where
-    `scripts/dev-server.mjs` serves `apps/desktop/ui` **from disk**, so a
-    reload (CDP `Page.reload` or Ctrl+R) picks up edits instantly with no
-    rebuild — confirmed: link href flips to the freshly edited marker while
-    the session stays linked/connected;
-  - Rust changes use the dev profile — incremental, `debug = 1`, `opt-level 1`
-    for dependencies — a whole-package rebuild measures ~8–13 s vs ~46–52 s
-    for the release build;
-  - in dev the app runs at `http://127.0.0.1:1421` (`buildLabel()` reports
-    "UI dev") while the packaged app runs at `tauri.localhost` and shows
-    `UI vNNN`;
-  - only one instance may own the session store (`whatsapp.db`), so close the
-    release exe before a dev run (`dev.ps1` does it), and `Ctrl+C` tears down
-    both processes;
-  - CAUTION: a release rebuild after a pure-UI edit may report "Finished in
-    0.65s" and keep the OLD ui — the frontend files are not cargo
-    dependencies. Touch `apps/desktop/src-tauri/src/main.rs` (or `cargo clean
-    -p wa-desktop`) before `build-portable.bat` to force the embed.
-  - The `devUrl` overlay lives ONLY in the `--config` flag (never in
-    `tauri.conf.json`): `cargo build --release` compiled the dev URL into the
-    release exe when it lived in the config, and a broken dist copy then
-    loaded `127.0.0.1` on every start ("Hmmm... can't reach this page"). With
-    `frontendDist`-only in the config *plus* `--config '{"build":{"devUrl":…}}'`
-    the release exe embeds zero dev references and boots `tauri.localhost`
-    (`page url: http://tauri.localhost/ title: WA Desk`).
-
+- **The shipped app is `apps/desktop-native` (`wa-desk-native`).** The WebView
+  front end and its 13 JS files were removed in rc.57; `wa-ui` remains the
+  shared decision layer and the native window paints with `egui`.
+  `cargo run -p wa-desktop-native -- --selftest` folds a scripted event
+  sequence headlessly (gate, chats, media, status, channels, settings, group
+  info) and prints what the window would show, so the UI is verified in CI
+  without a display.
 ### Official-client parity pass (v140)
 
 - Clock format is globally `8:44 pm` — lowercase 12-hour with colon, forced
@@ -362,10 +279,9 @@ device until you remove it from the phone).
   search input is debounced. Date labels are memoized (`TIME_LABELS`/`STAMP_LABELS`/`DAY_LABELS`)
   and photo replies patch a single avatar. When adding a new render call, prefer the scheduled
   variant unless the caller reads the DOM synchronously afterwards.
-- **UI assets are embedded at build time.** Tauri bundles `apps/desktop/ui` into the binary, so a
-  `Page.reload` (or restarting the old exe) still serves the previous HTML/CSS/JS. Edit the UI,
-  then `cargo build -p wa-desktop` (or rebuild the portable package) before checking a visual
-  change; a plain frontend edit shows up only after that rebuild.
+- **The UI is compiled in.** `wa-desk-native` links `wa-ui` directly; there is
+  nothing to embed, reload or cache, so a Rust change is the only way to change
+  the interface.
 - **UI events are at-least-once.** `Event::Messages` can replay on redelivery, so the
   frontend deduplicates by message id.
 - **History replay.** `Event::HistorySync` chunks carry conversations *and* their messages.
@@ -434,7 +350,7 @@ device until you remove it from the phone).
   the viewer has a custom transport bar (play/pause, seek, time, 1×/1.5×/2×/0.5× speed, mute,
   fullscreen) instead of native controls. The strip lists the chat's photos/videos, arrows/←/→
   step through them and Esc or the backdrop closes it. The download button copies the file to
-  `Downloads\WA Desk` through Rust, so WebView2 never navigates away from the app.
+  `Downloads\WA Desk` through Rust (no browser navigation involved).
 - **In-chat search.** The header search button opens a search bar with a match counter,
   previous/next buttons, yellow highlighting and Esc to close. It searches text and media
   captions in the open chat, not the chat list.
@@ -488,12 +404,8 @@ device until you remove it from the phone).
   are decoded for both live messages and history backfill.
 - **Self chat label.** The account's own conversation is shown as `name (You)` in the
   chat list and header, matching WhatsApp Web.
-- **Voice/video calls (1:1).** Calls use the `whatsapp-rust` VoIP runtime (`voip-mlow`):
-  microphone PCM is captured at 16 kHz in an AudioWorklet and sent over Tauri IPC, remote
-  PCM is scheduled through Web Audio, and video is H.264 Annex-B encoded/decoded with
-  WebCodecs. Group calls and camera-less devices are rejected with a clear toast. The machine
-  used for this build has no working microphone/camera, so the UI/signaling paths were tested
-  but a live two-device media call could not be verified here.
+- **Voice/video calls** are not in the native window yet; the VoIP runtime still
+  lives in `wa-core` and waits for a native audio/video path.
 - **Light/dark theme.** Settings → Chats → Theme (or the moon/sun button in the sidebar
   header) switches between Light, Dark and System default. Both palettes are the official
   `--WDS-*` design tokens (see the palette note above), not hand-tuned values. The dialog and
@@ -503,8 +415,9 @@ device until you remove it from the phone).
 - **Groups** use the library's `Groups` feature: create, read metadata for the info screen,
   add/remove participants, promote/demote admins, and leave. The `+` menu opens the creation
   dialog with a contact checklist; the same dialog doubles as "Add members".
-- **Desktop notifications, tray and autostart** are Tauri plugins. Closing the window hides
-  it to the tray; Quit is in the tray menu. Notifications are skipped for the open chat.
+- **Notifications, tray and autostart** have to be rebuilt natively (the tray and
+  notification plugins went with the removed WebView shell); autostart still works
+  through the OS startup folder.
 - **Media is downloaded on demand.** The Rust side keeps the protobuf of recent
   media messages, downloads/decrypts on request and writes the plaintext into
   `<app data>/media`. If the CDN path has expired (always the case for photos
@@ -537,33 +450,26 @@ device until you remove it from the phone).
   be linked again.
 - **Send failures are silent on disk.** A `SendResult` means the stanza was accepted,
   not delivered. Delivery/read state needs receipt handling in the UI.
-- **Linux WebKitGTK is the weaker platform** for any webview-heavy UI. Keeping the
-  frontend plain HTML/CSS keeps it predictable.
+- **Linux** builds against `eframe`/`glow`, so X11 or Wayland plus a GL driver is
+  all it needs; there is no WebKit dependency to fight with.
 - **`whatsapp-rust`'s `simd` feature is off on purpose.** It enables
   `#![feature(portable_simd)]`, which only compiles on nightly. Everything else uses
   the crate's default feature set, so stable Rust works. If you want the extra
   throughput, build with `RUSTC_BOOTSTRAP=1` or a nightly toolchain and re-enable it.
 
-- **In-app updates.** `tauri-plugin-updater` fetches
-  `plugins.updater.endpoints` and verifies every download against the minisign
-  key in `plugins.updater.pubkey` (signed in CI with the
-  `TAURI_SIGNING_PRIVATE_KEY` secret; `bundle.createUpdaterArtifacts` makes the
-  bundler emit the `.sig`). GitHub's `/releases/latest` **skips pre-releases**,
-  so the release job also writes `latest.json` to a `latest` branch and that
-  raw URL is listed first — that is what makes the RC channel work. Settings →
-  Account renders it from `updateState` (`settings.js`) and calls
-  `check_for_update` / `install_update` (`commands/update.rs`).
+- **In-app updates** were a Tauri plugin and are not wired into the native app
+  yet: releases are published by CI and installed from GitHub by hand.
 - **The security posture is audited in [`SECURITY.md`](SECURITY.md).** CI runs
   `cargo audit`; accepted advisories live with their rationale in
   `.cargo/audit.toml`. `security.csp` is set (it used to be `null`) — if you add
   a remote resource, check the CSP allows it, and prefer moving an inline
   `on*` handler to `addEventListener` over loosening `script-src`.
 
-## Roadmap
+## Roadmap (native app)
 
-1. Media: upload/download through `client.upload()` / `client.download()`.
-2. Real delivery/read receipts (the UI currently shows one ✓ on send).
-3. Contact names from the address-book app state (today: push names).
-4. Tray icon, unread badge, native notifications, autostart.
-5. Reactions, replies, message actions.
-
+1. Stickers and the emoji picker in the window
+2. In-chat search and the media viewer
+3. Message actions: reply, react, edit, delete, forward
+4. Notifications, tray and autostart
+5. AI auto-reply loop (port it out of the removed shell)
+6. Voice/video calls on a native audio/video path

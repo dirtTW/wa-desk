@@ -4,6 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.57] — 2026-11-04
+
+- **The WebView front end is gone: the app is now Rust all the way down.**
+  `apps/desktop` (the Tauri shell and its 13 JS files) and the CDP e2e suite are
+  deleted, `scripts/build-emoji.js` and the five JS audit scripts went with them,
+  and the workspace builds only `wa-types`, `wa-core`, `wa-ui` and
+  `apps/desktop-native`. **The repository now contains zero JavaScript files and
+  zero HTML UI files**; `wa-desk-native` (`eframe`/`egui`) is the shipped app and
+  `dist\WA Desk.exe` is built from it.
+  - CI now checks `cargo test --workspace`, runs the native `--selftest`
+    headlessly, and the release job publishes the native binaries instead of
+    MSI/NSIS installers.
+- **Fixed: reading on the phone left the unread badge behind.** A `read` (or
+  `played`) receipt arriving for a chat now clears that chat's unread counter and
+  a `delivered` receipt does not — previously only opening the chat locally or a
+  `ChatReadMark` cleared it, so a chat read on the phone kept its badge until it
+  was opened here. Regression test covers both paths.
+- **Group info in the native window.** `Command::GroupInfo` loads the metadata
+  through the session; the screen shows the subject, description, the
+  `Group - N members` subtitle from `wa_ui::labels::group_member_count` and the
+  member list with **admin** chips, admins first and names resolved from the chat
+  store where known.
+- 12 native tests; clippy clean across the workspace; selftest prints
+  `{"channels":1,"chats":3,"group_members":2,...,"theme":"light"}`.
+
 ## [0.2.0-rc.56] — 2026-11-03
 
 - **The native window has a Settings screen.** `settings.rs` stores the theme and

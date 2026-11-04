@@ -19,6 +19,8 @@ pub struct NativeApp {
     pub runtime: tokio::runtime::Handle,
     /// Results of media downloads, (message id, cached path or error).
     pub media: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
+    /// Group metadata replies, (chat, info or error).
+    pub group: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
 }
 
 impl NativeApp {
@@ -27,12 +29,14 @@ impl NativeApp {
         commands: Sender<Command>,
         runtime: tokio::runtime::Handle,
         media: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
+        group: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
     ) -> Self {
         Self {
             events,
             commands,
             runtime,
             media,
+            group,
         }
     }
 }
@@ -58,6 +62,10 @@ pub struct WaDesk {
     qr: Option<(String, egui::TextureHandle)>,
     /// Media download results, drained every frame.
     media_rx: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
+    /// Group metadata replies.
+    group_rx: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
+    /// The group info screen is open.
+    show_group: bool,
     /// Decoded media textures, keyed by message id.
     textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
 }
@@ -78,6 +86,8 @@ impl WaDesk {
             settings_note: String::new(),
             qr: None,
             media_rx: native.media,
+            group_rx: native.group,
+            show_group: false,
             textures: std::collections::HashMap::new(),
         }
     }
@@ -86,6 +96,14 @@ impl WaDesk {
         let mut changed = false;
         while let Ok(event) = self.events.try_recv() {
             self.model.apply(&event);
+            changed = true;
+        }
+        while let Ok((chat, reply)) = self.group_rx.try_recv() {
+            match reply {
+                Ok(info) => self.model.group_loaded(info),
+                Err(err) => self.model.group_failed(&err),
+            }
+            let _ = chat;
             changed = true;
         }
         while let Ok((id, reply)) = self.media_rx.try_recv() {
@@ -208,6 +226,14 @@ impl WaDesk {
                 ui.heading(self.model.title(&row));
                 if row.jid.ends_with("@g.us") {
                     ui.label(egui::RichText::new("group").small().weak());
+                    if ui.button("Group info").clicked() {
+                        self.show_group = true;
+                        if self.model.request_group(&row.jid) {
+                            self.send(Command::GroupInfo {
+                                chat: row.jid.clone(),
+                            });
+                        }
+                    }
                 }
             });
             ui.separator();
@@ -840,6 +866,65 @@ fn settings_file() -> std::path::PathBuf {
     dir.join("settings.json")
 }
 
+impl WaDesk {
+    /// Group info: subject, description, member count and the member list
+    /// with admin chips.
+    fn group_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Group info");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Back").clicked() {
+                        self.show_group = false;
+                    }
+                });
+            });
+            ui.separator();
+            if let Some(err) = self.model.group_error.clone() {
+                ui.label(egui::RichText::new(err).color(egui::Color32::RED));
+                return;
+            }
+            let Some(info) = self.model.group.clone() else {
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Loading members…").weak());
+                return;
+            };
+            ui.label(egui::RichText::new(&info.subject).strong());
+            ui.label(
+                egui::RichText::new(self.model.group_count_label())
+                    .small()
+                    .weak(),
+            );
+            if let Some(description) = info
+                .description
+                .as_ref()
+                .filter(|text| !text.trim().is_empty())
+            {
+                ui.add_space(6.0);
+                ui.label(description);
+            }
+            ui.add_space(10.0);
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for (name, admin, _jid) in self.model.group_members() {
+                        ui.horizontal(|ui| {
+                            ui.label(name);
+                            if admin {
+                                ui.label(
+                                    egui::RichText::new("Admin")
+                                        .small()
+                                        .color(egui::Color32::from_rgb(37, 211, 102)),
+                                );
+                            }
+                        });
+                    }
+                });
+        });
+    }
+}
+
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.model.now = std::time::SystemTime::now()
@@ -852,7 +937,9 @@ impl eframe::App for WaDesk {
             self.gate(ctx);
         } else {
             self.sidebar(ctx);
-            if self.show_settings {
+            if self.show_group {
+                self.group_panel(ctx);
+            } else if self.show_settings {
                 self.settings_panel(ctx);
             } else if self.show_channels {
                 self.channels_panel(ctx);

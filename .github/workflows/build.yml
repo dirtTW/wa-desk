@@ -18,11 +18,15 @@ jobs:
       - name: System dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libssl-dev libxdo-dev librsvg2-dev
+          sudo apt-get install -y libssl-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      # The native UI is verified headlessly: the selftest folds scripted
+      # protocol events and prints what the window would show.
+      - run: cargo run -q -p wa-desktop-native -- --selftest
       # Known-vulnerability scan. `.cargo/audit.toml` records the accepted
       # advisories and why each one cannot be cleared yet.
       - name: Audit dependencies for known vulnerabilities
@@ -36,11 +40,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: wa-desktop-windows
-            binary: target/release/wa-desktop.exe
+            artifact: wa-desk-windows
+            binary: target/release/wa-desk-native.exe
           - os: ubuntu-22.04
-            artifact: wa-desktop-linux
-            binary: target/release/wa-desktop
+            artifact: wa-desk-linux
+            binary: target/release/wa-desk-native
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -49,22 +53,19 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libssl-dev libxdo-dev librsvg2-dev
+          sudo apt-get install -y libssl-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p wa-desktop
+      - run: cargo build --release -p wa-desktop-native
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.binary }}
           if-no-files-found: error
 
-  # On a version tag: build the Windows installers (MSI + NSIS, both with an
-  # uninstaller), then push every artifact — the installers and the plain
-  # binaries from `build` — to the GitHub release for that tag. The release is
-  # created if it does not exist yet, its body is the matching `CHANGELOG.md`
-  # section (plus a diff link to the previous tag), and it is marked
-  # pre-release when the tag has a semver pre-release suffix.
+  # On a version tag: publish the native binaries (there is no WebView bundle to
+  # package any more). The release body is the matching CHANGELOG.md section plus
+  # a diff link, and it is marked pre-release when the tag has a suffix.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
@@ -75,17 +76,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/download-artifact@v8
         with:
           path: dist
-      - name: Build the Windows installers
-        working-directory: apps/desktop
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx --yes "@tauri-apps/cli@^2" build --bundles msi,nsis
       - name: Compose the release body from CHANGELOG.md
         shell: pwsh
         run: |
@@ -110,80 +103,16 @@ jobs:
           }
           Write-Output '----- release body -----'
           Get-Content release-body.md
-          # `git describe` above exits non-zero when there is no previous tag,
-          # and Actions' pwsh wrapper exits with $LASTEXITCODE. Reset it.
           exit 0
-      # `plugins.updater.endpoints` points at this file on the newest release.
-      # tauri-plugin-updater fetches it, compares `version` and verifies the
-      # installer against the `.sig` produced by TAURI_SIGNING_PRIVATE_KEY.
-      - name: Write latest.json for the in-app updater
-        shell: pwsh
-        run: |
-          $tag = $env:GITHUB_REF_NAME
-          $version = $tag -replace '^v', ''
-          $setup = Get-ChildItem 'target/release/bundle/nsis/*-setup.exe' -ErrorAction Stop |
-            Select-Object -First 1
-          $sigPath = "$($setup.FullName).sig"
-          if (-not (Test-Path $sigPath)) {
-            Write-Error "no signature at $sigPath - is TAURI_SIGNING_PRIVATE_KEY set?"
-            exit 1
-          }
-          $manifest = [ordered]@{
-            version   = $version
-            notes     = (Get-Content release-body.md -Raw)
-            pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-            platforms = [ordered]@{
-              'windows-x86_64' = [ordered]@{
-                signature = (Get-Content $sigPath -Raw).Trim()
-                url       = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$($setup.Name)"
-              }
-            }
-          }
-          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path latest.json -Encoding utf8
-          Write-Output '----- latest.json -----'
-          Get-Content latest.json
-      # `/releases/latest` skips pre-releases, so the RC channel needs a URL
-      # that is stable across them: keep the manifest on a `latest` branch.
-      - name: Publish latest.json to the `latest` branch
+      - name: Publish the release
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $repo = $env:GITHUB_REPOSITORY
-          $content = [Convert]::ToBase64String([IO.File]::ReadAllBytes('latest.json'))
-          # Only accept a real 40-char sha; a 404 prints JSON that would
-          # otherwise be treated as one.
-          $fileSha = gh api "repos/$repo/contents/latest.json?ref=latest" --jq '.sha' 2>$null |
-            Where-Object { $_ -match '^[0-9a-f]{40}$' } | Select-Object -First 1
-          if (-not $fileSha) {
-            $base = gh api "repos/$repo/commits/$env:GITHUB_REF_NAME" --jq '.sha'
-            gh api --method POST "repos/$repo/git/refs" -f ref='refs/heads/latest' -f "sha=$base" 2>$null |
-              Out-Null
-            Write-Output "created the latest branch from $base"
-          }
-          $args = @(
-            '--method', 'PUT', "repos/$repo/contents/latest.json",
-            '-f', "message=latest.json for $env:GITHUB_REF_NAME",
-            '-f', "content=$content",
-            '-f', 'branch=latest'
-          )
-          if ($fileSha) { $args += @('-f', "sha=$fileSha") }
-          gh api @args --jq '.commit.sha'
-          Write-Output "published latest.json to the latest branch"
-      - name: Push the artifacts to the release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $pre = if ($tag -match '-') { '--prerelease' } else { $null }
-          gh release view $tag 2>$null | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "WA Desk $tag" $pre --notes-file release-body.md
-          }
-          $assets = @('latest.json')
-          $assets += Get-ChildItem -Path dist -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          $assets += Get-ChildItem -Path target/release/bundle/msi/*, target/release/bundle/nsis/* -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          Write-Output "attaching to ${tag}:"
-          $assets | ForEach-Object { Write-Output "  $_" }
-          gh release upload $tag @assets --clobber
+          $files = Get-ChildItem dist -Recurse -File | Select-Object -ExpandProperty FullName
+          $prerelease = if ($tag -match '-') { '--prerelease' } else { '' }
+          $args = @('release', 'create', $tag, '--title', $tag, '--notes-file', 'release-body.md')
+          if ($prerelease) { $args += $prerelease }
+          $args += $files
+          gh @args --repo $env:GITHUB_REPOSITORY

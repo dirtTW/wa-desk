@@ -42,10 +42,10 @@ What it explicitly does **not** protect against:
 | Content Security Policy | was `null`; **now set** and verified with 0 violations |
 | Untrusted message content | escaped before `innerHTML` — `bodyHtml()` escapes first, and there are 151 `escapeHtml` call sites |
 | External links | `open_link` accepts only `http://` / `https://`, so a crafted message cannot spawn arbitrary commands |
-| WebView2 permissions | only microphone and camera are auto-allowed; every other permission keeps the default (deny) |
-| `unsafe` blocks | only Win32 / COM interop — the single-instance mutex, the WebView2 permission handler, and setting the WebView2 env var before any thread starts |
+| Permissions | the native window asks the OS for microphone/camera only when a call starts |
+| `unsafe` blocks | only Win32 interop for the single-instance mutex |
 | Process execution | no `Command::new` / `std::process` in this project's own code |
-| Update channel | minisign-signed; the app verifies every download against the public key pinned in `tauri.conf.json` |
+| Update channel | not implemented in the native app; watch the GitHub releases |
 
 ### Dependency advisories
 

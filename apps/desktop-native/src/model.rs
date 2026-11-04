@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use wa_types::{MessageView, StatusUpdate, UiEvent};
+use wa_types::{GroupInfoView, MessageView, StatusUpdate, UiEvent};
 use wa_ui::status::{
     StatusEntryView, StatusRequest, StatusUpdateView, ViewerChromeInput, next_position,
     progress_ratio, viewer_chrome, viewer_groups,
@@ -33,6 +33,10 @@ pub enum Command {
     /// Ask the phone to show a pairing code instead of a QR.
     PairCode {
         phone: String,
+    },
+    /// Load a group's metadata for the info screen.
+    GroupInfo {
+        chat: String,
     },
     /// Restart the pairing session for a fresh QR.
     Restart,
@@ -92,6 +96,10 @@ pub struct Model {
     pub active: Option<String>,
     /// The connection line under the title.
     pub status: String,
+    /// The open group's metadata, once the session answered.
+    pub group: Option<GroupInfoView>,
+    /// Why the metadata could not be fetched.
+    pub group_error: Option<String>,
     /// Followed channels (`@newsletter`), newest post first when listed.
     pub channels: BTreeMap<String, ChannelRow>,
     /// Stories by author JID.
@@ -227,11 +235,77 @@ impl Model {
                     row.unread = 0;
                 }
             }
+            UiEvent::Receipt { chat, ids, status } => {
+                // A read (or played) receipt means the phone has read the chat:
+                // the local badge must go, not just the bubble ticks.
+                let read = matches!(status.as_str(), "read" | "played");
+                let _ = ids;
+                if let Some(row) = self.chats.get_mut(chat)
+                    && read
+                {
+                    row.unread = 0;
+                }
+            }
             UiEvent::ChatDeleted { chat } if self.active.as_deref() == Some(chat.as_str()) => {
                 self.active = None;
             }
             _ => {}
         }
+    }
+
+    /// Ask the session for a group's metadata (the window calls this when the
+    /// group info screen opens).
+    pub fn request_group(&mut self, chat: &str) -> bool {
+        if chat.is_empty() || !chat.ends_with("@g.us") {
+            return false;
+        }
+        self.group = None;
+        self.group_error = None;
+        true
+    }
+
+    pub fn group_loaded(&mut self, info: GroupInfoView) {
+        self.group = Some(info);
+    }
+
+    pub fn group_failed(&mut self, reason: &str) {
+        self.group = None;
+        self.group_error = Some(reason.to_string());
+    }
+
+    /// The group subtitle (`Group - 10 members`), from `wa-ui`.
+    pub fn group_count_label(&self) -> String {
+        wa_ui::labels::group_member_count(self.group.as_ref().map(|g| g.members.len()).unwrap_or(0))
+    }
+
+    /// Members with the admin flag, admins first, then by name.
+    pub fn group_members(&self) -> Vec<(String, bool, String)> {
+        let Some(info) = self.group.as_ref() else {
+            return Vec::new();
+        };
+        let mut rows: Vec<(String, bool, String)> = info
+            .members
+            .iter()
+            .map(|member| {
+                let name = self
+                    .chats
+                    .get(&member.jid)
+                    .map(|row| row.name.clone())
+                    .filter(|name| !name.is_empty())
+                    .or_else(|| member.phone.clone())
+                    .unwrap_or_else(|| {
+                        member
+                            .jid
+                            .split('@')
+                            .next()
+                            .unwrap_or(&member.jid)
+                            .to_string()
+                    });
+                (name, member.admin, member.jid.clone())
+            })
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        rows
     }
 
     /// Channels, newest activity first, with their follower line.
@@ -835,6 +909,48 @@ pub fn selftest() -> Result<String, String> {
     if prefs.ai_plan().ok {
         return Err("a non-http base URL must be rejected".to_string());
     }
+    // Group info: the subtitle, admins first, admin flags kept.
+    model.chats.insert(
+        "6285@s.whatsapp.net".to_string(),
+        ChatRow {
+            jid: "6285@s.whatsapp.net".into(),
+            name: "Budi".into(),
+            ..Default::default()
+        },
+    );
+    if !model.request_group("1203@g.us") {
+        return Err("a group chat should ask for its metadata".to_string());
+    }
+    model.group_loaded(GroupInfoView {
+        jid: "1203@g.us".into(),
+        subject: "Team".into(),
+        description: Some("shift swap".into()),
+        members: vec![
+            wa_types::GroupMemberView {
+                jid: "6285@s.whatsapp.net".into(),
+                phone: None,
+                admin: false,
+            },
+            wa_types::GroupMemberView {
+                jid: "6289@s.whatsapp.net".into(),
+                phone: Some("+62 812-3456-789".into()),
+                admin: true,
+            },
+        ],
+        is_community: false,
+        parent_jid: None,
+        is_announce: false,
+    });
+    if model.group_count_label() != "Group - 2 members" {
+        return Err(format!("subtitle wrong: {}", model.group_count_label()));
+    }
+    let members = model.group_members();
+    if members[0].0 != "+62 812-3456-789" || !members[0].1 {
+        return Err(format!("admins come first, got {members:?}"));
+    }
+    if members[1].0 != "Budi" {
+        return Err("a known chat name should label the member".to_string());
+    }
     Ok(serde_json::json!({
         "chats": model.visible_chats().len(),
         "first": first,
@@ -846,6 +962,7 @@ pub fn selftest() -> Result<String, String> {
         "status_groups": model.status_groups().len(),
         "channels": model.channel_rows().len(),
         "theme": prefs.resolved_theme(true),
+        "group_members": model.group_members().len(),
     })
     .to_string())
 }
@@ -944,8 +1061,61 @@ mod tests {
     }
 
     #[test]
+    fn reading_on_the_phone_clears_the_badge() {
+        let mut model = Model::new();
+        model.now = 1_770_000_000_000;
+        // Two unread messages from Ada.
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "m1",
+            "hi",
+            1,
+            false,
+        )));
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "m2",
+            "there",
+            2,
+            false,
+        )));
+        assert_eq!(model.chats["1@s.whatsapp.net"].unread, 2);
+
+        // The phone reports them read: the badge disappears.
+        model.apply(&UiEvent::Receipt {
+            chat: "1@s.whatsapp.net".into(),
+            ids: vec!["m1".into(), "m2".into()],
+            status: "read".into(),
+        });
+        assert_eq!(model.chats["1@s.whatsapp.net"].unread, 0, "badge cleared");
+        assert_eq!(model.chats["1@s.whatsapp.net"].unread, 0, "badge cleared");
+
+        // A delivery receipt must not clear it again.
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "m3",
+            "yo",
+            3,
+            false,
+        )));
+        assert_eq!(model.chats["1@s.whatsapp.net"].unread, 1);
+        model.apply(&UiEvent::Receipt {
+            chat: "1@s.whatsapp.net".into(),
+            ids: vec!["m1".into()],
+            status: "delivered".into(),
+        });
+        assert_eq!(
+            model.chats["1@s.whatsapp.net"].unread, 1,
+            "delivered keeps it"
+        );
+    }
+
+    #[test]
     fn the_selftest_passes() {
         let report = selftest().expect("selftest");
-        assert!(report.contains("\"chats\":2"));
+        assert!(report.contains("\"group_members\":2"));
     }
 }

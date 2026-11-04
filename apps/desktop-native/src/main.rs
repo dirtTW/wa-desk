@@ -45,6 +45,8 @@ fn main() {
     let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<wa_types::UiEvent>();
     let (command_tx, command_rx) = std::sync::mpsc::channel::<model::Command>();
     let (media_tx, media_rx) = std::sync::mpsc::channel::<(String, Result<String, String>)>();
+    let (group_tx, group_rx) =
+        std::sync::mpsc::channel::<(String, Result<wa_types::GroupInfoView, String>)>();
 
     let store = model::store_path();
     let media = model::media_dir();
@@ -92,6 +94,10 @@ fn main() {
                     let reply = session.fetch_media(&id).await;
                     let _ = media_tx.send((id, reply));
                 }
+                model::Command::GroupInfo { chat } => {
+                    let reply = session.group_info(&chat).await;
+                    let _ = group_tx.send((chat, reply));
+                }
                 model::Command::Restart => {
                     // The session reconnects itself; a reconnect is what asks
                     // WhatsApp for a fresh QR.
@@ -111,7 +117,7 @@ fn main() {
         ..Default::default()
     };
 
-    let app = app::NativeApp::new(event_rx, command_tx, handle, media_rx);
+    let app = app::NativeApp::new(event_rx, command_tx, handle, media_rx, group_rx);
     if let Err(err) = eframe::run_native(
         "WA Desk",
         options,
