@@ -4,7 +4,38 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.77] — 2026-11-04
+## [0.2.0-rc.79] - 2026-11-04
+
+- **Videos play in the media viewer** (they only showed a poster after the migration).
+  `video.rs` pre-decodes the clip with `ffmpeg` (10 fps, ≤640 px wide, first 120 s) into
+  JPEG frames plus a WAV track under `<app data>/media/video-<id>/` on a worker thread; the
+  viewer steps the frames by elapsed time and `audio.rs` plays the track in step, seeking the
+  sink instead of re-decoding when the line is dragged. Without `ffmpeg` the viewer keeps the
+  poster and says so.
+- **The viewer controls are the official transport bar**: play/pause disc, elapsed/total time,
+  a green seek line with a draggable knob, mute (`Sink::set_volume`) and fullscreen; clicking the
+  frame toggles playback, Space does too, and a paused clip shows the dim scrim with the big
+  translucent play disc. The header's close/save and the prev/next arrows are Material icons
+  now instead of text glyphs.
+- **Fixed the viewer stage being placed off screen.** An egui `Area` reports an effectively
+  unbounded `available_height` (83 000 px), so `available_height - chrome` allocated a stage
+  taller than the window and the photo/video plus the caption and filmstrip fell outside it.
+  The stage is measured from `ctx.screen_rect()` instead, and video frames now scale up to fill
+  it like the official player.
+- Frame textures are a 48-entry LRU (~5 s of video) and only six decoded clips are kept on disk,
+  so playback does not grow memory or the media folder without bound.
+- Verified: `video::tests::a_clip_becomes_frames_and_an_audio_track` encodes a 2 s sample with
+  ffmpeg, prepares it and asserts 20 frames + a WAV track (skipped where ffmpeg is absent);
+  `old_clips_are_pruned_from_the_cache`; screenshots `target/video3.png` (playing at 0:15/0:30,
+  frame counter `00:00:15.520` matching the clock) and `target/video4.png` (paused, scrim + play
+  disc).
+
+## [0.2.0-rc.78] - 2026-11-04
+
+- CI and the Linux build notes install ALSA headers (`libasound2-dev` / `alsa-lib-devel`), which
+  `rodio`/`cpal` need for audio playback. No code change.
+
+## [0.2.0-rc.77] - 2026-11-04
 
 - **Voice notes and audio messages play** (JS-only after the migration). Audio bubbles are the
   official player: a green play/pause disc, the sender's waveform (a shaped fallback when none
@@ -16,11 +47,8 @@ and the roadmap live in [`AGENTS.md`](AGENTS.md).
 - Audio messages now join photos and stickers in the on-demand media fetch, so the bubble can
   play as soon as the file lands.
 
+## [0.2.0-rc.76] - 2026-11-04
 
-
-- **Profile photos are cached on disk** (`%APPDATA%\io.github.dirttw.wadesk-native\avatars\`). The
-  window paints the cached file immediately and refreshes it from the CDN in the background, so
-  the next launch shows every avatar without waiting for the network.
 - **Settings rebuilt like the official screen**: profile header (photo, name, connection), the
   section list with icons and subtitles (General, Chats, AI assistant, Updates, Help and
   feedback), a selected-row highlight and **Log out** in red; the detail pane on the right shows

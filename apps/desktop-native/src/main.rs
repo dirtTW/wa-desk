@@ -23,6 +23,7 @@ mod model;
 mod settings;
 mod theme;
 mod updates;
+mod video;
 
 use std::sync::Arc;
 

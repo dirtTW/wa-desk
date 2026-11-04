@@ -126,6 +126,8 @@ pub struct WaDesk {
     attach_note: Option<(String, std::time::Instant)>,
     /// True in `--preview`: never write the demo chats to the real cache.
     preview: bool,
+    /// Screenshot support: start the demo video as soon as it is decoded.
+    preview_autoplay: bool,
     /// Progressive history sync: batches left and when the last one went out.
     sync_rounds: u8,
     last_sync: std::time::Instant,
@@ -137,6 +139,17 @@ pub struct WaDesk {
     last_state_sync: std::time::Instant,
     /// When groups/status were last refreshed in full.
     last_full_sync: std::time::Instant,
+    /// Prepared videos and their frame textures.
+    videos: std::collections::HashMap<String, VideoState>,
+    video_tx: std::sync::mpsc::Sender<(String, Result<crate::video::Video, String>)>,
+    video_rx: std::sync::mpsc::Receiver<(String, Result<crate::video::Video, String>)>,
+    video_textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    /// Insertion order of `video_textures`, so old frames can be evicted.
+    video_order: std::collections::VecDeque<String>,
+    video_playing: bool,
+    video_started: Option<std::time::Instant>,
+    video_offset: f32,
+    video_muted: bool,
     /// Group JIDs whose metadata has been requested.
     groups_asked: std::collections::HashSet<String>,
     /// The Chats kebab menu is open.
@@ -173,6 +186,7 @@ impl WaDesk {
         let cache_path =
             std::path::Path::new(&crate::model::store_path()).with_file_name("chats.json");
         let (avatar_img_tx, avatar_img_rx) = std::sync::mpsc::channel();
+        let (video_tx, video_rx) = std::sync::mpsc::channel();
         let mut model = Model::new();
         model.load_cache_file(&cache_path);
         Self {
@@ -216,12 +230,22 @@ impl WaDesk {
             attach_rx: native.attach,
             attach_note: None,
             preview: false,
+            preview_autoplay: false,
             sync_rounds: 6,
             last_sync: std::time::Instant::now(),
             focus_search: false,
             seen_epoch: 0,
             last_state_sync: std::time::Instant::now(),
             last_full_sync: std::time::Instant::now(),
+            videos: std::collections::HashMap::new(),
+            video_tx: video_tx.clone(),
+            video_rx,
+            video_textures: std::collections::HashMap::new(),
+            video_order: std::collections::VecDeque::new(),
+            video_playing: false,
+            video_started: None,
+            video_offset: 0.0,
+            video_muted: false,
             groups_asked: std::collections::HashSet::new(),
             show_chat_menu: std::env::var("WA_DESK_MENU").is_ok(),
             settings_section: 0,
@@ -253,6 +277,16 @@ impl WaDesk {
         self.show_channels = false;
         // `WA_DESK_SETTINGS=1` renders the Settings screen for a screenshot.
         self.show_settings = std::env::var("WA_DESK_SETTINGS").is_ok();
+        // `WA_DESK_VIEWER=1` opens the media viewer on the demo video;
+        // `WA_DESK_DEMO_VIDEO=<clip>` supplies a real file to play and
+        // `WA_DESK_VIEWER_PLAY=1` starts it so a screenshot shows playback.
+        if std::env::var("WA_DESK_VIEWER").is_ok() {
+            if let Ok(path) = std::env::var("WA_DESK_DEMO_VIDEO") {
+                self.model.media_ready("d8", &path);
+            }
+            self.preview_autoplay = std::env::var("WA_DESK_VIEWER_PLAY").is_ok();
+            self.model.open_viewer("d8");
+        }
     }
 
     /// `--screenshot <path>`: save one settled frame and quit.
@@ -709,6 +743,262 @@ impl WaDesk {
         }
     }
 
+    /// Seconds of the clip that have played.
+    fn video_elapsed(&self) -> f32 {
+        if self.video_playing {
+            self.video_started
+                .map(|started| started.elapsed().as_secs_f32())
+                .unwrap_or(self.video_offset)
+        } else {
+            self.video_offset
+        }
+    }
+
+    /// Start or pause the open clip, keeping the extracted audio in step.
+    fn toggle_video(&mut self, id: &str) {
+        if self.video_playing {
+            self.video_offset = self.video_elapsed();
+            self.video_playing = false;
+            self.video_started = None;
+            self.audio.stop();
+            return;
+        }
+        let Some(VideoState::Ready(video)) = self.videos.get(id).cloned() else {
+            return;
+        };
+        if self.video_offset >= video.duration {
+            self.video_offset = 0.0;
+        }
+        self.video_started =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs_f32(self.video_offset));
+        self.video_playing = true;
+        if let Some(audio) = video.audio.clone() {
+            self.audio.play_from(
+                &format!("video:{id}"),
+                &audio.to_string_lossy(),
+                video.duration,
+                self.video_offset,
+            );
+        }
+    }
+
+    /// Jump the open clip to `seconds`, keeping the extracted audio in step.
+    fn seek_video(&mut self, id: &str, seconds: f32) {
+        let Some(VideoState::Ready(video)) = self.videos.get(id).cloned() else {
+            return;
+        };
+        let target = seconds.clamp(0.0, video.duration);
+        self.video_offset = target;
+        if self.video_playing {
+            self.video_started =
+                Some(std::time::Instant::now() - std::time::Duration::from_secs_f32(target));
+            let track = format!("video:{id}");
+            let state = self.audio.state();
+            if state.id.as_deref() == Some(track.as_str()) && state.playing {
+                // Already loaded: move the sink instead of decoding again, so
+                // dragging the seek line stays smooth.
+                self.audio.seek(target);
+            } else if let Some(audio) = video.audio.clone() {
+                self.audio
+                    .play_from(&track, &audio.to_string_lossy(), video.duration, target);
+            }
+        }
+    }
+
+    fn stop_video(&mut self) {
+        if self.video_playing {
+            self.audio.stop();
+        }
+        self.video_playing = false;
+        self.video_started = None;
+        self.video_offset = 0.0;
+    }
+
+    /// The texture for the current frame of a prepared clip.
+    fn video_frame_handle(&mut self, ctx: &egui::Context, id: &str) -> Option<egui::TextureHandle> {
+        let VideoState::Ready(video) = self.videos.get(id)?.clone() else {
+            return None;
+        };
+        let index = ((self.video_elapsed() * crate::video::FPS) as usize)
+            .min(video.frames.saturating_sub(1));
+        let key = format!("{}#{index}", video.dir.display());
+        // Frames are ~1 MB of texture each, so only a short window is kept:
+        // the last ~5 seconds at 10 fps. The rest is re-decoded on demand.
+        if let Some(position) = self.video_order.iter().position(|entry| entry == &key) {
+            self.video_order.remove(position);
+        }
+        self.video_order.push_back(key.clone());
+        while self.video_order.len() > 48 {
+            if let Some(old) = self.video_order.pop_front() {
+                self.video_textures.remove(&old);
+            }
+        }
+        let path = video
+            .frame_path(index)
+            .map(|path| path.to_string_lossy().into_owned());
+        texture_at(ctx, &mut self.video_textures, &key, path)
+    }
+
+    /// The official video transport bar: play/pause, elapsed, a seek line,
+    /// the length, mute and fullscreen.
+    fn video_transport(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, id: &str) {
+        let duration = match self.videos.get(id) {
+            Some(VideoState::Ready(video)) => video.duration,
+            _ => 0.0,
+        };
+        let playing = self.video_playing;
+        let elapsed = self.video_elapsed().clamp(0.0, duration.max(0.0));
+        let muted = self.video_muted;
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::hover());
+        let white = egui::Color32::from_gray(238);
+        let dim = egui::Color32::from_gray(150);
+        let middle = rect.center().y;
+        let painter = ui.painter();
+
+        let play_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 22.0, middle),
+            egui::vec2(38.0, 38.0),
+        );
+        let play = ui.interact(play_rect, ui.id().with("video-play"), egui::Sense::click());
+        painter.circle_filled(
+            play_rect.center(),
+            19.0,
+            if play.hovered() {
+                egui::Color32::from_white_alpha(34)
+            } else {
+                egui::Color32::from_white_alpha(14)
+            },
+        );
+        draw_icon(
+            ui,
+            play_rect.shrink(8.0),
+            if playing { Icon::Pause } else { Icon::Play },
+            white,
+        );
+
+        let left = rect.left() + 54.0;
+        // Mute + fullscreen own the right end; the times sit just before them.
+        let full_center = egui::pos2(rect.right() - 26.0, middle);
+        let mute_center = egui::pos2(full_center.x - 44.0, middle);
+        let times_right = mute_center.x - 30.0;
+        let right = (times_right - 96.0).max(left + 40.0);
+        let seek_rect = egui::Rect::from_min_max(
+            egui::pos2(left, middle - 9.0),
+            egui::pos2(right, middle + 9.0),
+        );
+        let seek = ui.interact(
+            seek_rect,
+            ui.id().with("video-seek"),
+            egui::Sense::click_and_drag(),
+        );
+        let ratio = if duration > 0.0 {
+            (elapsed / duration).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        painter.line_segment(
+            [egui::pos2(left, middle), egui::pos2(right, middle)],
+            egui::Stroke::new(3.0_f32, egui::Color32::from_white_alpha(45)),
+        );
+        let knob = left + (right - left) * ratio;
+        painter.line_segment(
+            [egui::pos2(left, middle), egui::pos2(knob, middle)],
+            egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(33, 192, 99)),
+        );
+        painter.circle_filled(
+            egui::pos2(knob, middle),
+            if seek.hovered() || seek.dragged() {
+                7.0
+            } else {
+                5.5
+            },
+            white,
+        );
+
+        let font = egui::FontId::proportional(12.0);
+        let played_label = stamp_seconds(elapsed);
+        let total_label = format!("/ {}", stamp_seconds(duration));
+        let total_width = painter
+            .layout_no_wrap(total_label.clone(), font.clone(), dim)
+            .size()
+            .x;
+        painter.text(
+            egui::pos2(times_right, middle),
+            egui::Align2::RIGHT_CENTER,
+            total_label,
+            font.clone(),
+            dim,
+        );
+        painter.text(
+            egui::pos2(times_right - total_width - 4.0, middle),
+            egui::Align2::RIGHT_CENTER,
+            played_label,
+            font,
+            white,
+        );
+
+        let mute_rect = egui::Rect::from_center_size(mute_center, egui::vec2(34.0, 34.0));
+        let mute = ui.interact(mute_rect, ui.id().with("video-mute"), egui::Sense::click());
+        if mute.hovered() {
+            painter.circle_filled(
+                mute_rect.center(),
+                16.0,
+                egui::Color32::from_white_alpha(34),
+            );
+        }
+        draw_icon(
+            ui,
+            mute_rect.shrink(8.0),
+            if muted { Icon::Mute } else { Icon::Volume },
+            white,
+        );
+
+        let full_rect = egui::Rect::from_center_size(full_center, egui::vec2(34.0, 34.0));
+        let full = ui.interact(
+            full_rect,
+            ui.id().with("video-fullscreen"),
+            egui::Sense::click(),
+        );
+        if full.hovered() {
+            painter.circle_filled(
+                full_rect.center(),
+                16.0,
+                egui::Color32::from_white_alpha(34),
+            );
+        }
+        let fullscreen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
+        draw_icon(
+            ui,
+            full_rect.shrink(8.0),
+            if fullscreen {
+                Icon::FullscreenExit
+            } else {
+                Icon::Fullscreen
+            },
+            white,
+        );
+
+        if play.clicked() {
+            self.toggle_video(id);
+        }
+        if mute.clicked() {
+            self.video_muted = !self.video_muted;
+            self.audio
+                .set_volume(if self.video_muted { 0.0 } else { 1.0 });
+        }
+        if full.clicked() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
+        }
+        if (seek.clicked() || seek.dragged())
+            && let Some(position) = seek.interact_pointer_pos()
+            && right > left
+        {
+            let ratio = ((position.x - left) / (right - left)).clamp(0.0, 1.0);
+            self.seek_video(id, ratio * duration);
+        }
+    }
+
     /// Check the release list on a worker thread; the window never blocks.
     fn check_updates(&mut self) {
         self.update = UpdateState::Checking;
@@ -808,6 +1098,23 @@ impl WaDesk {
                 Err(err) => err,
             };
             self.attach_note = Some((note, std::time::Instant::now()));
+            changed = true;
+        }
+        while let Ok((id, reply)) = self.video_rx.try_recv() {
+            diag(&format!(
+                "video {id}: {}",
+                match &reply {
+                    Ok(video) => format!("{} frames", video.frames),
+                    Err(err) => err.clone(),
+                }
+            ));
+            self.videos.insert(
+                id,
+                match reply {
+                    Ok(video) => VideoState::Ready(video),
+                    Err(err) => VideoState::Failed(err),
+                },
+            );
             changed = true;
         }
         while let Ok((id, reply)) = self.media_rx.try_recv() {
@@ -2464,6 +2771,14 @@ fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// What the viewer knows about a video message.
+#[derive(Debug, Clone)]
+pub enum VideoState {
+    Preparing,
+    Ready(crate::video::Video),
+    Failed(String),
+}
+
 /// Append a line to `diagnostics.log` when `WA_DESK_DIAG=1` (the windowing
 /// backend detaches the console, so tracing is not readable from a GUI run).
 pub fn diag(message: &str) {
@@ -3223,7 +3538,7 @@ impl eframe::App for WaDesk {
         // The session runs on other threads and pushes into a channel; without a
         // timer egui would only repaint on mouse/keyboard input, so the chat list
         // (and new messages) could sit unseen until the window was touched.
-        if self.audio.state().playing {
+        if self.audio.state().playing || self.video_playing {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -3483,16 +3798,54 @@ impl WaDesk {
             return;
         };
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.stop_video();
             self.model.close_viewer();
             return;
         }
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+            self.stop_video();
             self.model.step_viewer(true);
             return;
         }
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+            self.stop_video();
             self.model.step_viewer(false);
             return;
+        }
+        if item.kind == "video" && ctx.input(|i| i.key_pressed(egui::Key::Space)) {
+            self.toggle_video(&item.id);
+        }
+        if item.kind == "video"
+            && !self.videos.contains_key(&item.id)
+            && let Some(path) = self.model.media_path(&item.id)
+        {
+            self.videos.insert(item.id.clone(), VideoState::Preparing);
+            diag(&format!("video prepare {} <- {path}", item.id));
+            let tx = self.video_tx.clone();
+            let id = item.id.clone();
+            std::thread::spawn(move || {
+                let reply = crate::video::prepare(&path, &id);
+                let _ = tx.send((id, reply));
+            });
+        }
+        // Reached the end: park on the last frame.
+        if item.kind == "video"
+            && self.preview_autoplay
+            && !self.video_playing
+            && self.video_elapsed() < 0.5
+            && matches!(self.videos.get(&item.id), Some(VideoState::Ready(_)))
+        {
+            self.toggle_video(&item.id);
+        }
+        if item.kind == "video"
+            && self.video_playing
+            && let Some(VideoState::Ready(video)) = self.videos.get(&item.id)
+            && self.video_elapsed() >= video.duration
+        {
+            self.video_offset = video.duration;
+            self.video_playing = false;
+            self.video_started = None;
+            self.audio.stop();
         }
         if self.model.request_media(&item.id) {
             self.send(Command::FetchMedia {
@@ -3546,10 +3899,10 @@ impl WaDesk {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button("✕").clicked() {
+                                    if viewer_icon(ui, Icon::Close).clicked() {
                                         self.model.close_viewer();
                                     }
-                                    if ui.button("Save").clicked() {
+                                    if viewer_icon(ui, Icon::Download).clicked() {
                                         self.note = match self.model.save_media(&item.id) {
                                             Ok(path) => format!("Saved to {path}"),
                                             Err(err) => err,
@@ -3560,26 +3913,98 @@ impl WaDesk {
                             );
                         });
 
-                        let stage_height = (ui.available_height() - 110.0).max(160.0);
+                        // An `Area`'s `available_height` is effectively unbounded
+                        // (83k px here), which pushed the stage off screen, so the
+                        // stage is measured from the window instead: margins,
+                        // header, transport bar and the caption/filmstrip row.
+                        let bar_height = if item.kind == "video" { 158.0 } else { 124.0 };
+                        let stage_height = (screen.height() - 24.0 - 40.0 - bar_height).max(160.0);
+                        let mut stage_clicked = false;
                         ui.allocate_ui_with_layout(
                             egui::vec2(ui.available_width(), stage_height),
                             egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                            |ui| match &texture {
-                                Some(texture) => {
-                                    let size = texture.size_vec2();
-                                    let scale = (ui.available_width() / size.x)
-                                        .min(ui.available_height() / size.y)
-                                        .min(1.0);
-                                    ui.image((texture.id(), size * scale));
+                            |ui| {
+                                if item.kind == "video" {
+                                    match self.video_frame_handle(ctx, &item.id) {
+                                        Some(frame) => {
+                                            let size = frame.size_vec2();
+                                            // Fill the stage like the official
+                                            // player (frames are decoded 640 wide).
+                                            let scale = (ui.available_width() / size.x)
+                                                .min(ui.available_height() / size.y);
+                                            let response = ui.add(
+                                                egui::Image::new((frame.id(), size * scale))
+                                                    .sense(egui::Sense::click()),
+                                            );
+                                            stage_clicked = response.clicked();
+                                            if !self.video_playing {
+                                                // Paused, like the official viewer: a dim
+                                                // scrim with a big translucent play disc.
+                                                let rect = response.rect;
+                                                let painter = ui.painter();
+                                                painter.rect_filled(
+                                                    rect,
+                                                    egui::CornerRadius::same(2),
+                                                    egui::Color32::from_black_alpha(70),
+                                                );
+                                                painter.circle_filled(
+                                                    rect.center(),
+                                                    32.0,
+                                                    egui::Color32::from_black_alpha(130),
+                                                );
+                                                draw_icon(
+                                                    ui,
+                                                    egui::Rect::from_center_size(
+                                                        rect.center(),
+                                                        egui::vec2(30.0, 30.0),
+                                                    ),
+                                                    Icon::Play,
+                                                    egui::Color32::from_gray(240),
+                                                );
+                                            }
+                                        }
+                                        None => {
+                                            let text = match self.videos.get(&item.id) {
+                                                Some(VideoState::Failed(err)) => {
+                                                    format!("Cannot play: {err}")
+                                                }
+                                                Some(VideoState::Ready(_)) => {
+                                                    "Loading frame.".to_string()
+                                                }
+                                                _ => "Preparing video.".to_string(),
+                                            };
+                                            ui.label(
+                                                egui::RichText::new(text)
+                                                    .color(egui::Color32::from_gray(200)),
+                                            );
+                                        }
+                                    }
+                                    return;
                                 }
-                                None => {
-                                    ui.label(
-                                        egui::RichText::new("Loading…")
-                                            .color(egui::Color32::from_gray(200)),
-                                    );
+                                match &texture {
+                                    Some(texture) => {
+                                        let size = texture.size_vec2();
+                                        let scale = (ui.available_width() / size.x)
+                                            .min(ui.available_height() / size.y)
+                                            .min(1.0);
+                                        ui.image((texture.id(), size * scale));
+                                    }
+                                    None => {
+                                        ui.label(
+                                            egui::RichText::new("Loading.")
+                                                .color(egui::Color32::from_gray(200)),
+                                        );
+                                    }
                                 }
                             },
                         );
+                        if stage_clicked {
+                            self.toggle_video(&item.id);
+                        }
+
+                        if item.kind == "video" {
+                            self.video_transport(ui, ctx, &item.id);
+                        }
 
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
@@ -3591,10 +4016,12 @@ impl WaDesk {
                                     );
                                 }
                                 ui.horizontal(|ui| {
-                                    if ui.button("◀").clicked() {
+                                    if viewer_icon(ui, Icon::ChevronLeft).clicked() {
+                                        self.stop_video();
                                         self.model.step_viewer(false);
                                     }
-                                    if ui.button("▶").clicked() {
+                                    if viewer_icon(ui, Icon::ChevronRight).clicked() {
+                                        self.stop_video();
                                         self.model.step_viewer(true);
                                     }
                                     if !self.note.is_empty() {
@@ -3690,6 +4117,14 @@ enum Icon {
     Logout,
     Play,
     Pause,
+    Close,
+    Download,
+    Volume,
+    Mute,
+    Fullscreen,
+    FullscreenExit,
+    ChevronLeft,
+    ChevronRight,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -3704,6 +4139,22 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -
         palette.secondary
     };
     draw_icon(ui, rect.shrink(6.0), icon, color);
+    response
+}
+
+/// A white icon button for the dark media-viewer chrome.
+fn viewer_icon(ui: &mut egui::Ui, icon: Icon) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(34.0, 34.0), egui::Sense::click());
+    if response.hovered() {
+        ui.painter()
+            .circle_filled(rect.center(), 17.0, egui::Color32::from_white_alpha(34));
+    }
+    let color = if response.hovered() {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::from_gray(225)
+    };
+    draw_icon(ui, rect.shrink(8.0), icon, color);
     response
 }
 
@@ -3748,6 +4199,14 @@ impl Icon {
             Icon::Logout => "logout",
             Icon::Play => "play_arrow",
             Icon::Pause => "pause",
+            Icon::Close => "close",
+            Icon::Download => "download",
+            Icon::Volume => "volume_up",
+            Icon::Mute => "volume_off",
+            Icon::Fullscreen => "fullscreen",
+            Icon::FullscreenExit => "fullscreen_exit",
+            Icon::ChevronLeft => "chevron_left",
+            Icon::ChevronRight => "chevron_right",
         }
     }
 }

@@ -24,7 +24,13 @@ enum Command {
         id: String,
         path: String,
         duration: f32,
+        /// Seconds to skip before starting (the video viewer seeks this way).
+        start_at: f32,
     },
+    Seek {
+        seconds: f32,
+    },
+    Volume(f32),
     Stop,
 }
 
@@ -62,12 +68,28 @@ impl Audio {
         if current.id.as_deref() == Some(id) && current.playing {
             let _ = self.tx.send(Command::Stop);
         } else {
-            let _ = self.tx.send(Command::Play {
-                id: id.to_string(),
-                path: path.to_string(),
-                duration,
-            });
+            self.play_from(id, path, duration, 0.0);
         }
+    }
+
+    /// Start `id` from the beginning or from `start_at` seconds.
+    pub fn play_from(&self, id: &str, path: &str, duration: f32, start_at: f32) {
+        let _ = self.tx.send(Command::Play {
+            id: id.to_string(),
+            path: path.to_string(),
+            duration,
+            start_at,
+        });
+    }
+
+    /// Jump inside the clip that is playing.
+    pub fn seek(&self, seconds: f32) {
+        let _ = self.tx.send(Command::Seek { seconds });
+    }
+
+    /// 0.0 mutes, 1.0 is full volume.
+    pub fn set_volume(&self, volume: f32) {
+        let _ = self.tx.send(Command::Volume(volume));
     }
 
     pub fn stop(&self) {
@@ -100,19 +122,30 @@ fn audio_thread(
     let Ok(sink) = Sink::try_new(&handle) else {
         return;
     };
+    let mut volume = 1.0f32;
 
     while running.load(Ordering::Relaxed) {
         match rx.recv_timeout(std::time::Duration::from_millis(120)) {
-            Ok(Command::Play { id, path, duration }) => {
+            Ok(Command::Play {
+                id,
+                path,
+                duration,
+                start_at,
+            }) => {
                 sink.stop();
                 match load(&path) {
-                    Ok(source) => {
+                    Ok(mut source) => {
+                        if start_at > 0.05 {
+                            use rodio::Source as _;
+                            let _ = source.try_seek(std::time::Duration::from_secs_f32(start_at));
+                        }
+                        sink.set_volume(volume);
                         sink.append(source);
                         sink.play();
                         if let Ok(mut guard) = state.lock() {
                             guard.id = Some(id);
                             guard.playing = true;
-                            guard.elapsed = 0.0;
+                            guard.elapsed = start_at;
                             guard.duration = duration;
                         }
                     }
@@ -124,6 +157,16 @@ fn audio_thread(
                         }
                     }
                 }
+            }
+            Ok(Command::Seek { seconds }) => {
+                let _ = sink.try_seek(std::time::Duration::from_secs_f32(seconds.max(0.0)));
+                if let Ok(mut guard) = state.lock() {
+                    guard.elapsed = seconds.max(0.0);
+                }
+            }
+            Ok(Command::Volume(value)) => {
+                volume = value.clamp(0.0, 1.0);
+                sink.set_volume(volume);
             }
             Ok(Command::Stop) => {
                 sink.stop();

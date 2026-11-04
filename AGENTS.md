@@ -20,7 +20,7 @@ fix, with the mechanism and the verification signal.
 | New chat picker | ✅ the + button opens WhatsApp-style search over saved contacts, known chats and raw numbers |
 | Chat history from WhatsApp history sync | ✅ text, media captions, own/other bubbles |
 | Photo &amp; video playback | ✅ images inline, videos open in the viewer, expired media recovered via media-reupload |
-| Media viewer | ✅ full-screen image/video viewer with filmstrip, video posters, custom player, prev/next, arrow keys, scroll zoom, drag pan, auto-hiding chrome when zoomed |
+| Media viewer | ✅ full-screen image/video viewer with filmstrip, **video playback** (ffmpeg-decoded frames + audio, official transport bar: play/pause, seek, time, mute, fullscreen), prev/next, arrow keys, scroll zoom, drag pan, auto-hiding chrome when zoomed |
 | Save media | ✅ the viewer's download button copies the file to `Downloads\WA Desk` instead of navigating the WebView |
 | In-chat search | ✅ header search with match counter, previous/next, yellow highlight and Esc to close |
 | Voice / video calls | ✅ 1:1 call signaling through `whatsapp-rust`'s VoIP runtime; microphone/audio via Web Audio, H.264 video via WebCodecs; needs a microphone/camera |
@@ -431,6 +431,17 @@ device until you remove it from the phone).
   fullscreen) instead of native controls. The strip lists the chat's photos/videos, arrows/←/→
   step through them and Esc or the backdrop closes it. The download button copies the file to
   `Downloads\WA Desk` through Rust (no browser navigation involved).
+- **Video playback is pre-decoded.** `apps/desktop-native/src/video.rs` runs `ffmpeg` on a worker
+  thread (10 fps, ≤640 px wide, first 120 s) into `media/video-<id>/f00001.jpg…` plus `audio.wav`;
+  the viewer indexes frames by `video_elapsed()` from the wall clock and `audio.rs` plays the WAV
+  in step, seeking the sink (`Sink::try_seek`) instead of re-decoding while the seek line is
+  dragged. Opening another clip/chat or Esc stops both. Frame textures are a 48-entry LRU
+  (`video_order`, ~5 s at 10 fps) and `prune_cache` keeps only six decoded clips on disk. With no
+  `ffmpeg` the viewer shows the poster and says so.
+- **The viewer stage is measured from the window, not from the `Area`.** `ui.available_height()`
+  inside a full-window `egui::Area` reports ~83 000 px, so `available_height - chrome` pushed the
+  stage (and the caption/filmstrip under it) off screen. `media_overlay` now uses
+  `ctx.screen_rect().height() - margins - header - bars`; video frames scale up to fill it.
 - **In-chat search.** The header search button opens a search bar with a match counter,
   previous/next buttons, yellow highlighting and Esc to close. It searches text and media
   captions in the open chat, not the chat list.

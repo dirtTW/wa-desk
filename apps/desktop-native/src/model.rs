@@ -403,6 +403,18 @@ impl Model {
             waveform: (0..40).map(|index| ((index * 7) % 80 + 30) as u8).collect(),
         });
         model.apply(&UiEvent::Message(note));
+        let mut clip = view(
+            "1203@g.us",
+            "Team",
+            "d8",
+            "look at this wave",
+            now - 90_000,
+            false,
+        );
+        clip.kind = "video".to_string();
+        clip.sender = Some("1@s.whatsapp.net".to_string());
+        clip.sender_name = Some("Ada".to_string());
+        model.apply(&UiEvent::Message(clip));
         model.apply(&UiEvent::Message(view(
             "1203@g.us",
             "Team",

@@ -36,7 +36,9 @@ account. Issues and pull requests are welcome.
   with match counter and highlight; **documents as the official card**; photos and stickers.
 - **Voice notes and audio**: official-style player bubble (play/pause, waveform, elapsed/total)
   with OGG/Opus decoded through libopus, so phone recordings play in the window
-- **Media viewer**: filmstrip, arrow keys, Esc, and Save copies to `Downloads\WA Desk`.
+- **Media viewer**: filmstrip, arrow keys, Esc, and Save copies to `Downloads\WA Desk`; **videos
+  play** in it (decoded with `ffmpeg`) with the official transport bar - play/pause, seek line,
+  elapsed/total, mute and fullscreen.
 - **Emoji and stickers**: full catalogue with search/recents, favourites and cached stickers.
 - **Message actions**: reply, react, copy, forward, edit, delete (for me / everyone) and
   **star**; plus **chat actions**: mute, pin, mark unread, archive, clear, delete. Starred
@@ -92,6 +94,8 @@ ships the plain `wa-desk-native` binary.
   libasound2-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev` (ALSA is needed for audio
   playback). Fedora/Arch: `openssl-devel`, `alsa-lib-devel`, `libxkbcommon-devel`,
   `wayland-devel`, `mesa-libGL-devel`.
+- **`ffmpeg`** (optional, on `PATH`, next to the exe, or `WA_DESK_FFMPEG`) - video playback and the
+  AI's video frames use it; without it clips keep the poster.
 
 ## Run from source
 
