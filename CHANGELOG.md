@@ -4,6 +4,29 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.9] - 2026-11-04
+
+- **Settings list is the official one.** Sampled the "You" drawer of `web.whatsapp.com` and applied
+  its order and subtitles: **Profile** ("Name, profile picture, status"), **Account** ("Security
+  notifications, account info"), **Privacy** ("Blocked contacts, disappearing messages"), **Chats**
+  ("Theme, wallpaper, chat settings"), **Notifications** ("Messages, groups, sounds"), **Keyboard
+  shortcuts**, then this client's **AI assistant**, **Updates** and **Help** (which now carries the
+  version and the storage path).
+- **The new pages are real, not stubs**: Profile shows the account's avatar, name and session state;
+  Account shows the formatted phone number, the live session state, the chat count, the security
+  rows (link notifications, two-step verification owned by the phone), the autostart switch and Log
+  out; Privacy explains the 24-hour timer, the phone-owned block list and read receipts;
+  Notifications holds the toast switch (persisted) plus a "Send" test; Shortcuts lists Ctrl+V,
+  Enter, Shift+Enter, Esc, arrows, Space and Ctrl+F.
+  Screenshot: `target/our_settings_account.png`.
+- **Group info rebuilt** in the official shape: 64 px header, 96 px avatar, subject, "Group · N
+  members", description card, action card (Add members / Media / Group settings), the member list
+  with "Group admin" badges, and Exit group (sends `Command::LeaveGroup`).
+  `WA_DESK_SCREEN=group` renders it; screenshot `target/our_group2.png`. The demo model now carries
+  group metadata so the screen has something to show without an account.
+- `docs/PARITY.md` records both screens with their captures.
+- Tests: 111 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.8] - 2026-11-04
 
 - **Calls screen (missing feature).** The official rail has Calls between Chats and Status; ours had

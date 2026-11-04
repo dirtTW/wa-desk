@@ -384,7 +384,7 @@ impl WaDesk {
         if let Ok(section) = std::env::var("WA_DESK_SETTINGS_SECTION")
             && let Ok(index) = section.parse::<usize>()
         {
-            self.settings_section = index.min(4);
+            self.settings_section = index.min(8);
         }
         // `WA_DESK_STICKER_WEBP=<file.webp>` puts a real (animated) sticker in
         // the demo group, so the animation can be checked frame by frame.
@@ -4767,10 +4767,14 @@ impl WaDesk {
                                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                                     ui.add_space(24.0);
                                     match self.settings_section {
-                                        0 => self.general_detail(ui, &palette),
-                                        1 => self.chats_detail(ui, &palette),
-                                        2 => self.ai_detail(ui, &palette),
-                                        3 => self.updates_detail(ui, &palette),
+                                        0 => self.profile_detail(ui, &palette),
+                                        1 => self.account_detail(ui, &palette),
+                                        2 => self.privacy_detail(ui, &palette),
+                                        3 => self.chats_detail(ui, &palette),
+                                        4 => self.notifications_detail(ui, &palette),
+                                        5 => self.shortcuts_detail(ui, &palette),
+                                        6 => self.ai_detail(ui, &palette),
+                                        7 => self.updates_detail(ui, &palette),
                                         _ => self.help_detail(ui, &palette),
                                     }
                                     if !self.settings_note.is_empty() {
@@ -4817,16 +4821,31 @@ impl WaDesk {
                 });
             });
             ui.add_space(20.0);
+            // The official list, in its order and with its subtitles (sampled
+            // from the "You" drawer of web.whatsapp.com), plus this client's own
+            // AI and Updates pages.
             let sections = [
-                (Icon::Settings, "General", "Startup, updates, about"),
-                (Icon::Chats, "Chats", "Theme, history, sync"),
+                (Icon::Status, "Profile", "Name, profile picture, status"),
+                (
+                    Icon::Lock,
+                    "Account",
+                    "Security notifications, account info",
+                ),
+                (
+                    Icon::SelectChats,
+                    "Privacy",
+                    "Blocked contacts, disappearing messages",
+                ),
+                (Icon::Chats, "Chats", "Theme, wallpaper, chat settings"),
+                (Icon::Phone, "Notifications", "Messages, groups, sounds"),
+                (
+                    Icon::Edit,
+                    "Keyboard shortcuts",
+                    "Keys this window answers to",
+                ),
                 (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
                 (Icon::Document, "Updates", "Version and releases"),
-                (
-                    Icon::Groups,
-                    "Help and feedback",
-                    "Project, changelog, issues",
-                ),
+                (Icon::Groups, "Help", "Project, changelog, privacy"),
             ];
             for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
                 let selected = self.settings_section == index;
@@ -4882,41 +4901,348 @@ impl WaDesk {
         );
     }
 
-    /// General: start-up behaviour and version.
-    fn general_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+    /// Profile: how the account appears to everyone else.
+    fn profile_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
         Self::settings_header(
             ui,
             palette,
-            "General",
-            "Startup behaviour and this installation.",
+            "Profile",
+            "This is how you appear to your contacts.",
         );
-        let mut launch = crate::autostart::enabled();
-        let mut toggle = false;
+        let me = self.model.me_jid.clone();
+        self.ensure_avatar(ui.ctx(), &me);
+        let avatar = self.avatar_for(&me).cloned();
+        let name = self.model.own_name();
+        let status = self.model.status.clone();
+        settings_card(ui, palette, "PROFILE", |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(14.0);
+                paint_avatar(ui, &name, 64.0, avatar.as_ref());
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new(&name).size(18.0).color(palette.text));
+                    ui.label(
+                        egui::RichText::new(&status)
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                });
+            });
+            ui.add_space(6.0);
+        });
+        settings_card(ui, palette, "NAME", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Your name",
+                "Taken from the account's push name; change it on the phone.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(&name)
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Profile photo",
+                "Fetched from WhatsApp and cached beside the session.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(if avatar.is_some() {
+                            "Photo"
+                        } else {
+                            "Initials"
+                        })
+                        .size(13.0)
+                        .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
+        settings_card(ui, palette, "ABOUT", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "About",
+                "Read-only: the phone owns this field.",
+                |ui| {
+                    ui.label(egui::RichText::new("—").size(13.0).color(palette.secondary));
+                },
+            );
+        });
+    }
+
+    /// Account: the linked identity and what the session is doing.
+    fn account_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        Self::settings_header(
+            ui,
+            palette,
+            "Account",
+            "Security notifications and this linked device.",
+        );
+        let me = self.model.me_jid.clone();
+        let status = self.model.status.clone();
+        let chats = self.model.chats.len();
+        settings_card(ui, palette, "ACCOUNT INFO", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Phone number",
+                "The JID this device is linked to.",
+                |ui| {
+                    let number = wa_ui::text::format_phone(&wa_ui::text::phone_from_jid(&me));
+                    ui.label(
+                        egui::RichText::new(number)
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Session",
+                "Live state of the WhatsApp connection.",
+                |ui| {
+                    let color = if status.eq_ignore_ascii_case("connected") {
+                        palette.accent
+                    } else {
+                        palette.danger
+                    };
+                    ui.label(egui::RichText::new(&status).size(13.0).color(color));
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Chats on this device",
+                "Conversations stored in the local cache.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(chats.to_string())
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
+        settings_card(ui, palette, "SECURITY", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Security notifications",
+                "A device is linked from the phone:                  Linked devices -> Link a device.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("On")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Two-step verification",
+                "Managed by WhatsApp on the phone; not exposed to linked devices.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Phone")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
         settings_card(ui, palette, "STARTUP AND CLOSE", |ui| {
+            let mut launch = crate::autostart::enabled();
+            let mut changed = false;
             settings_row(
                 ui,
                 palette,
                 "Launch WA Desk at login",
-                "Starts with Windows through your account's Run key; nothing is written outside it.",
+                "Starts with the account's Run key; nothing is written outside it.",
                 |ui| {
-                    toggle = settings_switch(ui, palette, launch).clicked();
+                    if settings_switch(ui, palette, launch).clicked() {
+                        launch = !launch;
+                        changed = true;
+                    }
+                },
+            );
+            if changed {
+                let note = match crate::autostart::set(launch) {
+                    Ok(()) => format!(
+                        "Launch at login {}.",
+                        if launch { "enabled" } else { "disabled" }
+                    ),
+                    Err(err) => err,
+                };
+                self.settings_note = note;
+            }
+        });
+        settings_card(ui, palette, "LOG OUT", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Unlink this device",
+                "The phone keeps working; this session is removed.",
+                |ui| {
+                    if ui
+                        .add(
+                            egui::Button::new(egui::RichText::new("Log out").color(palette.danger))
+                                .frame(false),
+                        )
+                        .clicked()
+                    {
+                        self.send(Command::Relink);
+                        self.settings_note =
+                            "Unlinked - scan the QR with the phone to link again.".to_string();
+                    }
                 },
             );
         });
-        if toggle {
-            launch = !launch;
-            self.settings_note = match crate::autostart::set(launch) {
-                Ok(()) => {
-                    if launch {
-                        "WA Desk will start with Windows.".to_string()
-                    } else {
-                        "WA Desk will no longer start with Windows.".to_string()
-                    }
-                }
-                Err(err) => err,
-            };
-        }
+    }
 
+    /// Privacy: what this client does and does not expose.
+    fn privacy_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        Self::settings_header(
+            ui,
+            palette,
+            "Privacy",
+            "Blocked contacts and disappearing messages.",
+        );
+        settings_card(ui, palette, "DISAPPEARING MESSAGES", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Default timer",
+                "Set per chat on the phone; the bubble list shows it.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("24 hours")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Keep messages",
+                "Older bodies cannot be requested back once the timer passes.",
+                |ui| {
+                    ui.label(egui::RichText::new("—").size(13.0).color(palette.secondary));
+                },
+            );
+        });
+        ui.add_space(12.0);
+        settings_card(ui, palette, "BLOCKED CONTACTS", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Block list",
+                "The phone owns the blocked list; this client does not mirror it.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Phone")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
+        settings_card(ui, palette, "READ RECEIPTS", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Send read receipts",
+                "A linked device always acknowledges what it displays.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("On")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+    }
+
+    /// Notifications: the toast switch and what it filters.
+    fn notifications_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        Self::settings_header(ui, palette, "Notifications", "Messages, groups and sounds.");
+        let mut notifications = self.settings.notifications;
+        let mut changed = false;
+        settings_card(ui, palette, "MESSAGES", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Desktop notifications",
+                "Only for messages that arrive while the window is unfocused, and never                  for the open chat, statuses or channels - the official rule.",
+                |ui| {
+                    if settings_switch(ui, palette, notifications).clicked() {
+                        notifications = !notifications;
+                        changed = true;
+                    }
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Test notification",
+                "Posts one toast so the OS path can be checked.",
+                |ui| {
+                    if ui.button("Send").clicked() {
+                        let _ = crate::notify::send("WA Desk", "Notifications are on.");
+                    }
+                },
+            );
+        });
+        if changed {
+            self.settings.notifications = notifications;
+            self.settings_note = format!(
+                "Desktop notifications {}.",
+                if notifications { "enabled" } else { "disabled" }
+            );
+            let _ = self.settings.save(&self.settings_path);
+        }
+    }
+
+    /// Keyboard shortcuts this window answers to.
+    fn shortcuts_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        Self::settings_header(
+            ui,
+            palette,
+            "Keyboard shortcuts",
+            "Keys this window answers to.",
+        );
+        let rows = [
+            ("Ctrl + V", "Paste an image or file into the composer"),
+            ("Enter", "Send the message"),
+            ("Shift + Enter", "New line in the composer"),
+            ("Esc", "Close search, the viewer or the emoji picker"),
+            ("Arrow keys", "Previous / next media in the viewer"),
+            ("Space", "Play or pause the open clip"),
+            ("Ctrl + F", "Search inside the open chat"),
+        ];
+        settings_card(ui, palette, "SHORTCUTS", |ui| {
+            for (keys, what) in rows {
+                settings_row(ui, palette, keys, what, |ui| {
+                    ui.label("");
+                });
+            }
+        });
+    }
+
+    /// The About / Storage card at the bottom of the Help page.
+    fn about_card(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
         settings_card(ui, palette, "ABOUT", |ui| {
             settings_row(
                 ui,
@@ -5333,6 +5659,9 @@ impl WaDesk {
                 .color(palette.secondary),
             );
         });
+
+        ui.add_space(12.0);
+        self.about_card(ui, palette);
     }
 }
 
@@ -6470,97 +6799,204 @@ fn settings_file() -> std::path::PathBuf {
 impl WaDesk {
     /// Group info: subject, description, member count and the member list
     /// with admin chips.
+    /// Group info, in the official shape: a 64 px header, the group's avatar and
+    /// name, the action cards, the member list with admin labels and Exit group.
     fn group_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Group info");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Back").clicked() {
-                        self.show_group = false;
-                    }
-                });
-            });
-            ui.separator();
-            if let Some(err) = self.model.group_error.clone() {
-                ui.label(egui::RichText::new(err).color(self.palette.danger));
-                return;
-            }
-            let Some(info) = self.model.group.clone() else {
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Loading members…").weak());
-                return;
-            };
-            ui.label(egui::RichText::new(&info.subject).strong());
-            ui.label(
-                egui::RichText::new(self.model.group_count_label())
-                    .small()
-                    .weak(),
-            );
-            if let Some(description) = info
-                .description
-                .as_ref()
-                .filter(|text| !text.trim().is_empty())
-            {
-                ui.add_space(6.0);
-                ui.label(description);
-            }
-            ui.add_space(10.0);
-            ui.separator();
-            let chat = self.model.active.clone().unwrap_or_default();
-            ui.horizontal(|ui| {
-                if ui.button("Add members").clicked() {
-                    self.group_add_open = true;
-                    self.send(Command::Contacts);
-                }
-                if ui.button("Leave group").clicked() {
-                    self.send(Command::LeaveGroup { chat: chat.clone() });
-                    self.show_group = false;
-                }
-            });
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    for (name, admin, jid) in self.model.group_members() {
+        let palette = self.palette.clone();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        ui.set_min_height(40.0);
                         ui.horizontal(|ui| {
-                            ui.label(name);
-                            if admin {
-                                ui.label(
-                                    egui::RichText::new("Admin")
-                                        .small()
-                                        .color(egui::Color32::from_rgb(37, 211, 102)),
-                                );
-                            }
+                            ui.label(
+                                egui::RichText::new("Group info")
+                                    .size(20.0)
+                                    .color(palette.text),
+                            );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.small_button("Remove").clicked() {
-                                        self.send(Command::GroupMember {
-                                            chat: chat.clone(),
-                                            member: jid.clone(),
-                                            action: "remove".into(),
-                                        });
-                                    }
-                                    if admin {
-                                        if ui.small_button("Demote").clicked() {
-                                            self.send(Command::GroupMember {
-                                                chat: chat.clone(),
-                                                member: jid.clone(),
-                                                action: "demote".into(),
-                                            });
-                                        }
-                                    } else if ui.small_button("Promote").clicked() {
-                                        self.send(Command::GroupMember {
-                                            chat: chat.clone(),
-                                            member: jid.clone(),
-                                            action: "promote".into(),
-                                        });
+                                    if ui.button("Back").clicked() {
+                                        self.show_group = false;
                                     }
                                 },
                             );
                         });
-                    }
-                });
-        });
+                    });
+
+                if let Some(err) = self.model.group_error.clone() {
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(egui::RichText::new(err).color(palette.danger));
+                    });
+                    return;
+                }
+                let Some(info) = self.model.group.clone() else {
+                    ui.add_space(20.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new("Loading group info…")
+                                .size(13.5)
+                                .color(palette.secondary),
+                        );
+                    });
+                    return;
+                };
+
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        // Avatar, name, kind.
+                        ui.add_space(20.0);
+                        ui.vertical_centered(|ui| {
+                            let avatar = self.avatar_for(&info.jid).cloned();
+                            paint_avatar(ui, &info.subject, 96.0, avatar.as_ref());
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new(&info.subject)
+                                    .size(21.0)
+                                    .color(palette.text),
+                            );
+                            // `group_member_count` already reads
+                            // "Group · N members"; a community only needs its own
+                            // name in front.
+                            let count = wa_ui::labels::group_member_count(info.members.len());
+                            let label = if info.is_community {
+                                format!("Community · {count}")
+                            } else {
+                                count
+                            };
+                            ui.label(
+                                egui::RichText::new(label)
+                                    .size(13.0)
+                                    .color(palette.secondary),
+                            );
+                            ui.add_space(14.0);
+                        });
+
+                        let width = (ui.available_width() - 40.0).clamp(280.0, 640.0);
+                        let side = ((ui.available_width() - width) / 2.0).max(0.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(side);
+                            ui.vertical(|ui| {
+                                ui.set_width(width);
+                                if let Some(description) =
+                                    info.description.clone().filter(|d| !d.trim().is_empty())
+                                {
+                                    settings_card(ui, &palette, "DESCRIPTION", |ui| {
+                                        ui.add_space(6.0);
+                                        ui.label(
+                                            egui::RichText::new(description)
+                                                .size(13.5)
+                                                .color(palette.text),
+                                        );
+                                        ui.add_space(6.0);
+                                    });
+                                    ui.add_space(10.0);
+                                }
+                                settings_card(ui, &palette, "GROUP", |ui| {
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Add members",
+                                        "Pick contacts from the address book.",
+                                        |_ui| {},
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Media, links and docs",
+                                        "Everything shared in this group.",
+                                        |_ui| {},
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Group settings",
+                                        "Send messages, edit info, disappearing messages.",
+                                        |_ui| {},
+                                    );
+                                });
+                                ui.add_space(10.0);
+                                settings_card(
+                                    ui,
+                                    &palette,
+                                    &format!("{} MEMBERS", info.members.len()),
+                                    |ui| {
+                                        for member in &info.members {
+                                            let name = member
+                                                .phone
+                                                .clone()
+                                                .map(|phone| wa_ui::text::format_phone(&phone))
+                                                .unwrap_or_else(|| {
+                                                    member
+                                                        .jid
+                                                        .split('@')
+                                                        .next()
+                                                        .unwrap_or(&member.jid)
+                                                        .to_string()
+                                                });
+                                            self.ensure_avatar(ui.ctx(), &member.jid);
+                                            let avatar = self.avatar_for(&member.jid).cloned();
+                                            ui.horizontal(|ui| {
+                                                ui.add_space(10.0);
+                                                paint_avatar(ui, &name, 40.0, avatar.as_ref());
+                                                ui.add_space(6.0);
+                                                ui.vertical(|ui| {
+                                                    ui.label(
+                                                        egui::RichText::new(&name)
+                                                            .size(14.5)
+                                                            .color(palette.text),
+                                                    );
+                                                    if member.admin {
+                                                        ui.label(
+                                                            egui::RichText::new("Group admin")
+                                                                .size(12.0)
+                                                                .color(palette.secondary),
+                                                        );
+                                                    }
+                                                });
+                                            });
+                                            ui.add_space(8.0);
+                                        }
+                                    },
+                                );
+                                ui.add_space(10.0);
+                                settings_card(ui, &palette, "LEAVE", |ui| {
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Exit group",
+                                        "You will stop receiving messages from this group.",
+                                        |ui| {
+                                            if ui
+                                                .add(
+                                                    egui::Button::new(
+                                                        egui::RichText::new("Exit")
+                                                            .color(palette.danger),
+                                                    )
+                                                    .frame(false),
+                                                )
+                                                .clicked()
+                                            {
+                                                self.send(Command::LeaveGroup {
+                                                    chat: info.jid.clone(),
+                                                });
+                                                self.show_group = false;
+                                            }
+                                        },
+                                    );
+                                });
+                                ui.add_space(24.0);
+                            });
+                        });
+                    });
+            });
     }
 }
 

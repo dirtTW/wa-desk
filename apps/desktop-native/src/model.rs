@@ -489,7 +489,33 @@ impl Model {
         model.login = LoginState::Linked;
         model.status = "Connected".to_string();
         model.me_name = "You".to_string();
-        model.me_jid = "0@s.whatsapp.net".to_string();
+        model.me_jid = "628111222333@s.whatsapp.net".to_string();
+        // Group metadata for the group-info screen in `--preview`.
+        model.group = Some(wa_types::GroupInfoView {
+            jid: "1203@g.us".to_string(),
+            subject: "Team".to_string(),
+            description: Some("Engineering stand-up, deploys and on-call.".to_string()),
+            members: vec![
+                wa_types::GroupMemberView {
+                    jid: "1@s.whatsapp.net".to_string(),
+                    phone: Some("628111000111".to_string()),
+                    admin: true,
+                },
+                wa_types::GroupMemberView {
+                    jid: "2@s.whatsapp.net".to_string(),
+                    phone: Some("628111000222".to_string()),
+                    admin: false,
+                },
+                wa_types::GroupMemberView {
+                    jid: "628111222333@s.whatsapp.net".to_string(),
+                    phone: Some("628111222333".to_string()),
+                    admin: false,
+                },
+            ],
+            is_community: false,
+            parent_jid: None,
+            is_announce: false,
+        });
 
         // Two calls, so the Calls screen has something to show in `--preview`.
         model.call_log = vec![

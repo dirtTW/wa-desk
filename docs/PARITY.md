@@ -53,9 +53,10 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | Channels: followed list + Discover | followed channels panel, read-only posts | 🟡 no Discover/explore list |
 | Communities: dedicated screen with announcement groups | Communities is only a chat filter | ❌ |
 | Calls: history panel, start/accept/end, mute, self view | rail **Calls** screen with a 64 px header and 72 px rows (direction glyph, date, kind, duration, red for missed, call button that dials that contact); `Model::call_log` records every finished call (outgoing/missed/duration) | ✅ (`target/our_calls.png`) |
-| Settings: Account / Privacy / Chats / Notifications / Storage / Shortcuts / Help | General / Chats / AI / Updates / Help | 🟡 account/privacy/storage pages missing |
+| Settings: Profile / Account / Privacy / Chats / Notifications / Keyboard shortcuts / Help | the same list in the official order with its subtitles, plus AI and Updates; Account holds the phone number, session, security rows, autostart and Log out, Privacy the disappearing-message and block-list notes, Notifications the toast switch and a test, Shortcuts the key table, Help the version and storage path | ✅ (`target/our_settings_account.png`) |
 | Linked devices, two-step verification, block list | — | ❌ |
 | Profile drawer ("You") | settings sections + own avatar | 🟡 |
+| Group info: avatar, subject, member count, description, actions, admin badges, exit | rebuilt in the official shape | ✅ (`target/our_group2.png`) |
 
 ## Verification habits
 
