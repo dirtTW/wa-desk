@@ -31,7 +31,7 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | Voice notes: record (mic in an empty composer), play, waveform, seek | recording captured at 16 kHz through cpal, encoded to Opus and muxed into Ogg (`src/voicenote.rs`), posted as `ptt` with a 64-bar waveform via `Session::send_voice_note`; playback, waveform and seek were already there | ✅ (`target/our_mic_crop.png`) |
 | Documents card | yes | ✅ |
 | Reply, react, forward, star, edit, delete | yes | ✅ |
-| Polls, location, live location, contact card | — | ❌ (the attach menu lists Poll / Location / Contact with the honest "not supported yet" answer) |
+| Polls: question + option rows with the official radio dots; contact card: initials disc, name, number | both **render** from `MessageView.poll` / `.contact` (`target/our_poll.png`), and the chat-list preview reads "Poll" / "Contact"; **sending** them (builders + `Command::SendPoll`/`SendContact`) is still missing, and the attach menu says so | 🟡 render ✅, send ❌ |
 | View-once | partially (rail eye reveals recovered ones) | 🟡 |
 | Disappearing messages | indicator shown | 🟡 settings toggle not wired |
 

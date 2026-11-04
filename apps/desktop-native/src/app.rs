@@ -407,6 +407,22 @@ impl WaDesk {
         {
             self.settings_section = index.min(8);
         }
+        // `WA_DESK_POLL=1` / `WA_DESK_CONTACT=1` put the two new message kinds in
+        // the demo group so their bubbles can be captured.
+        if std::env::var("WA_DESK_POLL").is_ok() {
+            self.model.demo_poll(
+                "1203@g.us",
+                "poll-demo",
+                "Where do we eat on Friday?",
+                &["Warung nasi", "Pizza", "Sushi"],
+            );
+            self.model.active = Some("1203@g.us".to_string());
+        }
+        if std::env::var("WA_DESK_CONTACT").is_ok() {
+            self.model
+                .demo_contact("1203@g.us", "contact-demo", "Ada Lovelace", "628111000111");
+            self.model.active = Some("1203@g.us".to_string());
+        }
         // `WA_DESK_STICKER_WEBP=<file.webp>` puts a real (animated) sticker in
         // the demo group, so the animation can be checked frame by frame.
         if let Ok(path) = std::env::var("WA_DESK_STICKER_WEBP") {
@@ -3116,6 +3132,112 @@ fn bubble_content(
         }
 
         // A document card: file icon, name, size and pages, then the caption.
+        // A poll: the question, then one row per option with the official dot.
+        if message.kind == "poll"
+            && let Some(poll) = message.poll.clone()
+        {
+            let width = max_width.min(300.0);
+            let question = ui.painter().layout(
+                poll.question.clone(),
+                egui::FontId::proportional(15.0),
+                palette.text,
+                width - 20.0,
+            );
+            let mut height = question.size().y + 26.0;
+            for option in &poll.options {
+                let row = ui.painter().layout(
+                    option.clone(),
+                    egui::FontId::proportional(14.0),
+                    palette.text,
+                    width - 60.0,
+                );
+                height += row.size().y + 16.0;
+            }
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            let painter = ui.painter();
+            painter.rect_filled(rect, egui::CornerRadius::same(8), fill);
+            painter.galley(
+                egui::pos2(rect.left() + 10.0, rect.top() + 10.0),
+                question.clone(),
+                palette.text,
+            );
+            let mut y = rect.top() + 10.0 + question.size().y + 8.0;
+            for option in &poll.options {
+                let dot = egui::pos2(rect.left() + 18.0, y + 9.0);
+                painter.circle_stroke(dot, 6.0, egui::Stroke::new(1.5_f32, palette.secondary));
+                let row = painter.layout(
+                    option.clone(),
+                    egui::FontId::proportional(14.0),
+                    palette.text,
+                    width - 46.0,
+                );
+                painter.galley(egui::pos2(rect.left() + 32.0, y), row.clone(), palette.text);
+                y += row.size().y + 16.0;
+            }
+            context_menu(&response, palette, model, message, &mut action);
+            pills_row(ui, palette, model, message, rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
+            return;
+        }
+
+        // A shared contact: initials disc, name and number on a card.
+        if message.kind == "contact"
+            && let Some(card) = message.contact.clone()
+        {
+            let width = max_width.min(260.0);
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, 78.0), egui::Sense::click());
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            let painter = ui.painter();
+            painter.rect_filled(rect, egui::CornerRadius::same(8), fill);
+            let disc = egui::pos2(rect.left() + 32.0, rect.center().y);
+            painter.circle_filled(disc, 20.0, avatar_color(&card.name));
+            painter.text(
+                disc,
+                egui::Align2::CENTER_CENTER,
+                initials(&card.name),
+                egui::FontId::proportional(14.0),
+                egui::Color32::WHITE,
+            );
+            painter.text(
+                egui::pos2(rect.left() + 62.0, rect.center().y - 10.0),
+                egui::Align2::LEFT_CENTER,
+                fit_text(
+                    painter,
+                    &card.name,
+                    egui::FontId::proportional(14.5),
+                    palette.text,
+                    width - 80.0,
+                ),
+                egui::FontId::proportional(14.5),
+                palette.text,
+            );
+            painter.text(
+                egui::pos2(rect.left() + 62.0, rect.center().y + 10.0),
+                egui::Align2::LEFT_CENTER,
+                card.phone
+                    .as_deref()
+                    .map(wa_ui::text::format_phone)
+                    .unwrap_or_default(),
+                egui::FontId::proportional(12.5),
+                palette.secondary,
+            );
+            context_menu(&response, palette, model, message, &mut action);
+            pills_row(ui, palette, model, message, rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
+            return;
+        }
+
         if message.kind == "document"
             && let Some(document) = message.document.as_ref()
         {

@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.17] - 2026-11-04
+
+- **Poll and contact bubbles render like the official client.** A `poll` message draws its question
+  and one row per option, each with the hollow radio dot, inside the normal bubble; a `contact`
+  message draws the initials disc, the name and the formatted number. The chat-list preview now
+  reads "Poll" / "Contact" instead of "Unsupported message".
+  Capture: `target/our_poll.png` (`WA_DESK_POLL=1` + `WA_DESK_CONTACT=1`).
+- Demo helpers `Model::demo_poll` / `demo_contact` build the two messages for `--preview`.
+- Sending them is still missing (the `wa-core` builders, `Command::SendPoll`/`SendContact` and the
+  attach-menu wiring), which is why `docs/PARITY.md` records the row as 🟡 *render ✅, send ❌*.
+- Tests: 116 native + 38 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.16] - 2026-11-04
 
 - **The wire vocabulary for polls and contact cards.** `wa-types` gains `PollView` (question,

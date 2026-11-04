@@ -478,6 +478,39 @@ impl Model {
             .insert(id.to_string(), MediaState::Path(path.to_string()));
     }
 
+    /// A poll message for `--preview` (question + options).
+    pub fn demo_poll(&mut self, chat: &str, id: &str, question: &str, options: &[&str]) {
+        let name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let mut message = view(chat, &name, id, "", self.now - 20_000, false);
+        message.kind = "poll".to_string();
+        message.poll = Some(wa_types::PollView {
+            question: question.to_string(),
+            options: options.iter().map(|option| option.to_string()).collect(),
+            multiple: false,
+        });
+        self.apply(&UiEvent::Message(message));
+    }
+
+    /// A shared contact card for `--preview`.
+    pub fn demo_contact(&mut self, chat: &str, id: &str, name: &str, phone: &str) {
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let mut message = view(chat, &chat_name, id, "", self.now - 10_000, false);
+        message.kind = "contact".to_string();
+        message.contact = Some(wa_types::ContactCardView {
+            name: name.to_string(),
+            phone: Some(phone.to_string()),
+        });
+        self.apply(&UiEvent::Message(message));
+    }
+
     /// A sticker message whose file is `path` (used by `--preview` to check
     /// still and animated WebP stickers without an account).
     pub fn demo_sticker(&mut self, chat: &str, id: &str, path: &str) {
@@ -2263,6 +2296,14 @@ impl Model {
 
     /// The sidebar subtitle: the newest message preview, from `wa-ui`.
     pub fn row_preview(&self, row: &ChatRow) -> String {
+        // The new kinds get the official words in the list too.
+        if let Some(last) = row.messages.last() {
+            match last.kind.as_str() {
+                "poll" => return "Poll".to_string(),
+                "contact" => return "Contact".to_string(),
+                _ => {}
+            }
+        }
         row.messages
             .last()
             .map(|message| {
