@@ -627,6 +627,16 @@ impl WaDesk {
                 if self.model.request_group(&chat) {
                     self.send(Command::GroupInfo { chat: chat.clone() });
                 }
+            } else if action == "favourite" {
+                let favourited = self.model.toggle_favourite(&chat);
+                self.notice = Some((
+                    if favourited {
+                        "Added to favourites".to_string()
+                    } else {
+                        "Removed from favourites".to_string()
+                    },
+                    std::time::Instant::now(),
+                ));
             } else if action == "import" {
                 self.import_chat_export(&chat);
             } else if action == "voice" || action == "video" {
@@ -679,6 +689,15 @@ impl WaDesk {
                     if menu_row(ui, &palette, Icon::VideoCall, "Video call") {
                         chosen = Some("video".to_string());
                     }
+                }
+                // Official order: favourite first, then the mutes and the rest.
+                let favourite_label = if self.model.is_favourite(chat) {
+                    "Remove from favourites"
+                } else {
+                    "Add to favourites"
+                };
+                if menu_row(ui, &palette, Icon::Star, favourite_label) {
+                    chosen = Some("favourite".to_string());
                 }
                 for (label, action) in [
                     ("Mute for 8 hours", "mute8h"),
@@ -1877,17 +1896,22 @@ impl WaDesk {
                     });
                 ui.add_space(6.0);
                 // The filter pills with their counts.
-                let (groups, communities, unread) = self.model.filter_counts();
+                let (groups, communities, unread, favourites) = self.model.filter_counts();
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
+                    // The official order: All, Unread, Favorites, Communities, Groups.
                     for (filter, label) in [
                         (crate::model::ChatFilter::All, "All".to_string()),
-                        (crate::model::ChatFilter::Groups, format!("Groups {groups}")),
+                        (crate::model::ChatFilter::Unread, format!("Unread {unread}")),
+                        (
+                            crate::model::ChatFilter::Favourites,
+                            format!("Favorites {favourites}"),
+                        ),
                         (
                             crate::model::ChatFilter::Communities,
                             format!("Communities {communities}"),
                         ),
-                        (crate::model::ChatFilter::Unread, format!("Unread {unread}")),
+                        (crate::model::ChatFilter::Groups, format!("Groups {groups}")),
                     ] {
                         let selected = self.model.chat_filter == filter;
                         if pill_button(ui, &palette, &label, selected) {
@@ -4657,90 +4681,190 @@ fn stamp_seconds(seconds: f32) -> String {
 
 impl WaDesk {
     /// Channels: followed newsletters and their read-only posts.
+    /// Channels: the official 64 px header, the "Discover channels" card and the
+    /// followed list; opening a channel shows its posts read-only.
     fn channels_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Channels");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Back to chats").clicked() {
-                        self.show_channels = false;
-                    }
-                });
-            });
-            ui.separator();
+        let palette = self.palette.clone();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        ui.set_min_height(40.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Channels")
+                                    .size(20.0)
+                                    .color(palette.text),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if icon_button(ui, Icon::Close, &palette)
+                                        .on_hover_text("Back to chats")
+                                        .clicked()
+                                    {
+                                        self.show_channels = false;
+                                    }
+                                },
+                            );
+                        });
+                    });
 
-            let rows = self.model.channel_rows();
-            if rows.is_empty() {
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new("No followed channels").weak());
-                return;
-            }
-
-            ui.horizontal_top(|ui| {
-                // The channel rail.
-                ui.vertical(|ui| {
-                    ui.set_width(220.0);
-                    for (row, followers) in &rows {
-                        let selected = self.model.active.as_deref() == Some(row.jid.as_str());
-                        let label = format!("{}\n{}", row.name, followers);
-                        if ui
-                            .add_sized(
-                                [ui.available_width(), 44.0],
-                                egui::Button::new(label).selected(selected),
+                // "Discover channels" - the official empty-state copy.
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(20.0);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("Discover channels")
+                                .size(17.0)
+                                .color(palette.text),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Entertainment, sports, news, lifestyle, people and more. \
+                                 Follow the channels that interest you.",
                             )
-                            .clicked()
-                        {
-                            self.model.active = Some(row.jid.clone());
-                        }
-                    }
-                });
-                ui.separator();
-
-                // Posts, read-only: no composer for a channel.
-                ui.vertical(|ui| {
-                    let Some(jid) = self.model.active.clone() else {
-                        ui.label(egui::RichText::new("Pick a channel").weak());
-                        return;
-                    };
-                    let posts = self.model.channel_posts(&jid);
-                    egui::ScrollArea::vertical()
-                        .stick_to_bottom(true)
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            for post in &posts {
-                                let header = format!(
-                                    "{}  ·  {}",
-                                    self.model.title(
-                                        &self.model.chats.get(&jid).cloned().unwrap_or_default()
-                                    ),
-                                    self.model.bubble_stamp(post)
-                                );
-                                ui.label(egui::RichText::new(header).small().weak());
-                                let body = self.model.bubble_body(post);
-                                egui::Frame::new()
-                                    .fill(egui::Color32::from_rgb(36, 38, 38))
-                                    .inner_margin(egui::Margin::symmetric(10, 7))
-                                    .corner_radius(egui::CornerRadius::same(8))
-                                    .show(ui, |ui| {
-                                        ui.label(
-                                            egui::RichText::new(body)
-                                                .color(egui::Color32::from_gray(240)),
-                                        );
-                                    });
-                                ui.add_space(6.0);
+                            .size(13.0)
+                            .color(palette.secondary),
+                        );
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            if status_share_tile(ui, &palette, Icon::Add, "Create channel") {
+                                self.notice = Some((
+                                    "Creating channels needs the phone".to_string(),
+                                    std::time::Instant::now(),
+                                ));
+                            }
+                            if status_share_tile(ui, &palette, Icon::Search, "Explore channels") {
+                                self.notice = Some((
+                                    "Browsing the channel directory is not in this build"
+                                        .to_string(),
+                                    std::time::Instant::now(),
+                                ));
                             }
                         });
+                    });
+                });
+
+                let rows = self.model.channel_rows();
+                if rows.is_empty() {
+                    ui.add_space(26.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new("No followed channels yet")
+                                .size(13.5)
+                                .color(palette.secondary),
+                        );
+                    });
+                    return;
+                }
+
+                ui.add_space(16.0);
+                ui.horizontal_top(|ui| {
+                    // The channel rail.
+                    ui.vertical(|ui| {
+                        ui.add_space(4.0);
+                        ui.set_width(240.0);
+                        for (row, followers) in &rows {
+                            let selected = self.model.active.as_deref() == Some(row.jid.as_str());
+                            let card = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 64.0),
+                                egui::Sense::click(),
+                            );
+                            let (rect, response) = card;
+                            if selected || response.hovered() {
+                                ui.painter().rect_filled(
+                                    rect.shrink2(egui::vec2(8.0, 0.0)),
+                                    egui::CornerRadius::same(12),
+                                    if selected {
+                                        palette.selected
+                                    } else {
+                                        palette.hover
+                                    },
+                                );
+                            }
+                            paint_avatar(ui, &row.name, 40.0, None);
+                            ui.painter().text(
+                                egui::pos2(rect.left() + 58.0, rect.center().y - 8.0),
+                                egui::Align2::LEFT_CENTER,
+                                fit_text(
+                                    ui.painter(),
+                                    &row.name,
+                                    egui::FontId::proportional(14.5),
+                                    palette.text,
+                                    rect.width() - 70.0,
+                                ),
+                                egui::FontId::proportional(14.5),
+                                palette.text,
+                            );
+                            ui.painter().text(
+                                egui::pos2(rect.left() + 58.0, rect.center().y + 10.0),
+                                egui::Align2::LEFT_CENTER,
+                                followers.clone(),
+                                egui::FontId::proportional(12.5),
+                                palette.secondary,
+                            );
+                            if response.clicked() {
+                                self.model.active = Some(row.jid.clone());
+                            }
+                            ui.add_space(2.0);
+                        }
+                    });
                     ui.separator();
-                    ui.label(
-                        egui::RichText::new(
-                            "Read-only: following a channel does not allow posting",
-                        )
-                        .small()
-                        .weak(),
-                    );
+
+                    // Posts, read-only: no composer for a channel.
+                    ui.vertical(|ui| {
+                        let Some(jid) = self.model.active.clone() else {
+                            ui.add_space(20.0);
+                            ui.label(
+                                egui::RichText::new("Pick a channel")
+                                    .size(13.0)
+                                    .color(palette.secondary),
+                            );
+                            return;
+                        };
+                        let posts = self.model.channel_posts(&jid);
+                        egui::ScrollArea::vertical()
+                            .stick_to_bottom(true)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                for post in &posts {
+                                    let header = format!(
+                                        "{}  \u{00b7}  {}",
+                                        self.model.title(
+                                            &self
+                                                .model
+                                                .chats
+                                                .get(&jid)
+                                                .cloned()
+                                                .unwrap_or_default()
+                                        ),
+                                        self.model.bubble_stamp(post)
+                                    );
+                                    ui.label(egui::RichText::new(header).small().weak());
+                                    let body = self.model.bubble_body(post);
+                                    egui::Frame::new()
+                                        .fill(palette.bubble_in)
+                                        .corner_radius(egui::CornerRadius::same(8))
+                                        .inner_margin(egui::Margin::symmetric(10, 8))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                egui::RichText::new(body)
+                                                    .size(14.0)
+                                                    .color(palette.text),
+                                            );
+                                        });
+                                    ui.add_space(8.0);
+                                }
+                            });
+                    });
                 });
             });
-        });
     }
 }
 

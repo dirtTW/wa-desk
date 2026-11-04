@@ -12,7 +12,7 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | Rail: Chats, Calls, Status, Channels, Communities, Meta AI | Chats, Status, Channels, Communities, Settings, own avatar | 🟡 Calls panel missing; Meta AI is replaced by our own AI assistant; Media/You drawer missing |
 | Chat list header 64 px, `10px 12px`, `#1D1F1F` | 64 px, 12 px padding, `Palette::elevated` | ✅ |
 | Rows 583x72, radius 12 | 72 px rows, 12 px cards inset 6 px | ✅ |
-| Filters All / Unread / Favorites / Communities / Groups + "New list" | All / Groups N / Communities N / Unread N | 🟡 no Favorites, no custom lists; we show counts instead |
+| Filters All / Unread / Favorites / Communities / Groups + "New list" | the same five in the official order with live counts; Favorites is a real filter (`Model::favourites`, toggled from the chat menu's **Add to / Remove from favourites**, persisted in `chats.json`) | ✅ filter (`target/our_filters_crop.png`); custom lists ❌ |
 | Search field `raised` (#2A3942) | same | ✅ |
 | Chat header 64 px | 64 px | ✅ |
 | Composer 62 px bar, 38 px field, icons inside | same | ✅ |
@@ -50,7 +50,7 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 
 | Official | Ours | State |
 | --- | --- | --- |
-| Channels: followed list + Discover | followed channels panel, read-only posts | 🟡 no Discover/explore list |
+| Channels: "Discover channels" card (description + Create channel / Explore channels), followed list, read-only posts | the same card with the official copy and tiles, followed list as 64 px rows, posts read-only; Create/Explore say what the phone owns | ✅ layout (`target/our_channels3.png`); the channel directory itself is not in this build |
 | Communities: dedicated screen with announcement groups | Communities is only a chat filter | ❌ |
 | Calls: history panel, start/accept/end, mute, self view | rail **Calls** screen with a 64 px header and 72 px rows (direction glyph, date, kind, duration, red for missed, call button that dials that contact); `Model::call_log` records every finished call (outgoing/missed/duration) | ✅ (`target/our_calls.png`) |
 | Settings: Profile / Account / Privacy / Chats / Notifications / Keyboard shortcuts / Help | the same list in the official order with its subtitles, plus AI and Updates; Account holds the phone number, session, security rows, autostart and Log out, Privacy the disappearing-message and block-list notes, Notifications the toast switch and a test, Shortcuts the key table, Help the version and storage path | ✅ (`target/our_settings_account.png`) |

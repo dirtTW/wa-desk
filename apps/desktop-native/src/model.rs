@@ -273,9 +273,10 @@ pub struct ChatRow {
 pub enum ChatFilter {
     #[default]
     All,
-    Groups,
-    Communities,
     Unread,
+    Favourites,
+    Communities,
+    Groups,
 }
 
 #[derive(Debug, Default)]
@@ -364,6 +365,8 @@ pub struct Model {
     pub ticks: std::collections::HashMap<String, String>,
     /// A short line about the last call ("Missed call"), shown for a while.
     pub call_note: Option<(String, std::time::Instant)>,
+    /// Chats marked as favourites (the official Favorites filter).
+    pub favourites: std::collections::BTreeSet<String>,
     /// Recent calls, newest first: what the Calls screen lists.
     pub call_log: Vec<CallLogEntry>,
     /// The current call was placed from this device.
@@ -1786,6 +1789,7 @@ impl Model {
                 ChatFilter::Groups => row.jid.ends_with("@g.us"),
                 ChatFilter::Communities => row.community,
                 ChatFilter::Unread => row.unread > 0,
+                ChatFilter::Favourites => self.favourites.contains(&row.jid),
             })
             .filter(|row| {
                 needle.is_empty()
@@ -1801,8 +1805,8 @@ impl Model {
         rows
     }
 
-    /// Counts for the filter pills: (groups, communities, unread chats).
-    pub fn filter_counts(&self) -> (usize, usize, usize) {
+    /// Counts for the filter pills: (groups, communities, unread, favourites).
+    pub fn filter_counts(&self) -> (usize, usize, usize, usize) {
         let rows = self
             .chats
             .values()
@@ -1812,8 +1816,30 @@ impl Model {
             .filter(|row| row.jid.ends_with("@g.us"))
             .count();
         let communities = rows.clone().filter(|row| row.community).count();
-        let unread = rows.filter(|row| row.unread > 0).count();
-        (groups, communities, unread)
+        let unread = rows.clone().filter(|row| row.unread > 0).count();
+        let favourites = rows
+            .filter(|row| self.favourites.contains(&row.jid))
+            .count();
+        (groups, communities, unread, favourites)
+    }
+
+    /// Add or remove a chat from the favourites (the official "Add to
+    /// favourites" entry); returns the new state.
+    pub fn toggle_favourite(&mut self, jid: &str) -> bool {
+        if jid.is_empty() {
+            return false;
+        }
+        if self.favourites.contains(jid) {
+            self.favourites.remove(jid);
+            false
+        } else {
+            self.favourites.insert(jid.to_string());
+            true
+        }
+    }
+
+    pub fn is_favourite(&self, jid: &str) -> bool {
+        self.favourites.contains(jid)
     }
 
     /// Unread messages across every chat, for the rail badge.
@@ -2285,7 +2311,12 @@ impl Model {
                 messages: row.messages.iter().rev().take(80).rev().cloned().collect(),
             })
             .collect();
-        serde_json::json!({ "me": self.me_name, "chats": chats }).to_string()
+        serde_json::json!({
+            "me": self.me_name,
+            "chats": chats,
+            "favourites": self.favourites.iter().cloned().collect::<Vec<_>>(),
+        })
+        .to_string()
     }
 
     pub fn load_cache(&mut self, json: &str) {
@@ -2294,6 +2325,12 @@ impl Model {
         };
         if let Some(me) = value["me"].as_str() {
             self.me_name = me.to_string();
+        }
+        if let Some(ids) = value["favourites"].as_array() {
+            self.favourites = ids
+                .iter()
+                .filter_map(|id| id.as_str().map(str::to_owned))
+                .collect();
         }
         let Some(chats) = value["chats"].as_array() else {
             return;
@@ -2889,6 +2926,37 @@ mod tests {
 
     /// The chat list keeps plain names even when the person is not saved - the
     /// `~` mark is for the group bubbles only.
+    /// The Favorites pill lists exactly the chats marked in the chat menu.
+    #[test]
+    fn favourites_filter_the_chat_list() {
+        let mut model = Model::new();
+        for (jid, name) in [("1@s.whatsapp.net", "Ada"), ("2@s.whatsapp.net", "Budi")] {
+            model.apply(&UiEvent::Message(view(
+                jid,
+                name,
+                "m1",
+                "hi",
+                1_770_000_000_000,
+                false,
+            )));
+        }
+        model.chat_filter = ChatFilter::Favourites;
+        assert!(
+            model.visible_chats().is_empty(),
+            "nothing is a favourite yet"
+        );
+
+        assert!(model.toggle_favourite("2@s.whatsapp.net"), "added");
+        let rows = model.visible_chats();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(model.title(rows[0]), "Budi");
+        assert!(model.is_favourite("2@s.whatsapp.net"));
+
+        assert!(!model.toggle_favourite("2@s.whatsapp.net"), "removed");
+        assert!(model.visible_chats().is_empty(), "the filter empties again");
+        assert_eq!(model.filter_counts().3, 0, "the pill count follows");
+    }
+
     #[test]
     fn a_finished_call_lands_in_the_log() {
         let mut model = Model::new();

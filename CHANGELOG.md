@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.10] - 2026-11-04
+
+- **Channels panel matches the official one.** Sampled the Channels drawer (`Discover channels`,
+  "Entertainment, sports, news, lifestyle, people and more. Follow the channels that interest you.",
+  *Create channel* / *Explore channels*), and rebuilt ours: 64 px header with the close button, the
+  Discover card with that copy and two tiles, then the followed list as 64 px rounded rows with the
+  follower line and read-only posts in the panel (`target/our_channels3.png`). The tiles say plainly
+  that channel creation and the directory belong to the phone.
+- **Favorites filter (the last missing filter).** `ChatFilter::Favourites` + `Model::favourites`
+  (a `BTreeSet` persisted in `chats.json`), `toggle_favourite`, and the chat menu's **Add to
+  favourites / Remove from favourites** entry (star icon, official wording). The pill row is now the
+  official order — All, Unread, Favorites, Communities, Groups — with live counts
+  (`target/our_filters_crop.png`). Test: `model::tests::favourites_filter_the_chat_list`.
+- `docs/PARITY.md` marks the Channels layout and the Favorites filter done, with their captures.
+- Tests: 112 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.9] - 2026-11-04
 
 - **Settings list is the official one.** Sampled the "You" drawer of `web.whatsapp.com` and applied
