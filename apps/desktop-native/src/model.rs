@@ -364,6 +364,25 @@ pub struct Model {
     pub ticks: std::collections::HashMap<String, String>,
     /// A short line about the last call ("Missed call"), shown for a while.
     pub call_note: Option<(String, std::time::Instant)>,
+    /// Recent calls, newest first: what the Calls screen lists.
+    pub call_log: Vec<CallLogEntry>,
+    /// The current call was placed from this device.
+    pub calls_outgoing: bool,
+}
+
+/// One finished or attempted call, the way the official Calls list shows it.
+#[derive(Debug, Clone, Default)]
+pub struct CallLogEntry {
+    pub jid: String,
+    pub name: String,
+    pub video: bool,
+    /// We placed the call (otherwise it came in).
+    pub outgoing: bool,
+    pub missed: bool,
+    /// Unix ms.
+    pub at: i64,
+    /// Seconds the call was connected; 0 when it never connected.
+    pub seconds: i64,
 }
 
 /// One voice/video call as the window paints it.
@@ -472,6 +491,27 @@ impl Model {
         model.me_name = "You".to_string();
         model.me_jid = "0@s.whatsapp.net".to_string();
 
+        // Two calls, so the Calls screen has something to show in `--preview`.
+        model.call_log = vec![
+            CallLogEntry {
+                jid: "1@s.whatsapp.net".into(),
+                name: "Ada".into(),
+                video: false,
+                outgoing: true,
+                missed: false,
+                at: now - 1_800_000,
+                seconds: 754,
+            },
+            CallLogEntry {
+                jid: "2@s.whatsapp.net".into(),
+                name: "Budi".into(),
+                video: true,
+                outgoing: false,
+                missed: true,
+                at: now - 5_400_000,
+                seconds: 0,
+            },
+        ];
         let mut group = |sender: &str, name: &str, id: &str, text: &str, ts: i64, own: bool| {
             let mut message = view("1203@g.us", "Team", id, text, ts, own);
             if !own {
@@ -951,6 +991,23 @@ impl Model {
                 if let Some(call) = self.call.as_ref()
                     && &call.call_id == call_id
                 {
+                    let seconds = call
+                        .started_at
+                        .map(|started| ((self.now - started) / 1000).max(0))
+                        .unwrap_or(0);
+                    self.call_log.insert(
+                        0,
+                        CallLogEntry {
+                            jid: call.peer.clone(),
+                            name: call.peer_name.clone(),
+                            video: call.video,
+                            outgoing: self.calls_outgoing,
+                            missed: reason == "missed",
+                            at: self.now,
+                            seconds,
+                        },
+                    );
+                    self.call_log.truncate(200);
                     self.call = None;
                     self.call_note = Some((
                         match reason.as_str() {
@@ -2806,6 +2863,34 @@ mod tests {
 
     /// The chat list keeps plain names even when the person is not saved - the
     /// `~` mark is for the group bubbles only.
+    #[test]
+    fn a_finished_call_lands_in_the_log() {
+        let mut model = Model::new();
+        model.now = 1_770_000_000_000;
+        model.apply(&UiEvent::Chat {
+            jid: "9@s.whatsapp.net".into(),
+            name: "Ada".into(),
+            is_group: false,
+            timestamp: 0,
+        });
+        model.apply(&UiEvent::CallIncoming {
+            call_id: "c1".into(),
+            peer: "9@s.whatsapp.net".into(),
+            video: false,
+        });
+        assert!(model.call.is_some());
+        model.apply(&UiEvent::CallEnded {
+            call_id: "c1".into(),
+            reason: "missed".into(),
+        });
+        assert!(model.call.is_none());
+        let entry = model.call_log.first().expect("a call was logged");
+        assert_eq!(entry.name, "Ada");
+        assert!(entry.missed, "a missed call is marked");
+        assert!(!entry.outgoing, "it came in");
+        assert_eq!(entry.seconds, 0, "a missed call never connected");
+    }
+
     #[test]
     fn the_chat_list_keeps_plain_names() {
         let mut model = Model::new();

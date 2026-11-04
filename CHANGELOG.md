@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.8] - 2026-11-04
+
+- **Calls screen (missing feature).** The official rail has Calls between Chats and Status; ours had
+  no panel at all. Added `Model::call_log` (`CallLogEntry`: peer, name, video, outgoing, missed,
+  time, seconds), recorded when a call ends, and a **Calls** screen in the official shape: 64 px
+  header with the close button, 72 px rows with a 48 px avatar, the name in red when the call was
+  missed, a direction glyph (outgoing arrow / incoming arrow / red handset), `9:17 pm · Voice call ·
+  12:34`, and a green voice/video button on the right that dials that contact.
+  Test: `model::tests::a_finished_call_lands_in_the_log`. Screenshot: `target/our_calls.png`.
+- `WA_DESK_SCREEN=calls` joins the screenshot hooks.
+- Rail order now Chats → Calls → Status → Channels → Communities → Settings, and the secondary
+  screens all replace the chat list.
+- `docs/PARITY.md` marks the Calls panel ✅.
+- Tests: 111 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.7] - 2026-11-04
 
 - **Status screen rebuilt to the official two-pane layout.** Sampled the live Status drawer through

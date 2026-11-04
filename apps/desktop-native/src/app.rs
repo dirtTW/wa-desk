@@ -67,6 +67,8 @@ pub struct WaDesk {
     typing_sent: bool,
     /// The status panel is showing instead of a conversation.
     show_status: bool,
+    /// The calls panel is showing instead of a conversation.
+    show_calls: bool,
     /// Text being typed into the share-status box.
     status_compose: Option<String>,
     /// The settings screen is showing instead of a conversation.
@@ -240,6 +242,7 @@ impl WaDesk {
             runtime: native.runtime,
             typing_sent: false,
             show_status: false,
+            show_calls: false,
             status_compose: None,
             show_channels: false,
             show_settings: false,
@@ -365,6 +368,7 @@ impl WaDesk {
         // client (the settings screen has its own hook below).
         if let Ok(screen) = std::env::var("WA_DESK_SCREEN") {
             match screen.as_str() {
+                "calls" => self.show_calls = true,
                 "status" => self.show_status = true,
                 "channels" => self.show_channels = true,
                 "group" => {
@@ -1181,6 +1185,7 @@ impl WaDesk {
             self.notice = guard.toast.map(|toast| (toast, std::time::Instant::now()));
             return;
         }
+        self.model.calls_outgoing = true;
         self.send(Command::CallStart { chat: jid, video });
     }
 
@@ -1732,6 +1737,16 @@ impl WaDesk {
                         .iter()
                         .filter(|group| group.unseen)
                         .count() as i64;
+                    if rail_button(ui, &palette, Icon::Phone, self.show_calls, 0)
+                        .on_hover_text("Calls")
+                        .clicked()
+                    {
+                        self.show_calls = true;
+                        self.show_status = false;
+                        self.show_channels = false;
+                        self.show_settings = false;
+                        self.model.close_status();
+                    }
                     if rail_button(ui, &palette, Icon::Status, self.show_status, unseen)
                         .on_hover_text("Status")
                         .clicked()
@@ -1780,7 +1795,7 @@ impl WaDesk {
 
         // Settings, Status and Channels replace the chat list, like the official
         // client: their own pane takes this column instead of stacking next to it.
-        if self.show_settings || self.show_status || self.show_channels {
+        if self.show_settings || self.show_status || self.show_channels || self.show_calls {
             return;
         }
 
@@ -4150,6 +4165,67 @@ impl WaDesk {
 
 impl WaDesk {
     /// Status: the poster rail, or the story viewer when one is open.
+    /// The Calls screen: the 64 px header, then the call log as 72 px rows with
+    /// the direction glyph, the date and a call button - the official layout.
+    fn calls_panel(&mut self, ctx: &egui::Context) {
+        let palette = self.palette.clone();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        ui.set_min_height(40.0);
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Calls").size(20.0).color(palette.text));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if icon_button(ui, Icon::Close, &palette)
+                                        .on_hover_text("Back to chats")
+                                        .clicked()
+                                    {
+                                        self.show_calls = false;
+                                    }
+                                },
+                            );
+                        });
+                    });
+
+                if self.model.call_log.is_empty() {
+                    ui.add_space(40.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new("No calls yet")
+                                .size(14.0)
+                                .color(palette.secondary),
+                        );
+                    });
+                    return;
+                }
+
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let entries = self.model.call_log.clone();
+                        for entry in entries {
+                            self.ensure_avatar(ui.ctx(), &entry.jid);
+                            let avatar = self.avatar_for(&entry.jid).cloned();
+                            if let Some(call) = call_row(ui, &palette, &entry, avatar.as_ref()) {
+                                // Start a call with that person from the list.
+                                self.model.open_chat(&entry.jid);
+                                self.model.calls_outgoing = true;
+                                self.send(Command::CallStart {
+                                    chat: entry.jid.clone(),
+                                    video: call,
+                                });
+                            }
+                        }
+                    });
+            });
+    }
+
     /// The Status screen: the official list on the left (a 64 px header, the
     /// "My status" row, then Recent/Viewed) and the "Share statuses" pane on the
     /// right with the Text / Photo-and-video tiles.
@@ -5564,6 +5640,129 @@ fn draw_laptop(ui: &egui::Ui, rect: egui::Rect, palette: &crate::theme::Palette)
     painter.rect_filled(base, egui::CornerRadius::same(3), green);
 }
 
+/// One 72 px call row: avatar, name, direction + time, and a call button.
+/// Returns `Some(video)` when the call button was pressed (false = voice).
+fn call_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    entry: &crate::model::CallLogEntry,
+    avatar: Option<&egui::TextureHandle>,
+) -> Option<bool> {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 72.0), egui::Sense::click());
+    let card = rect.shrink2(egui::vec2(8.0, 0.0));
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(card, egui::CornerRadius::same(12), palette.hover);
+    }
+    let center = egui::pos2(rect.left() + 44.0, rect.center().y);
+    if let Some(texture) = avatar {
+        ui.painter().image(
+            texture.id(),
+            egui::Rect::from_center_size(center, egui::vec2(48.0, 48.0)),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        ui.painter()
+            .circle_filled(center, 24.0, avatar_color(&entry.name));
+        ui.painter().text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            initials(&entry.name),
+            egui::FontId::proportional(16.0),
+            egui::Color32::WHITE,
+        );
+    }
+    // Missed calls are red in the official list; the rest are secondary.
+    let name_color = if entry.missed {
+        palette.danger
+    } else {
+        palette.text
+    };
+    ui.painter().text(
+        egui::pos2(rect.left() + 82.0, rect.top() + 26.0),
+        egui::Align2::LEFT_CENTER,
+        fit_text(
+            ui.painter(),
+            &entry.name,
+            egui::FontId::proportional(15.0),
+            name_color,
+            rect.width() - 200.0,
+        ),
+        egui::FontId::proportional(15.0),
+        name_color,
+    );
+    // Direction glyph + time on the second line.
+    let glyph = if entry.missed {
+        Icon::CallEnd
+    } else if entry.outgoing {
+        Icon::Forward
+    } else {
+        Icon::Reply
+    };
+    let glyph_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + 82.0, rect.top() + 44.0),
+        egui::vec2(14.0, 14.0),
+    );
+    draw_icon(ui, glyph_rect, glyph, name_color);
+    let stamp = if entry.at > 0 {
+        wa_ui::labels::stamp_of(entry.at, now_ms())
+    } else {
+        String::new()
+    };
+    let kind = if entry.video {
+        "Video call"
+    } else {
+        "Voice call"
+    };
+    let detail = if entry.missed {
+        stamp
+    } else if entry.seconds > 0 {
+        let minutes = entry.seconds / 60;
+        let seconds = entry.seconds % 60;
+        format!("{stamp}  ·  {kind}  ·  {minutes}:{seconds:02}")
+    } else {
+        format!("{stamp}  ·  {kind}")
+    };
+    ui.painter().text(
+        egui::pos2(rect.left() + 101.0, rect.top() + 51.0),
+        egui::Align2::LEFT_CENTER,
+        detail,
+        egui::FontId::proportional(12.5),
+        palette.secondary,
+    );
+
+    // The call button on the right.
+    let button = egui::Rect::from_center_size(
+        egui::pos2(rect.right() - 34.0, rect.center().y),
+        egui::vec2(34.0, 34.0),
+    );
+    let hit = ui.interact(
+        button,
+        ui.id().with(("call", &entry.jid)),
+        egui::Sense::click(),
+    );
+    if hit.hovered() {
+        ui.painter()
+            .rect_filled(button, egui::CornerRadius::same(17), palette.hover);
+    }
+    draw_icon(
+        ui,
+        button.shrink(8.0),
+        if entry.video {
+            Icon::VideoCall
+        } else {
+            Icon::Phone
+        },
+        palette.accent,
+    );
+    if hit.clicked() {
+        return Some(entry.video);
+    }
+    None
+}
+
 /// One "Share statuses" tile: a rounded card with an icon and a label.
 fn status_share_tile(
     ui: &mut egui::Ui,
@@ -6524,6 +6723,8 @@ impl eframe::App for WaDesk {
                 self.settings_panel(ctx);
             } else if self.show_channels {
                 self.channels_panel(ctx);
+            } else if self.show_calls {
+                self.calls_panel(ctx);
             } else if self.show_status {
                 self.status_panel(ctx);
             } else {

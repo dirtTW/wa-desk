@@ -52,7 +52,7 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | --- | --- | --- |
 | Channels: followed list + Discover | followed channels panel, read-only posts | 🟡 no Discover/explore list |
 | Communities: dedicated screen with announcement groups | Communities is only a chat filter | ❌ |
-| Calls: history panel, start/accept/end, mute, self view | calls work (VoIP, H.264, AEC) but there is no Calls panel | 🟡 |
+| Calls: history panel, start/accept/end, mute, self view | rail **Calls** screen with a 64 px header and 72 px rows (direction glyph, date, kind, duration, red for missed, call button that dials that contact); `Model::call_log` records every finished call (outgoing/missed/duration) | ✅ (`target/our_calls.png`) |
 | Settings: Account / Privacy / Chats / Notifications / Storage / Shortcuts / Help | General / Chats / AI / Updates / Help | 🟡 account/privacy/storage pages missing |
 | Linked devices, two-step verification, block list | — | ❌ |
 | Profile drawer ("You") | settings sections + own avatar | 🟡 |
