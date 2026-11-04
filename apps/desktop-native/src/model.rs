@@ -1509,6 +1509,8 @@ impl Model {
                 once_recovered: false,
                 gif: false,
                 status_quote: false,
+                contact: None,
+                poll: None,
             });
             added += 1;
         }
@@ -3009,6 +3011,8 @@ fn view(chat: &str, name: &str, id: &str, text: &str, ts: i64, from_me: bool) ->
         once_recovered: false,
         gif: false,
         status_quote: false,
+        contact: None,
+        poll: None,
     }
 }
 

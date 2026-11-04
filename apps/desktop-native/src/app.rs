@@ -5047,6 +5047,8 @@ fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
         once_recovered: false,
         gif: false,
         status_quote: false,
+        contact: None,
+        poll: None,
     }
 }
 

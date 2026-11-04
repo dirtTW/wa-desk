@@ -260,6 +260,21 @@ pub struct LinkPreviewView {
     pub thumb_path: Option<String>,
 }
 
+/// A contact message: the display name and one phone number.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContactCardView {
+    pub name: String,
+    pub phone: Option<String>,
+}
+
+/// A poll: the question, its options and whether it allows several answers.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PollView {
+    pub question: String,
+    pub options: Vec<String>,
+    pub multiple: bool,
+}
+
 /// File metadata for a document message, shaped for the WhatsApp file card.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentView {
@@ -341,6 +356,12 @@ pub struct MessageView {
     /// Playback metadata for `audio`/voice-note messages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioView>,
+    /// A shared contact card (`contactMessage` / `contactsArrayMessage`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact: Option<ContactCardView>,
+    /// A poll (`pollCreationMessage`): the question and its options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll: Option<PollView>,
     /// Channel post counters (`<views_count>`, `<forwards_count>`, `<reactions>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stats: Option<ChannelStats>,

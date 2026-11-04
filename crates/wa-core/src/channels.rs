@@ -412,6 +412,8 @@ pub(crate) fn decode_channel_page(
             once_recovered: false,
             gif: false,
             status_quote: false,
+            contact: None,
+            poll: None,
         };
         let media = (kind != "text").then(|| Arc::new(body.clone()));
         // Link posts that ship a big CDN thumbnail also hand their body over,

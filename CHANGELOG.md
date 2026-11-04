@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.16] - 2026-11-04
+
+- **The wire vocabulary for polls and contact cards.** `wa-types` gains `PollView` (question,
+  options, multiple) and `ContactCardView` (name, phone), and `MessageView` carries
+  `poll: Option<PollView>` / `contact: Option<ContactCardView>` with `#[serde(default,
+  skip_serializing_if = "Option::is_none")]`, so old caches deserialize unchanged. Every
+  `MessageView` literal in the workspace (2 in `ai`, 1 in `app`, 2 in `model`, 1 in `channels`,
+  4 in `events`) was updated with the two `None` fields.
+- This is the schema half of the last ❌ group; the senders (`poll_message`/`contact_message`),
+  the `pollCreationMessage`/`contactMessage` event mapping and the official bubble cards are the
+  next step, and `docs/PARITY.md` still marks polls/location/contact as missing until they land.
+- Tests: 116 native + 38 wa-core + 232 wa-ui, selftest green (clippy clean).
+
 ## [0.2.1-rc.15] - 2026-11-04
 
 - **The composer's attach button opens the official menu** instead of jumping straight to a file

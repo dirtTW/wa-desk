@@ -507,6 +507,8 @@ pub(crate) fn dispatch(
                         once_recovered: false,
                         gif: is_gif(body),
                         status_quote: quotes_status(body),
+                        contact: None,
+                        poll: None,
                     }));
                 }
                 tracing::debug!(
@@ -644,6 +646,8 @@ pub(crate) fn dispatch(
                 once_recovered: false,
                 gif: false,
                 status_quote: false,
+                contact: None,
+                poll: None,
             }));
         }
         Event::Receipt(receipt) => {
@@ -992,6 +996,8 @@ pub(crate) fn dispatch(
                         once_recovered: true,
                         gif: false,
                         status_quote: false,
+                        contact: None,
+                        poll: None,
                     };
                     remember_message(
                         messages,
@@ -1039,6 +1045,8 @@ pub(crate) fn dispatch(
                     once_recovered: false,
                     gif: is_gif(&inbound.message),
                     status_quote: quotes_status(&inbound.message),
+                    contact: None,
+                    poll: None,
                 }));
             }
         }
