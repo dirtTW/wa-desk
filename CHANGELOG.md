@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.58] — 2026-11-04
+
+- **Documentation now matches the code: no Tauri, no WebView, no unused libraries.**
+  The README states what was removed in rc.57 — the Tauri shell, `wry`,
+  `webview2-com`, `webkit2gtk`, the `tauri-plugin-*` crates, MSI/NSIS bundling and
+  the 13-file JavaScript front end — and lists the only additions the native app
+  needs (`eframe`, `egui`, `resvg` for QR, `image` for photo decoding).
+  `SECURITY.md` drops the WebView permission/updater rows, `AGENTS.md` drops the
+  Tauri dev-mode and tray/updater notes, and the GitHub repository description and
+  topics describe the native app.
+- Verified after the cleanup: `Cargo.lock` contains **0** `tauri`, `wry`,
+  `webview2` and `webkit2gtk` entries (4 native UI crates present), no crate
+  manifest mentions tauri, and the repository still holds **0** `.js` and **0** UI
+  `.html` files.
+
 ## [0.2.0-rc.57] — 2026-11-04
 
 - **The WebView front end is gone: the app is now Rust all the way down.**

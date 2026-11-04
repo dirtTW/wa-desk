@@ -54,6 +54,12 @@ The native window (`wa-desk-native`) covers:
 - **Settings**: theme (Light / Dark / System) and the AI form, validated by the same rules the
   rest of the app uses
 
+**What is no longer in the tree** (removed in `v0.2.0-rc.57`): the Tauri shell, its
+WebView (`wry`, `webview2-com`, `webkit2gtk`), `tauri-plugin-{notification,autostart,updater}`,
+the MSI/NSIS bundling and the 13-file JavaScript front end — several thousand lines of JS
+and the whole HTML/CSS tree. `Cargo.lock` now has zero `tauri`, `wry`, `webview2` and
+`webkit2gtk` entries; the only new dependencies are `eframe`, `egui`, `resvg` (QR) and
+`image` (photo decoding).
 Planned next, in rough order: stickers and emoji picker, in-chat search, message actions
 (reply / react / edit / delete), the media viewer, calls, notifications + tray, and the AI
 auto-reply loop (it used to live in the removed WebView shell).

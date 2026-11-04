@@ -279,6 +279,10 @@ device until you remove it from the phone).
   search input is debounced. Date labels are memoized (`TIME_LABELS`/`STAMP_LABELS`/`DAY_LABELS`)
   and photo replies patch a single avatar. When adding a new render call, prefer the scheduled
   variant unless the caller reads the DOM synchronously afterwards.
+- **Nothing Tauri is left.** `tauri`, `wry`, `webview2-com`, `webkit2gtk` and the
+  `tauri-plugin-*` crates are gone from `Cargo.toml`/`Cargo.lock`; the window is
+  `eframe`/`egui`, QR codes are rasterised with `resvg`, and photos decoded with
+  `image`.
 - **The UI is compiled in.** `wa-desk-native` links `wa-ui` directly; there is
   nothing to embed, reload or cache, so a Rust change is the only way to change
   the interface.
