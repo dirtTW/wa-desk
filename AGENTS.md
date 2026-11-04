@@ -552,6 +552,18 @@ device until you remove it from the phone).
   installs `cargo-audit` from a prebuilt binary, and publishes `WA-Desk-Setup.exe` beside the
   raw binaries.
 
+- **Restart cache and history recovery.** `wa-core` only receives history for a *newly linked*
+  device, so `apps/desktop-native` mirrors the chat list to `chats.json` (names, unread, newest
+  80 bubbles per chat) beside the session, loads it in `WaDesk::new`, and saves it on a 2 s
+  debounce plus on exit. `Command::InitialSync` seeds the sidebar from `session.contacts()` and
+  asks for eight history batches; Settings → Chat history re-runs it. Opening Status sends
+  `Command::StatusHistory` (`fetch_status_history`), and `Command::Avatar` resolves
+  `contact_photo`, downloads it with `ureq` on a thread and caches a circular texture, with
+  initials as the fallback.
+- **The window repaints every 250 ms.** Session events arrive on other threads through a
+  channel; without the timer egui only painted on input, so an idle window could look stuck
+  (an empty chat list) until the mouse moved.
+
 ## Roadmap (native app)
 
 1. Notifications, tray and autostart

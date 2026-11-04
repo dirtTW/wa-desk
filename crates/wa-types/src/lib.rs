@@ -234,7 +234,7 @@ pub struct PeerLookup {
 }
 
 /// Rich link preview carried inside a text message by WhatsApp itself.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkPreviewView {
     pub url: String,
     pub title: String,
@@ -247,7 +247,7 @@ pub struct LinkPreviewView {
 }
 
 /// File metadata for a document message, shaped for the WhatsApp file card.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentView {
     /// Original file name, including the extension (e.g. `report.pdf`).
     pub name: String,
@@ -264,7 +264,7 @@ pub struct DocumentView {
 /// Playback metadata for an audio message, shaped for the audio bubble:
 /// the sender's duration, the voice-note flag drawn with a waveform, and the
 /// waveform samples (0..=255 amplitudes) themselves.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioView {
     /// Duration reported by the sender, in seconds (0 when unknown — the
     /// player then reads it from the decoded file).
@@ -277,7 +277,7 @@ pub struct AudioView {
 }
 
 /// The message quoted by a WhatsApp reply.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplyView {
     /// Id of the quoted message.
     pub id: String,
@@ -294,7 +294,7 @@ pub struct ReplyView {
 }
 
 /// A message shaped for rendering: no protobuf, no secrets, no JIDs to parse.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageView {
     /// Chat id (`<user>@s.whatsapp.net` or `<id>@g.us`).
     pub chat: String,
@@ -352,7 +352,7 @@ pub(crate) fn is_false(value: &bool) -> bool {
 
 /// Counters the server attaches to a channel post, shown under the card like the
 /// desktop app (reaction pills, share count, view count).
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChannelStats {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub views: Option<u64>,
@@ -366,7 +366,7 @@ pub struct ChannelStats {
     pub reaction_total: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReactionCount {
     pub code: String,
     pub count: u32,

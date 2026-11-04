@@ -212,6 +212,23 @@ fn version_key(tag: &str) -> (Vec<u64>, u8, u64) {
     }
 }
 
+/// Fetch arbitrary bytes (a profile photo) with the same client as the updater.
+pub fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read as _;
+
+    let mut response = ureq::get(url)
+        .header("User-Agent", "wa-desk")
+        .call()
+        .map_err(|err| err.to_string())?;
+    let mut bytes = Vec::new();
+    response
+        .body_mut()
+        .as_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|err| err.to_string())?;
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

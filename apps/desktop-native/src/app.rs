@@ -24,9 +24,14 @@ pub struct NativeApp {
     pub group: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
     /// Favourite-sticker replies.
     pub favorites: std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
+    /// Profile photo URLs, (jid, url).
+    pub avatars: std::sync::mpsc::Receiver<(String, Option<String>)>,
+    /// Attachment send results (a note or an error).
+    pub attach: std::sync::mpsc::Receiver<Result<String, String>>,
 }
 
 impl NativeApp {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         events: UnboundedReceiver<UiEvent>,
         commands: Sender<Command>,
@@ -34,6 +39,8 @@ impl NativeApp {
         media: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
         group: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
         favorites: std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
+        avatars: std::sync::mpsc::Receiver<(String, Option<String>)>,
+        attach: std::sync::mpsc::Receiver<Result<String, String>>,
     ) -> Self {
         Self {
             events,
@@ -42,6 +49,8 @@ impl NativeApp {
             media,
             group,
             favorites,
+            avatars,
+            attach,
         }
     }
 }
@@ -92,17 +101,39 @@ pub struct WaDesk {
     /// The OS dark-mode preference, captured before we install our own visuals.
     system_dark: bool,
     /// `--screenshot <path>`: save one frame and quit (used to verify the UI).
-    screenshot: Option<(std::path::PathBuf, u32)>,
+    screenshot: Option<(std::path::PathBuf, std::time::Instant, bool)>,
+    /// The restart cache for the chat list (`chats.json` beside the session).
+    cache_path: std::path::PathBuf,
+    cache_dirty: bool,
+    cache_saved: std::time::Instant,
+    /// Profile photos: jid -> circular texture (None once known to be missing).
+    avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    /// Photos already asked for.
+    avatar_asked: std::collections::HashSet<String>,
+    /// `WA_DESK_OPEN_FIRST`: opened the first chat once (screenshot testing).
+    auto_opened: bool,
+    avatar_rx: std::sync::mpsc::Receiver<(String, Option<String>)>,
+    avatar_img_tx: std::sync::mpsc::Sender<(String, Result<Vec<u8>, String>)>,
+    avatar_img_rx: std::sync::mpsc::Receiver<(String, Result<Vec<u8>, String>)>,
+    /// Attachment results, and the short note under the composer.
+    attach_rx: std::sync::mpsc::Receiver<Result<String, String>>,
+    attach_note: Option<(String, std::time::Instant)>,
 }
 
 impl WaDesk {
     pub fn new(_cc: &eframe::CreationContext<'_>, native: NativeApp) -> Self {
+        install_fonts(&_cc.egui_ctx);
         let (update_tx, update_rx) = std::sync::mpsc::channel();
         let system_dark = _cc.egui_ctx.style().visuals.dark_mode;
         let settings = NativeSettings::load(&settings_file());
         let palette = crate::theme::palette(&settings.theme, system_dark);
+        let cache_path =
+            std::path::Path::new(&crate::model::store_path()).with_file_name("chats.json");
+        let (avatar_img_tx, avatar_img_rx) = std::sync::mpsc::channel();
+        let mut model = Model::new();
+        model.load_cache_file(&cache_path);
         Self {
-            model: Model::new(),
+            model,
             events: native.events,
             commands: native.commands,
             runtime: native.runtime,
@@ -129,6 +160,17 @@ impl WaDesk {
             palette,
             system_dark,
             screenshot: None,
+            cache_path,
+            cache_dirty: false,
+            cache_saved: std::time::Instant::now(),
+            avatars: std::collections::HashMap::new(),
+            avatar_asked: std::collections::HashSet::new(),
+            auto_opened: false,
+            avatar_rx: native.avatars,
+            avatar_img_tx,
+            avatar_img_rx,
+            attach_rx: native.attach,
+            attach_note: None,
         }
     }
 
@@ -144,16 +186,22 @@ impl WaDesk {
 
     /// `--screenshot <path>`: save one settled frame and quit.
     pub fn set_screenshot(&mut self, path: std::path::PathBuf) {
-        self.screenshot = Some((path, 0));
+        self.screenshot = Some((path, std::time::Instant::now(), false));
     }
 
     fn screenshot_tick(&mut self, ctx: &egui::Context) {
-        let Some((path, frame)) = self.screenshot.as_mut() else {
+        let Some((path, started, requested)) = self.screenshot.as_mut() else {
             return;
         };
-        *frame += 1;
-        if *frame == 10 {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        if !*requested {
+            let delay: u64 = std::env::var("WA_DESK_SCREENSHOT_DELAY")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(14);
+            if started.elapsed() >= std::time::Duration::from_secs(delay) {
+                *requested = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            }
         }
         let events = ctx.input(|input| input.events.clone());
         for event in events {
@@ -196,6 +244,7 @@ impl WaDesk {
     fn drain_events(&mut self, ctx: &egui::Context) {
         let mut changed = false;
         while let Ok(event) = self.events.try_recv() {
+            crate::app::diag(&format!("event {}", event.kind()));
             self.model.apply(&event);
             changed = true;
         }
@@ -224,6 +273,47 @@ impl WaDesk {
             };
             changed = true;
         }
+        while let Ok((jid, url)) = self.avatar_rx.try_recv() {
+            match url {
+                Some(url) => {
+                    let tx = self.avatar_img_tx.clone();
+                    std::thread::spawn(move || {
+                        let result = crate::updates::fetch_bytes(&url);
+                        crate::app::diag(&format!(
+                            "avatar download {url}: {}",
+                            match &result {
+                                Ok(bytes) => format!("{} bytes", bytes.len()),
+                                Err(err) => err.clone(),
+                            }
+                        ));
+                        let _ = tx.send((jid, result));
+                    });
+                }
+                None => {
+                    self.avatars.insert(jid, None);
+                }
+            }
+            changed = true;
+        }
+        while let Ok((jid, bytes)) = self.avatar_img_rx.try_recv() {
+            let texture = bytes
+                .ok()
+                .and_then(|bytes| circular_avatar(ctx, &format!("avatar-{jid}"), &bytes));
+            crate::app::diag(&format!(
+                "avatar texture {jid}: {}",
+                if texture.is_some() { "ok" } else { "failed" }
+            ));
+            self.avatars.insert(jid, texture);
+            changed = true;
+        }
+        while let Ok(result) = self.attach_rx.try_recv() {
+            let note = match result {
+                Ok(note) => note,
+                Err(err) => err,
+            };
+            self.attach_note = Some((note, std::time::Instant::now()));
+            changed = true;
+        }
         while let Ok((id, reply)) = self.media_rx.try_recv() {
             match reply {
                 Ok(path) => self.model.media_ready(&id, &path),
@@ -232,12 +322,57 @@ impl WaDesk {
             changed = true;
         }
         if changed {
+            self.cache_dirty = true;
             ctx.request_repaint();
         }
     }
 
     fn send(&self, command: Command) {
         let _ = self.commands.send(command);
+    }
+
+    /// The paperclip: pick a file and send it to the open chat.
+    fn pick_attachment(&mut self) {
+        let Some(chat) = self.model.active.clone() else {
+            return;
+        };
+        let picked = rfd::FileDialog::new().set_title("Send a file").pick_file();
+        let Some(path) = picked else { return };
+        let text = self.model.composer.trim().to_string();
+        let caption = (!text.is_empty()).then_some(text);
+        if caption.is_some() {
+            self.model.composer.clear();
+        }
+        self.send_document(&chat, path, caption);
+    }
+
+    /// Queue one file for upload and show what is happening under the composer.
+    fn send_document(&mut self, chat: &str, path: std::path::PathBuf, caption: Option<String>) {
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "file".to_string());
+        self.attach_note = Some((format!("Sending {name}…"), std::time::Instant::now()));
+        self.send(Command::SendDocument {
+            chat: chat.to_string(),
+            path: path.to_string_lossy().into_owned(),
+            caption,
+        });
+    }
+
+    /// Ask for a contact's photo once; `paint_avatar` falls back to initials.
+    fn ensure_avatar(&mut self, jid: &str) {
+        if jid.is_empty() || self.avatar_asked.contains(jid) {
+            return;
+        }
+        self.avatar_asked.insert(jid.to_string());
+        self.send(Command::Avatar {
+            jid: jid.to_string(),
+        });
+    }
+
+    fn avatar_for(&self, jid: &str) -> Option<&egui::TextureHandle> {
+        self.avatars.get(jid).and_then(|entry| entry.as_ref())
     }
 
     fn sidebar(&mut self, ctx: &egui::Context) {
@@ -248,7 +383,9 @@ impl WaDesk {
                 let palette = self.palette.clone();
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    paint_avatar(ui, &self.model.own_name(), 34.0);
+                    self.ensure_avatar(&self.model.me_jid.clone());
+                    let own_avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
+                    paint_avatar(ui, &self.model.own_name(), 34.0, own_avatar.as_ref());
                     ui.add_space(2.0);
                     ui.label(egui::RichText::new("Chats").size(19.0).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -269,6 +406,9 @@ impl WaDesk {
                             self.show_channels = false;
                             self.show_settings = false;
                             self.model.close_status();
+                            // Statuses are only pushed while the app is open;
+                            // ask for the recent window when the panel opens.
+                            self.send(Command::StatusHistory);
                         }
                         if icon_button(ui, Icon::Channels, &palette)
                             .on_hover_text("Channels")
@@ -320,10 +460,27 @@ impl WaDesk {
                             let title = self.model.title(row);
                             let preview = self.model.row_preview(row);
                             let stamp = self.model.row_stamp(row);
-                            if chat_row(ui, &palette, row, &title, &preview, &stamp, selected) {
+                            self.ensure_avatar(&row.jid);
+                            let avatar = self.avatar_for(&row.jid).cloned();
+                            if chat_row(
+                                ui,
+                                &palette,
+                                row,
+                                &title,
+                                &preview,
+                                &stamp,
+                                selected,
+                                avatar.as_ref(),
+                            ) {
                                 let jid = row.jid.clone();
+                                let empty = row.messages.is_empty();
                                 self.model.open_chat(&jid);
                                 self.send(Command::MarkRead { chat: jid.clone() });
+                                if empty {
+                                    // WhatsApp does not replay history to an
+                                    // existing device; opening a chat asks.
+                                    self.send(Command::ChatHistory { chat: jid });
+                                }
                             }
                         }
                     });
@@ -352,7 +509,9 @@ impl WaDesk {
                     .inner_margin(egui::Margin::symmetric(14, 7))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            paint_avatar(ui, &self.model.title(&row), 38.0);
+                            self.ensure_avatar(&row.jid);
+                            let chat_avatar = self.avatar_for(&row.jid).cloned();
+                            paint_avatar(ui, &self.model.title(&row), 38.0, chat_avatar.as_ref());
                             ui.add_space(2.0);
                             ui.vertical(|ui| {
                                 ui.label(
@@ -521,7 +680,36 @@ impl WaDesk {
                     .fill(palette.panel)
                     .inner_margin(egui::Margin::symmetric(12, 8))
                     .show(ui, |ui| {
+                        if let Some((note, at)) = self.attach_note.clone() {
+                            if at.elapsed() > std::time::Duration::from_secs(8) {
+                                self.attach_note = None;
+                            } else {
+                                ui.label(
+                                    egui::RichText::new(note)
+                                        .size(11.5)
+                                        .color(palette.secondary),
+                                );
+                            }
+                        }
+                        // Ctrl+V with a file on the OS clipboard attaches it.
+                        let paste_files = ui.ctx().input(|input| {
+                            input.modifiers.command && input.key_pressed(egui::Key::V)
+                        });
+                        if paste_files && let Some(path) = crate::clipboard::first_file() {
+                            let text = self.model.composer.trim().to_string();
+                            let caption = (!text.is_empty()).then_some(text);
+                            if caption.is_some() {
+                                self.model.composer.clear();
+                            }
+                            self.send_document(&jid, path, caption);
+                        }
                         ui.horizontal(|ui| {
+                            if icon_button(ui, Icon::Attach, &palette)
+                                .on_hover_text("Attach a file")
+                                .clicked()
+                            {
+                                self.pick_attachment();
+                            }
                             if icon_button(ui, Icon::Emoji, &palette)
                                 .on_hover_text("Emoji")
                                 .clicked()
@@ -1471,6 +1659,57 @@ fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
     }
 }
 
+/// Add the OS emoji font as a fallback: egui's bundled NotoEmoji subset draws
+/// many common emoji as empty boxes.
+fn install_fonts(ctx: &egui::Context) {
+    let candidates = [
+        // Windows: Segoe UI Emoji (outlines are readable even without colour).
+        "C:\\Windows\\Fonts\\seguiemj.ttf",
+        "C:\\Windows\\Fonts\\seguisym.ttf",
+        // Linux.
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+    ];
+    let Some(bytes) = candidates.iter().find_map(|path| std::fs::read(path).ok()) else {
+        return;
+    };
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "system-emoji".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push("system-emoji".to_owned());
+    }
+    ctx.set_fonts(fonts);
+}
+
+/// Append a line to `diagnostics.log` when `WA_DESK_DIAG=1` (the windowing
+/// backend detaches the console, so tracing is not readable from a GUI run).
+pub fn diag(message: &str) {
+    if std::env::var("WA_DESK_DIAG").is_err() {
+        return;
+    }
+    let dir = std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("io.github.dirttw.wadesk-native");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("diagnostics.log"))
+    {
+        use std::io::Write as _;
+        let _ = writeln!(file, "{message}");
+    }
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1603,6 +1842,27 @@ impl WaDesk {
                 .small()
                 .weak(),
             );
+
+            ui.add_space(14.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Chat history").strong());
+            ui.label(
+                egui::RichText::new(
+                    "The phone only pushes history to a newly linked device; this asks for a \
+                     batch from the linked session (eight chats at a time).",
+                )
+                .small()
+                .weak(),
+            );
+            if ui.button("Sync chat history").clicked() {
+                self.send(Command::InitialSync);
+                self.settings_note = "Asking the phone for history…".to_string();
+            }
+            if ui.button("Refresh statuses").clicked() {
+                self.send(Command::StatusHistory);
+                self.settings_note = "Asking the phone for recent statuses…".to_string();
+            }
 
             ui.add_space(14.0);
             ui.separator();
@@ -1831,6 +2091,24 @@ impl eframe::App for WaDesk {
             .unwrap_or(0);
         self.drain_events(ctx);
         self.model.now = now_ms();
+        // Screenshot testing: open a seeded chat so history can be exercised
+        // without clicking.
+        if !self.auto_opened
+            && self.model.active.is_none()
+            && std::env::var("WA_DESK_OPEN_FIRST").is_ok()
+            && ctx.input(|input| input.time) > 6.0
+        {
+            self.auto_opened = true;
+            if let Some(jid) = self
+                .model
+                .visible_chats()
+                .first()
+                .map(|row| row.jid.clone())
+            {
+                self.model.open_chat(&jid);
+                self.send(Command::ChatHistory { chat: jid });
+            }
+        }
         if !self.model.login.is_linked() {
             self.gate(ctx);
         } else {
@@ -1861,6 +2139,29 @@ impl eframe::App for WaDesk {
         }
         let _ = &self.runtime;
         self.screenshot_tick(ctx);
+        // A restart only finds the chat list because it is mirrored here: the
+        // phone does not replay history to an already-linked device.
+        if self.cache_dirty && self.cache_saved.elapsed() >= std::time::Duration::from_secs(2) {
+            self.cache_dirty = false;
+            self.cache_saved = std::time::Instant::now();
+            self.model.save_cache_file(&self.cache_path);
+        }
+        // Nothing cached and freshly connected: seed from the address book and
+        // ask the phone for a small batch of history.
+        if self.model.needs_history && self.model.login.is_linked() {
+            self.model.needs_history = false;
+            self.send(Command::InitialSync);
+        }
+        // The session runs on other threads and pushes into a channel; without a
+        // timer egui would only repaint on mouse/keyboard input, so the chat list
+        // (and new messages) could sit unseen until the window was touched.
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+}
+
+impl Drop for WaDesk {
+    fn drop(&mut self) {
+        self.model.save_cache_file(&self.cache_path);
     }
 }
 
@@ -2250,13 +2551,41 @@ impl WaDesk {
     }
 }
 
-/// Shorten a single line to `max` characters with an ellipsis.
-fn clip(text: &str, max: usize) -> String {
-    let mut out: String = text.chars().take(max).collect();
-    if text.chars().count() > max {
-        out.push('…');
+/// Trim `text` until it measures inside `max_width`, adding an ellipsis.
+fn fit_text(
+    painter: &egui::Painter,
+    text: &str,
+    font: egui::FontId,
+    color: egui::Color32,
+    max_width: f32,
+) -> String {
+    if max_width <= 0.0 {
+        return String::new();
     }
-    out
+    if painter
+        .layout_no_wrap(text.to_string(), font.clone(), color)
+        .size()
+        .x
+        <= max_width
+    {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut len = chars.len();
+    while len > 1 {
+        len -= 1;
+        let mut candidate: String = chars[..len].iter().collect();
+        candidate.push('…');
+        if painter
+            .layout_no_wrap(candidate.clone(), font.clone(), color)
+            .size()
+            .x
+            <= max_width
+        {
+            return candidate;
+        }
+    }
+    "…".to_string()
 }
 
 /// The icons the window draws itself. Emoji glyphs are not in egui's bundled
@@ -2277,6 +2606,7 @@ enum Icon {
     Edit,
     Delete,
     Document,
+    Attach,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -2325,14 +2655,24 @@ impl Icon {
             Icon::Edit => "edit",
             Icon::Delete => "delete",
             Icon::Document => "description",
+            Icon::Attach => "attach_file",
         }
     }
 }
 
 /// A round initials avatar, like WhatsApp's default profile photo.
-fn paint_avatar(ui: &mut egui::Ui, name: &str, size: f32) {
+fn paint_avatar(ui: &mut egui::Ui, name: &str, size: f32, texture: Option<&egui::TextureHandle>) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     let painter = ui.painter();
+    if let Some(texture) = texture {
+        painter.image(
+            texture.id(),
+            rect,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+        return;
+    }
     painter.circle_filled(rect.center(), size * 0.5, avatar_color(name));
     painter.text(
         rect.center(),
@@ -2341,6 +2681,32 @@ fn paint_avatar(ui: &mut egui::Ui, name: &str, size: f32) {
         egui::FontId::proportional(size * 0.38),
         egui::Color32::WHITE,
     );
+}
+
+/// Decode a profile photo into a circular avatar texture.
+fn circular_avatar(ctx: &egui::Context, key: &str, bytes: &[u8]) -> Option<egui::TextureHandle> {
+    let image = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let (width, height) = image.dimensions();
+    let side = width.min(height).max(1);
+    let x0 = (width - side) / 2;
+    let y0 = (height - side) / 2;
+    let radius = side as f32 / 2.0;
+    let mut pixels = Vec::with_capacity((side * side * 4) as usize);
+    for y in 0..side {
+        for x in 0..side {
+            let pixel = image.get_pixel(x0 + x, y0 + y);
+            let dx = x as f32 + 0.5 - radius;
+            let dy = y as f32 + 0.5 - radius;
+            let alpha = if dx * dx + dy * dy <= radius * radius {
+                pixel[3]
+            } else {
+                0
+            };
+            pixels.extend_from_slice(&[pixel[0], pixel[1], pixel[2], alpha]);
+        }
+    }
+    let color = egui::ColorImage::from_rgba_unmultiplied([side as usize, side as usize], &pixels);
+    Some(ctx.load_texture(key, color, egui::TextureOptions::LINEAR))
 }
 
 fn initials(name: &str) -> String {
@@ -2387,6 +2753,7 @@ fn hash(text: &str) -> usize {
 }
 
 /// One chat row: avatar, name, preview, clock and the unread pill.
+#[allow(clippy::too_many_arguments)]
 fn chat_row(
     ui: &mut egui::Ui,
     palette: &crate::theme::Palette,
@@ -2395,6 +2762,7 @@ fn chat_row(
     preview: &str,
     stamp: &str,
     selected: bool,
+    texture: Option<&egui::TextureHandle>,
 ) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 66.0), egui::Sense::click());
@@ -2406,21 +2774,50 @@ fn chat_row(
     }
 
     let center = egui::pos2(rect.left() + 36.0, rect.center().y);
-    painter.circle_filled(center, 22.0, avatar_color(title));
-    painter.text(
-        center,
-        egui::Align2::CENTER_CENTER,
-        initials(title),
-        egui::FontId::proportional(15.0),
-        egui::Color32::WHITE,
-    );
+    if let Some(texture) = texture {
+        painter.image(
+            texture.id(),
+            egui::Rect::from_center_size(center, egui::vec2(44.0, 44.0)),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        painter.circle_filled(center, 22.0, avatar_color(title));
+        painter.text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            initials(title),
+            egui::FontId::proportional(15.0),
+            egui::Color32::WHITE,
+        );
+    }
 
     let left = rect.left() + 68.0;
     let right = rect.right() - 12.0;
+    // Reserve the clock's width so a long name cannot run underneath it.
+    let stamp_width = if stamp.is_empty() {
+        0.0
+    } else {
+        painter
+            .layout_no_wrap(
+                stamp.to_string(),
+                egui::FontId::proportional(11.5),
+                palette.secondary,
+            )
+            .size()
+            .x
+            + 10.0
+    };
     painter.text(
         egui::pos2(left, rect.top() + 19.0),
         egui::Align2::LEFT_CENTER,
-        clip(title, 24),
+        fit_text(
+            painter,
+            title,
+            egui::FontId::proportional(15.0),
+            palette.text,
+            right - left - stamp_width,
+        ),
         egui::FontId::proportional(15.0),
         palette.text,
     );
@@ -2441,7 +2838,13 @@ fn chat_row(
     painter.text(
         egui::pos2(left, rect.top() + 41.0),
         egui::Align2::LEFT_CENTER,
-        clip(preview, 36),
+        fit_text(
+            painter,
+            preview,
+            egui::FontId::proportional(13.0),
+            palette.secondary,
+            right - left,
+        ),
         egui::FontId::proportional(13.0),
         palette.secondary,
     );

@@ -15,6 +15,8 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ureq = "3"
+base64 = { workspace = true }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
 resvg = "0.45"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 tracing = { workspace = true }
@@ -23,4 +25,11 @@ wa-core = { path = "../../crates/wa-core" }
 wa-types = { path = "../../crates/wa-types" }
 wa-ui = { path = "../../crates/wa-ui" }
 
-
+# Clipboard file drops (CF_HDROP) for Ctrl+V.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_UI_Shell",
+    "Win32_Foundation",
+] }

@@ -94,6 +94,24 @@ pub enum Command {
         chats: Vec<String>,
         id: String,
     },
+    /// Seed the chat list from the address book and request a history batch.
+    InitialSync,
+    /// Fetch a contact's profile photo URL.
+    Avatar {
+        jid: String,
+    },
+    /// Ask the linked session for older status updates.
+    StatusHistory,
+    /// Ask the phone for one chat's latest messages (opening a chat).
+    ChatHistory {
+        chat: String,
+    },
+    /// Send a file from disk as an attachment.
+    SendDocument {
+        chat: String,
+        path: String,
+        caption: Option<String>,
+    },
 }
 
 /// What a message's context menu asks the window to do.
@@ -207,6 +225,9 @@ pub struct Model {
     pub forward_chosen: Vec<String>,
     /// Reactions per message id: emoji -> (count, ours).
     pub reactions: BTreeMap<String, BTreeMap<String, (usize, bool)>>,
+    /// Set once on connect when there is nothing to show, so the app asks the
+    /// session for the address book and a batch of history.
+    pub needs_history: bool,
 }
 
 impl Model {
@@ -305,7 +326,16 @@ impl Model {
             pages: 12,
             thumb: None,
         });
+        drop(group);
         model.apply(&UiEvent::Message(document));
+        model.apply(&UiEvent::Message(view(
+            "1203@g.us",
+            "Team",
+            "d6",
+            "emoji check 👀 🙏 👍 🔥 😅 🎉",
+            now - 3 * 60_000,
+            false,
+        )));
 
         model.apply(&UiEvent::Message(view(
             "1@s.whatsapp.net",
@@ -350,6 +380,11 @@ impl Model {
             UiEvent::Connected => {
                 self.login = fold(&self.login, &LoginEvent::Connected);
                 self.status = "Connected".to_string();
+                // WhatsApp only pushes history to a newly linked device, so a
+                // restart with an empty cache needs an explicit ask.
+                if self.chats.is_empty() {
+                    self.needs_history = true;
+                }
             }
             UiEvent::Disconnected { reason } => {
                 self.status = format!("Reconnecting… ({reason})");
@@ -1214,6 +1249,81 @@ impl Model {
         } else {
             row.name.clone()
         }
+    }
+}
+
+/// A chat as it is stored in the local cache.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CachedChat {
+    jid: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    unread: i64,
+    #[serde(default)]
+    last_ts: i64,
+    #[serde(default)]
+    messages: Vec<MessageView>,
+}
+
+impl Model {
+    /// The chat list and recent messages, for the restart cache.
+    pub fn cache_json(&self) -> String {
+        let chats: Vec<CachedChat> = self
+            .chats
+            .values()
+            .filter(|row| !row.jid.ends_with("@newsletter"))
+            .map(|row| CachedChat {
+                jid: row.jid.clone(),
+                name: row.name.clone(),
+                unread: row.unread,
+                last_ts: row.last_ts,
+                // Keep the file small: the newest 80 bubbles per chat.
+                messages: row.messages.iter().rev().take(80).rev().cloned().collect(),
+            })
+            .collect();
+        serde_json::json!({ "me": self.me_name, "chats": chats }).to_string()
+    }
+
+    pub fn load_cache(&mut self, json: &str) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+            return;
+        };
+        if let Some(me) = value["me"].as_str() {
+            self.me_name = me.to_string();
+        }
+        let Some(chats) = value["chats"].as_array() else {
+            return;
+        };
+        for chat in chats {
+            let Ok(row) = serde_json::from_value::<CachedChat>(chat.clone()) else {
+                continue;
+            };
+            // Ignore rows written by older builds that stored bare numbers.
+            if !row.jid.contains('@') {
+                continue;
+            }
+            self.chats.insert(
+                row.jid.clone(),
+                ChatRow {
+                    jid: row.jid,
+                    name: row.name,
+                    messages: row.messages,
+                    unread: row.unread,
+                    last_ts: row.last_ts,
+                },
+            );
+        }
+    }
+
+    pub fn load_cache_file(&mut self, path: &std::path::Path) {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            self.load_cache(&text);
+        }
+    }
+
+    pub fn save_cache_file(&self, path: &std::path::Path) {
+        let _ = std::fs::write(path, self.cache_json());
     }
 }
 
@@ -2119,6 +2229,47 @@ mod tests {
         assert_eq!(Model::file_size(4_200), "4.2 kB");
         assert_eq!(Model::file_size(1_842_000), "1.8 MB");
         assert_eq!(Model::file_size(2_500_000_000), "2.5 GB");
+    }
+
+    #[test]
+    fn the_chat_cache_round_trips() {
+        let mut model = Model::new();
+        model.now = 1_770_000_000_000;
+        model.me_name = "You".into();
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "m1",
+            "hi",
+            5,
+            false,
+        )));
+        model.chats.get_mut("1@s.whatsapp.net").unwrap().unread = 2;
+
+        let json = model.cache_json();
+        let mut restored = Model::new();
+        restored.load_cache(&json);
+        assert_eq!(restored.me_name, "You");
+        let row = &restored.chats["1@s.whatsapp.net"];
+        assert_eq!(row.name, "Ada");
+        assert_eq!(row.unread, 2);
+        assert_eq!(row.messages.len(), 1);
+        assert_eq!(row.messages[0].text, "hi");
+        assert_eq!(restored.visible_chats().len(), 1);
+    }
+
+    #[test]
+    fn contacts_seed_the_chat_list_before_history_arrives() {
+        let mut model = Model::new();
+        model.apply(&UiEvent::Chat {
+            jid: "6281@s.whatsapp.net".into(),
+            name: "Pak Yoga".into(),
+            is_group: false,
+            timestamp: 0,
+        });
+        let rows = model.visible_chats();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(model.title(rows[0]), "Pak Yoga");
     }
 
     #[test]

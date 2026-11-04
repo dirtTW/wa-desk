@@ -9,7 +9,12 @@
 //! events and prints what the window would show, then exits non-zero if any
 //! expectation fails. That is how the UI is verified in CI without a display.
 
+// Release builds are a GUI app: Windows must not open a console window. Debug
+// builds keep the console so `--selftest` and the update checks stay readable.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
+mod clipboard;
 mod icons;
 mod login;
 mod model;
@@ -18,6 +23,46 @@ mod theme;
 mod updates;
 
 use std::sync::Arc;
+
+/// A JID for a contact key: the address book uses bare phone numbers.
+fn as_jid(key: &str) -> String {
+    if key.contains('@') {
+        key.to_string()
+    } else {
+        format!("{key}@s.whatsapp.net")
+    }
+}
+
+/// A conservative MIME type from the file extension.
+fn mime_for(path: &str) -> &'static str {
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "mp3" => "audio/mpeg",
+        "ogg" | "opus" => "audio/ogg",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        _ => "application/octet-stream",
+    }
+}
 
 fn main() {
     tracing_subscriber::fmt()
@@ -104,6 +149,8 @@ fn main() {
         std::sync::mpsc::channel::<(String, Result<wa_types::GroupInfoView, String>)>();
     let (fav_tx, fav_rx) =
         std::sync::mpsc::channel::<Result<Vec<wa_types::FavoriteStickerView>, String>>();
+    let (avatar_tx, avatar_rx) = std::sync::mpsc::channel::<(String, Option<String>)>();
+    let (attach_tx, attach_rx) = std::sync::mpsc::channel::<Result<String, String>>();
 
     let store = model::store_path();
     let media = model::media_dir();
@@ -112,6 +159,9 @@ fn main() {
     let handle = runtime.handle().clone();
     let session_slot: Arc<std::sync::Mutex<Option<Arc<wa_core::Session>>>> =
         Arc::new(std::sync::Mutex::new(None));
+    // A clone kept for synthetic events (seeding the chat list from the address
+    // book) sent from the command loop.
+    let events_out = event_tx.clone();
     if preview {
         drop(event_tx);
     } else {
@@ -228,6 +278,118 @@ fn main() {
                         tracing::warn!(%err, "forward failed");
                     }
                 }
+                model::Command::InitialSync => {
+                    // The address book is keyed by bare phone numbers; WhatsApp
+                    // needs `<number>@s.whatsapp.net`.
+                    let contacts: Vec<(String, String)> = session
+                        .contacts()
+                        .into_iter()
+                        .map(|(key, name)| (as_jid(&key), name))
+                        .collect();
+                    app::diag(&format!("initial sync: {} contacts", contacts.len()));
+                    for (jid, name) in contacts.iter().take(80) {
+                        let _ = events_out.send(wa_types::UiEvent::Chat {
+                            jid: jid.clone(),
+                            name: name.clone(),
+                            is_group: jid.ends_with("@g.us"),
+                            timestamp: 0,
+                        });
+                    }
+                    let requests: Vec<wa_types::HistoryRequest> = contacts
+                        .iter()
+                        .take(8)
+                        .map(|(jid, _)| wa_types::HistoryRequest {
+                            chat: jid.clone(),
+                            oldest_id: String::new(),
+                            oldest_from_me: false,
+                            oldest_timestamp: 0,
+                            count: 20,
+                        })
+                        .collect();
+                    match session.sync_chat_history(&requests).await {
+                        Ok(sent) => app::diag(&format!("initial sync: history sent {sent}")),
+                        Err(err) => app::diag(&format!("initial sync history failed: {err}")),
+                    }
+                }
+                model::Command::Avatar { jid } => {
+                    let url = match session.contact_photo(&jid).await {
+                        Ok(url) => url,
+                        Err(err) => {
+                            app::diag(&format!("avatar {jid} error: {err}"));
+                            None
+                        }
+                    };
+                    app::diag(&format!(
+                        "avatar {jid}: {}",
+                        if url.is_some() { "url" } else { "none" }
+                    ));
+                    let _ = avatar_tx.send((jid, url));
+                }
+                model::Command::StatusHistory => {
+                    if let Err(err) = session.fetch_status_history().await {
+                        tracing::warn!(%err, "status history failed");
+                    }
+                }
+                model::Command::ChatHistory { chat } => {
+                    let request = wa_types::HistoryRequest {
+                        chat: chat.clone(),
+                        oldest_id: String::new(),
+                        oldest_from_me: false,
+                        oldest_timestamp: 0,
+                        count: 30,
+                    };
+                    match session.sync_chat_history(&[request]).await {
+                        Ok(sent) => app::diag(&format!("chat history {chat}: sent {sent}")),
+                        Err(err) => app::diag(&format!("chat history {chat}: {err}")),
+                    }
+                }
+                model::Command::SendDocument {
+                    chat,
+                    path,
+                    caption,
+                } => {
+                    use base64::Engine as _;
+                    let result = match std::fs::metadata(&path) {
+                        Ok(meta) if meta.len() > 48 * 1024 * 1024 => {
+                            Err("that file is larger than the 48 MB limit".to_string())
+                        }
+                        Ok(_) => match std::fs::read(&path) {
+                            Ok(bytes) => {
+                                let name = std::path::Path::new(&path)
+                                    .file_name()
+                                    .map(|name| name.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| "file".to_string());
+                                let mime = mime_for(&path);
+                                let payload =
+                                    base64::engine::general_purpose::STANDARD.encode(&bytes);
+                                session
+                                    .send_attachment(
+                                        &chat,
+                                        &name,
+                                        mime,
+                                        caption.as_deref(),
+                                        &payload,
+                                    )
+                                    .await
+                                    .map(|_| format!("sent {name}"))
+                                    .map_err(|err| err.to_string())
+                            }
+                            Err(err) => Err(format!("could not read the file: {err}")),
+                        },
+                        Err(err) => Err(format!("could not read the file: {err}")),
+                    };
+                    app::diag(&format!(
+                        "document {path}: {}",
+                        match &result {
+                            Ok(note) => note.clone(),
+                            Err(err) => err.clone(),
+                        }
+                    ));
+                    let _ = attach_tx.send(match result {
+                        Ok(note) => Ok(note),
+                        Err(err) => Err(err),
+                    });
+                }
                 model::Command::Restart => {
                     // The session reconnects itself; a reconnect is what asks
                     // WhatsApp for a fresh QR.
@@ -247,7 +409,9 @@ fn main() {
         ..Default::default()
     };
 
-    let app = app::NativeApp::new(event_rx, command_tx, handle, media_rx, group_rx, fav_rx);
+    let app = app::NativeApp::new(
+        event_rx, command_tx, handle, media_rx, group_rx, fav_rx, avatar_rx, attach_rx,
+    );
     let screenshot_path = screenshot.clone();
     if let Err(err) = eframe::run_native(
         "WA Desk",
@@ -265,5 +429,23 @@ fn main() {
     ) {
         eprintln!("could not open the window: {err}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contact_keys_become_jids() {
+        assert_eq!(as_jid("628123"), "628123@s.whatsapp.net");
+        assert_eq!(as_jid("1203@g.us"), "1203@g.us");
+    }
+
+    #[test]
+    fn mime_types_come_from_the_extension() {
+        assert_eq!(mime_for("a/b/report.pdf"), "application/pdf");
+        assert_eq!(mime_for("photo.JPG"), "image/jpeg");
+        assert_eq!(mime_for("archive.unknown"), "application/octet-stream");
     }
 }

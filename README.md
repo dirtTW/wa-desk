@@ -62,6 +62,8 @@ The native window (`wa-desk-native`) covers:
   text) and delete; a reply/edit card sits above the composer, deletes ask "for me" or "for
   everyone", forwarding offers a multi-select chat picker, and reactions show as pills under
   the bubble (ours in blue)
+- **Send files**: the composer's paperclip opens the native file picker, and Ctrl+V attaches a
+  file copied in Explorer; the composer text becomes the caption
 - **Auto-update**: checks GitHub releases on launch (pre-releases included), shows the version
   in Settings → Updates, and downloads + swaps the platform binary on restart
 - **Settings**: theme (Light / Dark / System) and the AI form, validated by the same rules the

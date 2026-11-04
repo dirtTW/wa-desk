@@ -4,7 +4,40 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.66] — 2026-11-04
+## [0.2.0-rc.67] — 2026-11-04
+
+- **Fixed: the chat list was empty after a restart.** WhatsApp only replays history to a newly
+  linked device, and the native app never kept a local chat list, so a linked account opened to
+  an empty sidebar. The model now mirrors the list (names, unread, newest 80 bubbles per chat) to
+  `chats.json` beside the session, loads it at startup, and saves it on a 2 s debounce and on
+  exit. Tests: `the_chat_cache_round_trips`, `contacts_seed_the_chat_list_before_history_arrives`.
+- **Recovering history on connect.** When there is nothing cached, `Command::InitialSync` seeds
+  the sidebar from the linked session's address book and asks the phone for a history batch
+  (eight chats, 3 s apart, the same pacing as the old client). Settings → Chat history exposes
+  the same request manually, next to a "Refresh statuses" action.
+- **Profile photos.** `Command::Avatar` resolves a contact's photo through
+  `session.contact_photo`, downloads it with `ureq` on a worker thread, masks it into a circle
+  and caches the texture; initials remain the fallback while it loads or when there is none.
+  The sidebar rows, the header and your own avatar all use it.
+- **Status history.** Opening Status asks the session for the recent `status@broadcast` window
+  (`fetch_status_history`), so stories posted while the app was closed appear.
+- **No console window.** Release builds set `windows_subsystem = "windows"`; debug builds keep
+  the console so `--selftest` and the updater checks stay readable.
+- **Contacts are phone numbers, not JIDs.** `session.contacts()` is keyed by bare numbers; the
+  initial sync now appends `@s.whatsapp.net` before seeding the sidebar or requesting history,
+  which is why avatar lookups said "unknown server" and history requests were dropped.
+- **History requests on open.** Tapping a chat with no cached messages sends
+  `Command::ChatHistory` for that chat (`sync_chat_history`, 30 messages); WhatsApp only replays
+  history on demand for an existing device.
+- **Attach files.** The composer has a paperclip next to emoji and stickers: it opens the native
+  file dialog (`rfd`), sends the file through `send_attachment` with a MIME type from its
+  extension and the composer text as the caption (48 MB limit, checked before reading). A
+  short note under the composer reports "Sending …" and the result.
+- **Ctrl+V attaches a copied file.** On Windows `clipboard.rs` reads `CF_HDROP` from the OS
+  clipboard, so copying a file in Explorer and pressing Ctrl+V in the chat sends it; text paste
+  is untouched.
+
+
 
 - **Documents render as the official card.** A `document` bubble no longer falls back to plain
   text: it draws the Material `description` icon on a rounded tile, the file name (wrapped), the
