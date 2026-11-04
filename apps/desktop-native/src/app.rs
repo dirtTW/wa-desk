@@ -1102,14 +1102,17 @@ impl WaDesk {
             )
             .show(ctx, |ui| {
                 ui.set_min_width(228.0);
+                // Order sampled from the live client's attach menu on
+                // 2026-11-05: Photos & videos, Camera, Document, Audio,
+                // Contact, Poll. Location is this client's extra, kept last.
                 for (icon, label, action) in [
                     (Icon::Document, "Photos & videos", "photos"),
                     (Icon::VideoCall, "Camera", "camera"),
                     (Icon::Document, "Document", "document"),
                     (Icon::Volume, "Audio", "audio"),
+                    (Icon::PersonAdd, "Contact", "contact"),
                     (Icon::SelectChats, "Poll", "poll"),
                     (Icon::Status, "Location", "location"),
-                    (Icon::PersonAdd, "Contact", "contact"),
                 ] {
                     if menu_row(ui, &palette, icon, label) {
                         chosen = Some(action);
