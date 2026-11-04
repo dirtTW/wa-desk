@@ -478,6 +478,12 @@ device until you remove it from the phone).
   ringing, mute/hang-up once live, timer from `CallOverlay::status`). `audio.rs` plays
   `UiEvent::CallAudio` on a dedicated sink and `mic.rs` (cpal) resamples the microphone to
   16 kHz/960-sample frames for `Session::send_call_audio`. Remote H.264 is not decoded yet.
+- **Remote call video is decoded with ffmpeg.** `callvideo.rs` spawns `ffmpeg -f h264 -i -` and
+  runs two threads (access units in, fixed 480x270 RGBA frames out) because one thread would
+  deadlock once ffmpeg's output pipe fills; the UI uploads the newest frame per generation and
+  `call_overlay` paints it full-sheet with the name/timer top-left and controls at the bottom.
+  Note: ffmpeg buffers ~32 KB of input before decoding starts, so video appears about a second
+  into a call.
 - **Delivery ticks.** `Model::ticks` records `sent`/`delivered`/`read` per message id (from
   `UiEvent::Sent`/`Receipt`); the bubble paints one grey `check`, grey `done_all` or the blue
   `done_all` (`palette.read`).

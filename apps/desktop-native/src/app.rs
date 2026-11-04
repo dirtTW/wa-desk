@@ -169,6 +169,12 @@ pub struct WaDesk {
     emoji_gif: bool,
     /// Colour emoji textures, keyed by (glyph, pixel size).
     emoji_textures: std::collections::HashMap<(char, u32), Option<egui::TextureHandle>>,
+    /// The remote call video decoder, started on the first frame.
+    call_video: Option<crate::callvideo::CallVideo>,
+    /// The newest decoded remote frame, uploaded as a texture.
+    call_frame: Option<egui::TextureHandle>,
+    /// Which decoder generation call_frame holds.
+    call_frame_generation: u64,
     /// The Windows tray icon and menu (None when the shell refuses it).
     tray: Option<crate::tray::Tray>,
     /// The open chat's actions menu.
@@ -270,6 +276,9 @@ impl WaDesk {
             contacts_rx: native.contacts,
             audio: crate::audio::Audio::new(),
             tray: crate::tray::Tray::new(&crate::icon::window_icon()),
+            call_video: None,
+            call_frame: None,
+            call_frame_generation: 0,
             sticker_tab: 0,
             sticker_query: String::new(),
             emoji_group: 0,
@@ -336,18 +345,30 @@ impl WaDesk {
         if std::env::var("WA_DESK_EMOJI").is_ok() {
             self.model.emoji_open = true;
         }
-        // `WA_DESK_CALL=ringing|connected` paints the call sheet.
+        // `WA_DESK_CALL=ringing|connected|video` paints the call sheet;
+        // `WA_DESK_CALL_VIDEO=<file.h264>` feeds the video stage for a screenshot.
         if let Ok(kind) = std::env::var("WA_DESK_CALL") {
             let connected = kind != "ringing";
+            let video = kind == "video";
             self.model.call = Some(crate::model::CallState {
                 call_id: "demo-call".to_string(),
                 peer: "1@s.whatsapp.net".to_string(),
                 peer_name: "Ada Lovelace".to_string(),
                 state: if connected { "connected" } else { "ringing" }.to_string(),
-                video: false,
+                video,
                 muted: false,
                 started_at: connected.then(|| now_ms() - 42_000),
             });
+            if video
+                && let Ok(path) = std::env::var("WA_DESK_CALL_VIDEO")
+                && let Ok(bytes) = std::fs::read(path)
+                && let Some(decoder) = crate::callvideo::CallVideo::start()
+            {
+                for chunk in bytes.chunks(4096) {
+                    decoder.push(chunk.to_vec());
+                }
+                self.call_video = Some(decoder);
+            }
         }
         // `WA_DESK_VIEWER=1` opens the media viewer on the demo video;
         // `WA_DESK_DEMO_VIDEO=<clip>` supplies a real file to play and
@@ -1203,30 +1224,54 @@ impl WaDesk {
                     egui::Color32::from_rgb(11, 20, 26),
                 );
                 if plan.video_stage {
-                    // The remote stage. Frames are decoded by the session; until
-                    // one arrives the stage stays dark, like the official client.
-                    let stage = egui::Rect::from_center_size(
-                        rect.center(),
-                        egui::vec2(rect.width() * 0.7, rect.height() * 0.55),
-                    );
+                    // In a video call the peer's frame fills the sheet; the name
+                    // and controls sit over a scrim, like the official client.
+                    let stage = rect.shrink(12.0);
                     painter.rect_filled(stage, egui::CornerRadius::same(12), egui::Color32::BLACK);
-                    painter.text(
-                        stage.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "Camera isn't available in this build - audio only",
-                        egui::FontId::proportional(12.5),
-                        egui::Color32::from_gray(150),
-                    );
+                    match &self.call_frame {
+                        Some(texture) => {
+                            let size = texture.size_vec2();
+                            let scale = (stage.width() / size.x.max(1.0))
+                                .min(stage.height() / size.y.max(1.0));
+                            painter.image(
+                                texture.id(),
+                                egui::Rect::from_center_size(stage.center(), size * scale),
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                        None => {
+                            painter.text(
+                                stage.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "Waiting for the peer's video...",
+                                egui::FontId::proportional(12.5),
+                                egui::Color32::from_gray(150),
+                            );
+                        }
+                    }
                 }
 
                 // Avatar: the chat's photo, or the name's initials.
                 self.ensure_avatar(ui.ctx(), &call.peer);
                 let avatar = self.avatar_for(&call.peer).cloned();
-                let avatar_center = egui::pos2(rect.center().x, rect.center().y - 70.0);
+                let video = plan.video_stage;
+                let avatar_radius = if video { 20.0 } else { 48.0 };
+                let avatar_center = if video {
+                    egui::pos2(
+                        rect.left() + 28.0 + avatar_radius,
+                        rect.top() + 22.0 + avatar_radius,
+                    )
+                } else {
+                    egui::pos2(rect.center().x, rect.center().y - 70.0)
+                };
                 match avatar {
                     Some(texture) => {
                         let size = texture.size_vec2();
-                        let scale = 96.0 / size.x.max(1.0);
+                        let scale = (avatar_radius * 2.0) / size.x.max(1.0);
                         painter.image(
                             texture.id(),
                             egui::Rect::from_center_size(avatar_center, size * scale),
@@ -1235,33 +1280,60 @@ impl WaDesk {
                         );
                     }
                     None => {
-                        painter.circle_filled(avatar_center, 48.0, palette.selected);
+                        painter.circle_filled(avatar_center, avatar_radius, palette.selected);
                         painter.text(
                             avatar_center,
                             egui::Align2::CENTER_CENTER,
                             call_initials(&call.peer_name),
-                            egui::FontId::proportional(34.0),
+                            egui::FontId::proportional(avatar_radius * 0.7),
                             palette.text,
                         );
                     }
                 }
-                painter.text(
-                    egui::pos2(rect.center().x, avatar_center.y + 70.0),
-                    egui::Align2::CENTER_CENTER,
-                    &call.peer_name,
-                    egui::FontId::proportional(20.0),
-                    palette.text,
-                );
-                painter.text(
-                    egui::pos2(rect.center().x, avatar_center.y + 98.0),
-                    egui::Align2::CENTER_CENTER,
-                    &status,
-                    egui::FontId::proportional(13.0),
-                    palette.secondary,
-                );
+                if video {
+                    painter.text(
+                        egui::pos2(
+                            avatar_center.x + avatar_radius + 12.0,
+                            avatar_center.y - 9.0,
+                        ),
+                        egui::Align2::LEFT_CENTER,
+                        &call.peer_name,
+                        egui::FontId::proportional(16.0),
+                        palette.text,
+                    );
+                    painter.text(
+                        egui::pos2(
+                            avatar_center.x + avatar_radius + 12.0,
+                            avatar_center.y + 11.0,
+                        ),
+                        egui::Align2::LEFT_CENTER,
+                        &status,
+                        egui::FontId::proportional(12.5),
+                        palette.secondary,
+                    );
+                } else {
+                    painter.text(
+                        egui::pos2(rect.center().x, avatar_center.y + avatar_radius + 22.0),
+                        egui::Align2::CENTER_CENTER,
+                        &call.peer_name,
+                        egui::FontId::proportional(20.0),
+                        palette.text,
+                    );
+                    painter.text(
+                        egui::pos2(rect.center().x, avatar_center.y + avatar_radius + 50.0),
+                        egui::Align2::CENTER_CENTER,
+                        &status,
+                        egui::FontId::proportional(13.0),
+                        palette.secondary,
+                    );
+                }
 
                 // Controls.
-                let buttons_y = avatar_center.y + 190.0;
+                let buttons_y = if video {
+                    rect.bottom() - 86.0
+                } else {
+                    avatar_center.y + 190.0
+                };
                 let left = egui::pos2(rect.center().x - 62.0, buttons_y);
                 let right = egui::pos2(rect.center().x + 62.0, buttons_y);
                 let button = |center: egui::Pos2,
@@ -1401,8 +1473,25 @@ impl WaDesk {
                     self.audio.play_call_audio(samples.clone());
                     None
                 }
+                UiEvent::CallVideo { data, .. } => {
+                    // Annex-B access units from the peer: decode with ffmpeg and
+                    // paint the newest frame in the call stage.
+                    use base64::Engine as _;
+                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) {
+                        if self.call_video.is_none() {
+                            self.call_video = crate::callvideo::CallVideo::start();
+                        }
+                        if let Some(decoder) = &self.call_video {
+                            decoder.push(bytes);
+                        }
+                    }
+                    None
+                }
                 UiEvent::CallEnded { .. } => {
                     self.audio.stop_call();
+                    self.call_video = None;
+                    self.call_frame = None;
+                    self.call_frame_generation = 0;
                     None
                 }
                 _ => None,
@@ -4634,6 +4723,22 @@ impl eframe::App for WaDesk {
             .unwrap_or(0);
         self.drain_events(ctx);
         self.poll_tray(ctx);
+        // A new remote call frame becomes a texture once per generation.
+        if let Some(decoder) = &self.call_video {
+            let generation = decoder.latest().generation();
+            if generation != self.call_frame_generation
+                && let Some(frame) = decoder.latest().frame()
+            {
+                let image = egui::ColorImage::from_rgba_unmultiplied(
+                    [crate::callvideo::WIDTH, crate::callvideo::HEIGHT],
+                    &frame,
+                );
+                self.call_frame =
+                    Some(ctx.load_texture("call-frame", image, egui::TextureOptions::LINEAR));
+                self.call_frame_generation = generation;
+                ctx.request_repaint();
+            }
+        }
         self.model.now = now_ms();
         // Screenshot testing: open a seeded chat so history can be exercised
         // without clicking.

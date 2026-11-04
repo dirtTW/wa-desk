@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.85] - 2026-11-04
+
+- **Remote call video is decoded and painted.** `callvideo.rs` runs `ffmpeg` as a child
+  (`-f h264 -i -`), feeds it the Annex-B access units from `UiEvent::CallVideo` on one thread and
+  reads fixed 480x270 RGBA frames on another - writing and reading on one thread would deadlock
+  as soon as ffmpeg buffers a pipe's worth of output. The call sheet uploads the newest frame
+  (generation counter, so no redundant texture work) and lays it out like the official client:
+  the peer's video fills the sheet, with the avatar, name and timer in the top-left and
+  mute/hang-up at the bottom. Until a frame arrives the stage says "Waiting for the peer's video".
+- Test: `callvideo::tests::an_access_unit_stream_decodes_to_a_frame` encodes four seconds with
+  libx264, feeds the stream through `CallVideo`, and asserts a full 480x270 RGBA frame whose
+  pixels vary (skipped without ffmpeg). Screenshot: `target/call_video2.png`.
+- Screenshot hooks: `WA_DESK_CALL=ringing|connected|video` and `WA_DESK_CALL_VIDEO=<file.h264>`.
+- Tests: 69 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.84] - 2026-11-04
 
 - **The sticker picker is the official panel** (it was still the plain window with two stacked

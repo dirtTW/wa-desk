@@ -17,6 +17,7 @@ mod ai;
 mod app;
 mod audio;
 mod autostart;
+mod callvideo;
 mod clipboard;
 mod emoji_glyph;
 mod icon;
