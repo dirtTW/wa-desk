@@ -144,6 +144,14 @@ pub enum Command {
         background: u32,
         font: String,
     },
+    /// Send a recorded voice note (Ogg/Opus, base64) with its length and the
+    /// 64-bar waveform.
+    SendVoiceNote {
+        chat: String,
+        payload: String,
+        seconds: u32,
+        waveform: Vec<u8>,
+    },
     /// Share a photo or video as a status (the "Photo and video" tile).
     PostStatusMedia {
         path: String,

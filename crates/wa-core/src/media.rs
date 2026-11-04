@@ -169,6 +169,47 @@ impl Session {
     }
 
     /// Upload a .webp file and send it as a sticker.
+    /// Send a recorded voice note: Ogg/Opus bytes, its length and the 64-bar
+    /// waveform the bubble draws (`ptt` = push-to-talk, like the phone).
+    pub async fn send_voice_note(
+        &self,
+        chat: &str,
+        payload: &str,
+        seconds: u32,
+        waveform: Vec<u8>,
+    ) -> Result<String, String> {
+        use base64::Engine as _;
+
+        let jid = self.resolve_chat(chat)?;
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(payload)
+            .map_err(|e| format!("invalid voice note payload: {e}"))?;
+        if data.is_empty() {
+            return Err("the voice note is empty".into());
+        }
+        let upload = self
+            .client
+            .upload(data, MediaType::Audio, Default::default())
+            .await
+            .map_err(|e| format!("voice note upload failed: {e}"))?;
+        let message = whatsapp_rust::media::audio_message(
+            upload,
+            whatsapp_rust::media::AudioOptions {
+                mimetype: Some("audio/ogg; codecs=opus".to_string()),
+                duration_seconds: Some(seconds),
+                ptt: Some(true),
+                waveform: Some(waveform),
+                ..Default::default()
+            },
+        );
+        let sent = self
+            .client
+            .send_message(jid, message)
+            .await
+            .map_err(|e| format!("could not send the voice note: {e}"))?;
+        Ok(sent.message_id)
+    }
+
     pub async fn send_sticker(
         &self,
         chat: &str,

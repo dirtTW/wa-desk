@@ -72,6 +72,8 @@ pub struct WaDesk {
     /// The Communities screen, and the community opened in it.
     show_communities: bool,
     communities_active: Option<String>,
+    /// The voice note being recorded from the composer's microphone button.
+    voice: Option<crate::voicenote::Recording>,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
@@ -251,6 +253,7 @@ impl WaDesk {
             show_calls: false,
             show_communities: false,
             communities_active: None,
+            voice: None,
             status_compose: None,
             status_compose_background: 0,
             status_compose_font: 0,
@@ -2372,10 +2375,69 @@ impl WaDesk {
                             }
                             let enter =
                                 edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                            if icon_button(ui, Icon::Send, &palette)
+                            // The official rule: an empty draft shows the
+                            // microphone, a typed one shows send.
+                            let empty_draft = self.model.composer.trim().is_empty()
+                                && self.model.reply_to.is_none()
+                                && self.model.editing.is_none();
+                            if empty_draft
+                                && self.voice.is_none()
+                                && icon_button(ui, Icon::Mic, &palette)
+                                    .on_hover_text("Record a voice note")
+                                    .clicked()
+                            {
+                                match crate::voicenote::Recording::start() {
+                                    Ok(recording) => self.voice = Some(recording),
+                                    Err(err) => {
+                                        self.notice = Some((err, std::time::Instant::now()))
+                                    }
+                                }
+                            }
+                            if let Some(recording) = self.voice.as_ref() {
+                                // While recording: the elapsed time, a cancel
+                                // button and the send button.
+                                let seconds = recording.seconds();
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:0}:{:02}",
+                                        (seconds as u32) / 60,
+                                        (seconds as u32) % 60
+                                    ))
+                                    .size(13.0)
+                                    .color(palette.danger),
+                                );
+                                if icon_button(ui, Icon::Close, &palette)
+                                    .on_hover_text("Cancel the recording")
+                                    .clicked()
+                                {
+                                    self.voice = None;
+                                }
+                                if icon_button(ui, Icon::Send, &palette)
+                                    .on_hover_text("Send the voice note")
+                                    .clicked()
+                                    && let Some(recording) = self.voice.take()
+                                {
+                                    match recording.finish() {
+                                        Ok(note) => {
+                                            use base64::Engine as _;
+                                            let payload = base64::engine::general_purpose::STANDARD
+                                                .encode(&note.ogg);
+                                            self.send(Command::SendVoiceNote {
+                                                chat: jid.clone(),
+                                                payload,
+                                                seconds: note.seconds,
+                                                waveform: note.waveform,
+                                            });
+                                        }
+                                        Err(err) => {
+                                            self.notice = Some((err, std::time::Instant::now()))
+                                        }
+                                    }
+                                }
+                            } else if icon_button(ui, Icon::Send, &palette)
                                 .on_hover_text(self.model.send_label())
                                 .clicked()
-                                || enter
+                                || (enter && !empty_draft)
                             {
                                 let text = self.model.composer.trim().to_string();
                                 if !text.is_empty() {
@@ -7493,6 +7555,9 @@ impl eframe::App for WaDesk {
         // Texture caches are capped so memory does not grow with a long session.
         prune_textures(ctx, &mut self.textures, 96);
         prune_textures(ctx, &mut self.sticker_textures, 240);
+        if let Some(recording) = self.voice.as_mut() {
+            recording.pump();
+        }
         // Frame pacing: while a clip plays, average the gap between paints and
         // report it once per 30 frames, so "smooth" is a measured number.
         let paint_now = std::time::Instant::now();

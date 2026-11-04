@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.13] - 2026-11-04
+
+- **Voice-note recording (was 🟡).** The composer shows a **microphone** while the draft is empty
+  (send appears as soon as you type, the official rule). Tapping it records from the default input
+  at 16 kHz mono through cpal, shows the elapsed timer with cancel/send, and on send encodes the
+  audio to **Opus and muxes it into Ogg** (`src/voicenote.rs`: `OpusHead` + `OpusTags` + one page per
+  20 ms frame, 24 kbps, `Application::Voip`) with a 64-bar waveform computed from the samples. The
+  bytes go out as `Command::SendVoiceNote` → `Session::send_voice_note`, which uploads as
+  `MediaType::Audio` and sends `audio_message { ptt: true, seconds, waveform }`.
+  Tests: `voicenote::tests::{a_recording_becomes_ogg_opus, silence_keeps_a_flat_waveform}` — the
+  first parses the produced stream back with the `ogg` reader and checks `OpusHead`/`OpusTags` plus
+  ~50 audio packets for one second of audio. Capture: `target/our_mic_crop.png`.
+- `docs/PARITY.md` marks voice notes ✅ (record + play + waveform + seek).
+- Tests: 116 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.12] - 2026-11-04
 
 - **Status list split into Recent and Viewed.** The official list has a "My status" row, then the

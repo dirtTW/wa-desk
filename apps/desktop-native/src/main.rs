@@ -38,6 +38,7 @@ mod theme;
 mod tray;
 mod updates;
 mod video;
+mod voicenote;
 mod webp_anim;
 
 use std::sync::Arc;
@@ -602,6 +603,20 @@ fn main() {
                         if url.is_some() { "url" } else { "none" }
                     ));
                     let _ = avatar_tx.send((jid, url));
+                }
+                model::Command::SendVoiceNote {
+                    chat,
+                    payload,
+                    seconds,
+                    waveform,
+                } => {
+                    match session
+                        .send_voice_note(&chat, &payload, seconds, waveform)
+                        .await
+                    {
+                        Ok(id) => app::diag(&format!("voice note sent {id}")),
+                        Err(err) => tracing::warn!(%err, "voice note failed"),
+                    }
                 }
                 model::Command::PostStatusText {
                     text,

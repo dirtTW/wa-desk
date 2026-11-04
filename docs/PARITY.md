@@ -28,7 +28,7 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | Animated WebP stickers | `webp_anim` RIFF decoder (ffmpeg cannot demux them) | ✅ |
 | GIFs animate inline | yes | ✅ |
 | Emoji picker 40 px cells | yes | ✅ |
-| Voice notes: play, waveform, seek | play/seek/waveform | 🟡 recording a voice note is not wired |
+| Voice notes: record (mic in an empty composer), play, waveform, seek | recording captured at 16 kHz through cpal, encoded to Opus and muxed into Ogg (`src/voicenote.rs`), posted as `ptt` with a 64-bar waveform via `Session::send_voice_note`; playback, waveform and seek were already there | ✅ (`target/our_mic_crop.png`) |
 | Documents card | yes | ✅ |
 | Reply, react, forward, star, edit, delete | yes | ✅ |
 | Polls, location, live location, contact card | — | ❌ |
