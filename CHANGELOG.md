@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.101] - 2026-11-04
+
+- **Fixed a deadlock in the texture cache.** `texture_at` called
+  `ctx.cumulative_frame_nr()` *inside* `ctx.data_mut(..)`, which takes the same epaint `RwLock`
+  for writing and then for reading - egui aborts after 30 s ("DEBUG PANIC: Failed to acquire
+  RwLock read after 30s. Deadlock?"). The frame number is read before the write now. Verified:
+  a linked-session screenshot of the QC DIVISI chat completes in ~15 s again
+  (`target/rc100_chat.png`) instead of hanging and panicking.
+- Rendering evidence in that capture: the photo with its caption inside the rounded bubble, the
+  `~ +62 822-2654-4441` sender row for an unsaved participant, the `~` marks in the chat list, the
+  document card with its page count, and the video bubble.
+- Tests: 105 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.0-rc.100] - 2026-11-04
 
 - **Media viewer rebuilt against the official screen**: the sender's avatar, name and

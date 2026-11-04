@@ -3381,12 +3381,8 @@ pub(crate) fn texture_at(
     let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
     let texture = ctx.load_texture(key.to_string(), color, egui::TextureOptions::LINEAR);
     cache.insert(key.to_string(), Some(texture.clone()));
-    ctx.data_mut(|data| {
-        data.insert_temp(
-            egui::Id::new(("texture-use", key)),
-            ctx.cumulative_frame_nr(),
-        )
-    });
+    let frame = ctx.cumulative_frame_nr();
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new(("texture-use", key)), frame));
     Some(texture)
 }
 
