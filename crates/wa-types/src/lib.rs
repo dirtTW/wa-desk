@@ -162,6 +162,8 @@ pub enum UiEvent {
         width: u32,
         height: u32,
     },
+    /// A sticker pack someone shared in a chat.
+    StickerPack(StickerPackView),
 }
 
 impl UiEvent {
@@ -205,6 +207,7 @@ impl UiEvent {
             UiEvent::CallVideo { .. } => "call_video",
             UiEvent::CallState { .. } => "call_state",
             UiEvent::CallSelfVideo { .. } => "call_self_video",
+            UiEvent::StickerPack(_) => "sticker_pack",
         }
     }
 }
@@ -449,6 +452,28 @@ pub struct GroupInfoView {
     /// list like the official client; its activity folds into the community.
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_announce: bool,
+}
+
+/// One sticker inside a pack someone shared in a chat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StickerItemView {
+    pub name: String,
+    pub animated: bool,
+    /// The cached WebP, once downloaded.
+    #[serde(default)]
+    pub path: String,
+}
+
+/// A sticker pack shared in a chat (`stickerPackMessage`). WhatsApp never syncs
+/// the account's pack list to linked devices, so packs appear when shared.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StickerPackView {
+    pub id: String,
+    pub name: String,
+    pub publisher: String,
+    pub stickers: Vec<StickerItemView>,
 }
 
 /// Serializable call metadata returned to the UI.

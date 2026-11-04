@@ -122,6 +122,52 @@ impl Session {
         })
     }
 
+    /// Sticker packs seen so far (they arrive when someone shares one).
+    pub fn sticker_packs(&self) -> Vec<wa_types::StickerPackView> {
+        crate::sticker_packs::load(&self.media_dir)
+            .iter()
+            .map(|pack| crate::sticker_packs::view(&self.media_dir, pack))
+            .collect()
+    }
+
+    /// Download and unpack one pack's stickers, reusing the cached files.
+    pub async fn fetch_sticker_pack(
+        &self,
+        id: &str,
+    ) -> Result<Vec<wa_types::StickerItemView>, String> {
+        let Some(pack) = crate::sticker_packs::load(&self.media_dir)
+            .into_iter()
+            .find(|pack| pack.id == id)
+        else {
+            return Err("unknown sticker pack".to_string());
+        };
+        let cached = pack
+            .file_names
+            .iter()
+            .all(|name| crate::sticker_packs::sticker_path(&self.media_dir, &pack, name).is_file());
+        if cached {
+            return Ok(crate::sticker_packs::view(&self.media_dir, &pack).stickers);
+        }
+        if pack.direct_path.is_empty()
+            || pack.media_key.is_empty()
+            || pack.file_enc_sha256.is_empty()
+            || pack.file_length == 0
+        {
+            return Err("the pack metadata is incomplete".to_string());
+        }
+        let params = DownloadParams {
+            direct_path: pack.direct_path.clone(),
+            media_key: Some(pack.media_key.clone()),
+            file_sha256: pack.file_sha256.clone(),
+            file_enc_sha256: Some(pack.file_enc_sha256.clone()),
+            file_length: pack.file_length,
+            media_type: MediaType::Sticker,
+        };
+        let zip = self.download(&params).await?;
+        crate::sticker_packs::extract(&self.media_dir, &pack, &zip)?;
+        Ok(crate::sticker_packs::view(&self.media_dir, &pack).stickers)
+    }
+
     /// Upload a .webp file and send it as a sticker.
     pub async fn send_sticker(
         &self,

@@ -420,6 +420,26 @@ fn main() {
                         tracing::warn!(%err, "sticker send failed");
                     }
                 }
+                model::Command::StickerPacks => {
+                    for pack in session.sticker_packs() {
+                        let _ = events_out.send(wa_types::UiEvent::StickerPack(pack));
+                    }
+                }
+                model::Command::StickerPackItems { id } => {
+                    match session.fetch_sticker_pack(&id).await {
+                        Ok(stickers) => {
+                            let view = session
+                                .sticker_packs()
+                                .into_iter()
+                                .find(|pack| pack.id == id)
+                                .map(|pack| wa_types::StickerPackView { stickers, ..pack });
+                            if let Some(view) = view {
+                                let _ = events_out.send(wa_types::UiEvent::StickerPack(view));
+                            }
+                        }
+                        Err(err) => tracing::warn!(%err, "sticker pack download failed"),
+                    }
+                }
                 model::Command::ForwardMessage { chat, id } => {
                     if let Err(err) = session.forward_message(&[chat], &id).await {
                         tracing::warn!(%err, "forward failed");

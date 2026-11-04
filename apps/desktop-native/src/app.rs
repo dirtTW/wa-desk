@@ -160,6 +160,8 @@ pub struct WaDesk {
     settings_section: usize,
     /// The audio player, kept alive for the window's lifetime.
     audio: crate::audio::Audio,
+    /// True once the Packs tab asked the session for its packs.
+    packs_requested: bool,
     /// The sticker picker tab (0 recents, 1 favourites, 2 packs) and search.
     sticker_tab: usize,
     sticker_query: String,
@@ -286,6 +288,7 @@ impl WaDesk {
             call_self_frame: None,
             call_self_source: None,
             sticker_tab: 0,
+            packs_requested: false,
             sticker_query: String::new(),
             emoji_group: 0,
             emoji_gif: false,
@@ -5541,6 +5544,10 @@ impl WaDesk {
                             }
                             if sticker_tab(ui, &palette, "Packs", self.sticker_tab == 2).clicked() {
                                 self.sticker_tab = 2;
+                                if self.model.packs.is_empty() && !self.packs_requested {
+                                    self.packs_requested = true;
+                                    self.send(Command::StickerPacks);
+                                }
                             }
                         });
                         ui.add_space(8.0);
@@ -5606,16 +5613,136 @@ impl WaDesk {
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 if self.sticker_tab == 2 {
-                                    ui.add_space(8.0);
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "Sticker packs need a protocol the client \
-                                             library does not expose yet - favourites and \
-                                             recent stickers work.",
-                                        )
-                                        .size(12.5)
-                                        .color(palette.secondary),
-                                    );
+                                    // Packs shared in a chat: WhatsApp never syncs the
+                                    // account's pack list to linked devices.
+                                    if self.model.packs.is_empty() {
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            egui::RichText::new(
+                                                "No sticker packs yet - a pack shows up \
+                                                 here when someone shares one in a chat.",
+                                            )
+                                            .size(12.5)
+                                            .color(palette.secondary),
+                                        );
+                                        ui.add_space(6.0);
+                                        if settings_link(ui, &palette, "Check again")
+                                            && !self.packs_requested
+                                        {
+                                            self.packs_requested = true;
+                                            self.send(Command::StickerPacks);
+                                        }
+                                    } else {
+                                        let packs = self.model.packs.clone();
+                                        let active = self.model.active_pack.clone();
+                                        ui.add_space(6.0);
+                                        for pack in &packs {
+                                            let selected =
+                                                active.as_deref() == Some(pack.id.as_str());
+                                            let label = format!(
+                                                "{} - {} stickers",
+                                                if pack.publisher.is_empty() {
+                                                    pack.name.clone()
+                                                } else {
+                                                    format!("{} ({})", pack.name, pack.publisher)
+                                                },
+                                                pack.stickers.len()
+                                            );
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                egui::vec2(ui.available_width(), 30.0),
+                                                egui::Sense::click(),
+                                            );
+                                            if selected || response.hovered() {
+                                                ui.painter().rect_filled(
+                                                    rect,
+                                                    egui::CornerRadius::same(8),
+                                                    if selected {
+                                                        palette.selected
+                                                    } else {
+                                                        palette.hover
+                                                    },
+                                                );
+                                            }
+                                            ui.painter().text(
+                                                egui::pos2(rect.left() + 8.0, rect.center().y),
+                                                egui::Align2::LEFT_CENTER,
+                                                &label,
+                                                egui::FontId::proportional(12.5),
+                                                palette.text,
+                                            );
+                                            if response.clicked() {
+                                                self.model.active_pack = Some(pack.id.clone());
+                                                self.send(Command::StickerPackItems {
+                                                    id: pack.id.clone(),
+                                                });
+                                            }
+                                        }
+                                        ui.add_space(6.0);
+                                        let stickers = self.model.active_pack_stickers();
+                                        if stickers.iter().all(|item| item.path.is_empty()) {
+                                            ui.label(
+                                                egui::RichText::new("Downloading the pack...")
+                                                    .size(12.0)
+                                                    .color(palette.secondary),
+                                            );
+                                        } else {
+                                            ui.horizontal_wrapped(|ui| {
+                                                ui.spacing_mut().item_spacing =
+                                                    egui::vec2(6.0, 6.0);
+                                                for item in &stickers {
+                                                    if item.path.is_empty() {
+                                                        continue;
+                                                    }
+                                                    let key = format!("pack:{}", item.path);
+                                                    let Some(texture) = texture_at(
+                                                        ui.ctx(),
+                                                        &mut self.sticker_textures,
+                                                        &key,
+                                                        Some(item.path.clone()),
+                                                    ) else {
+                                                        continue;
+                                                    };
+                                                    let (rect, response) = ui.allocate_exact_size(
+                                                        egui::vec2(74.0, 74.0),
+                                                        egui::Sense::click(),
+                                                    );
+                                                    if response.hovered() {
+                                                        ui.painter().rect_filled(
+                                                            rect,
+                                                            egui::CornerRadius::same(10),
+                                                            palette.hover,
+                                                        );
+                                                    }
+                                                    let size = texture.size_vec2();
+                                                    let scale = (66.0 / size.x.max(1.0))
+                                                        .min(66.0 / size.y.max(1.0));
+                                                    ui.painter().image(
+                                                        texture.id(),
+                                                        egui::Rect::from_center_size(
+                                                            rect.center(),
+                                                            size * scale,
+                                                        ),
+                                                        egui::Rect::from_min_max(
+                                                            egui::pos2(0.0, 0.0),
+                                                            egui::pos2(1.0, 1.0),
+                                                        ),
+                                                        egui::Color32::WHITE,
+                                                    );
+                                                    if response.clicked() && !chat.is_empty() {
+                                                        use base64::Engine as _;
+                                                        let bytes = std::fs::read(&item.path)
+                                                            .unwrap_or_default();
+                                                        send = Some(Command::SendSticker {
+                                                            chat: chat.clone(),
+                                                            payload:
+                                                                base64::engine::general_purpose::STANDARD
+                                                                    .encode(bytes),
+                                                        });
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    }
                                 }
                                 ui.horizontal_wrapped(|ui| {
                                     ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);

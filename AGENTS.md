@@ -494,9 +494,10 @@ device until you remove it from the phone).
   (wa_core::util::is_gif); the emoji picker's GIF tab lists Model::gif_items() (the open
   chat's GIFs, newest first) and forwards the chosen one with Command::ForwardMessage ->
   Session::forward_message. The Create tile runs sticker::make_sticker (ffmpeg -> 512x512
-  WebP) and sends it with Command::SendSticker -> Session::send_sticker. Sticker packs are
-  blocked: whatsapp-rust only exposes etch_sticker_pack(pack_id), not the stickerPack
-  app-state, so there is no pack list to ask about.
+  WebP) and sends it with Command::SendSticker -> Session::send_sticker. Sticker packs are not
+  synced by the protocol: they arrive as `stickerPackMessage` when shared, and
+  `wa-core/src/sticker_packs.rs` stores the ten most recent, downloads the pack zip and
+  unpacks the listed WebPs with the `zip` crate; the picker's Packs tab lists and sends them.
 - **Echo cancellation.** `aec.rs` runs an NLMS filter (2048 taps) from the playout reference
   (`audio::call_reference`, a 256 ms ring read `aec::DELAY` = 120 ms back) and subtracts the
   predicted echo before the `echo` ducking, which remains the backstop for real rooms. The filter

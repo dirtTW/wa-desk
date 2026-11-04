@@ -758,6 +758,17 @@ pub(crate) fn dispatch(
                         .or_else(|| inbound.message.get_caption())
                         .unwrap_or_default()
                         .to_owned();
+                    // A shared sticker pack is metadata plus a zip, not a
+                    // bubble: keep it for the picker's Packs tab.
+                    if let Some(pack) = crate::sticker_packs::from_message(&inbound.message) {
+                        if let Err(err) = crate::sticker_packs::save(msg_dir, pack.clone()) {
+                            tracing::warn!(%err, "sticker pack save failed");
+                        }
+                        let _ = tx.send(UiEvent::StickerPack(crate::sticker_packs::view(
+                            msg_dir, &pack,
+                        )));
+                        continue;
+                    }
                     let kind = media_kind(&inbound.message).unwrap_or("text").to_owned();
                     if kind == "text" && text.is_empty() {
                         continue;

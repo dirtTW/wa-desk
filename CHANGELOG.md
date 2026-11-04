@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.95] - 2026-11-04
+
+- **The Packs tab is real now.** WhatsApp never syncs an account's pack list to linked devices,
+  so packs arrive as `stickerPackMessage`s when someone shares one. `wa-core/src/sticker_packs.rs`
+  reads that message (id, name, publisher, the zip's media parameters and the file names of its
+  stickers), keeps the ten most recent packs in `sticker-packs.json`, and `Session::fetch_sticker_pack`
+  downloads the pack zip once, unpacks the listed WebPs into `<app data>/media/pack-<id>-<name>`
+  (`zip` crate) and returns their paths. `UiEvent::StickerPack` carries the view.
+- The picker's Packs tab lists the packs (name, publisher, sticker count), opens one on click and
+  shows its stickers, which send through the existing `Command::SendSticker`; an empty tab points
+  out that a pack appears when someone shares one, with a "Check again" link. Screenshot hook
+  unchanged (`WA_DESK_STICKERS`).
+- Tests: `sticker_packs::tests::the_store_round_trips_and_keeps_the_newest`,
+  `the_zip_is_unpacked_into_the_media_folder` (writes a real zip and checks only the listed
+  stickers land on disk), `a_zip_without_the_listed_stickers_is_an_error`, and the model test
+  `a_shared_pack_lands_in_the_packs_tab`.
+- Tests: 91 native + 38 wa-core, clippy clean, selftest green.
+
 ## [0.2.0-rc.94] - 2026-11-04
 
 - **Group bubbles have the sender's photo in the left gutter** (the request from the official

@@ -56,6 +56,12 @@ pub enum Command {
         chat: String,
         payload: String,
     },
+    /// Load the sticker packs shared with the account.
+    StickerPacks,
+    /// Download (or reuse) one pack's stickers.
+    StickerPackItems {
+        id: String,
+    },
     /// Mute or unmute our microphone.
     CallMute {
         muted: bool,
@@ -326,6 +332,10 @@ pub struct Model {
     /// The first unread message of a chat when it was opened, by chat id: the
     /// conversation draws the "Unread messages" divider there.
     pub unread_anchor: std::collections::HashMap<String, String>,
+    /// Sticker packs someone shared in a chat, newest first.
+    pub packs: Vec<wa_types::StickerPackView>,
+    /// The pack open in the Picker's Packs tab.
+    pub active_pack: Option<String>,
     /// The call in progress, if any.
     pub call: Option<CallState>,
     /// Delivery state of our own messages, by message id (`sent`, `delivered`,
@@ -760,6 +770,13 @@ impl Model {
                     ..Default::default()
                 });
             }
+            UiEvent::StickerPack(view) => {
+                self.packs.retain(|pack| pack.id != view.id);
+                self.packs.insert(0, view.clone());
+                if self.active_pack.is_none() {
+                    self.active_pack = Some(view.id.clone());
+                }
+            }
             UiEvent::StarMessage { id, starred, .. } => {
                 if *starred {
                     self.starred.insert(id.clone());
@@ -934,6 +951,18 @@ impl Model {
 
     /// The delivery marker for one of our own messages: `sent`, `delivered` or
     /// `read`. Unknown ids count as sent (the stanza was accepted).
+    /// The stickers of the pack open in the Packs tab.
+    pub fn active_pack_stickers(&self) -> Vec<wa_types::StickerItemView> {
+        let Some(id) = self.active_pack.as_deref() else {
+            return Vec::new();
+        };
+        self.packs
+            .iter()
+            .find(|pack| pack.id == id)
+            .map(|pack| pack.stickers.clone())
+            .unwrap_or_default()
+    }
+
     /// GIFs (videos the sender marked as GIFs) from the open chat, newest
     /// first: the picker's GIF tab sends one of these again.
     pub fn gif_items(&self) -> Vec<(String, String)> {
@@ -2500,6 +2529,34 @@ mod tests {
         assert!(Model::starts_run(&messages, 0));
         assert!(!Model::starts_run(&messages, 1), "same sender continues");
         assert!(Model::starts_run(&messages, 2), "a new sender starts one");
+    }
+
+    #[test]
+    fn a_shared_pack_lands_in_the_packs_tab() {
+        let mut model = Model::new();
+        model.apply(&UiEvent::StickerPack(wa_types::StickerPackView {
+            id: "pack-1".into(),
+            name: "Cats".into(),
+            publisher: "Ada".into(),
+            stickers: vec![wa_types::StickerItemView {
+                name: "a.webp".into(),
+                animated: false,
+                path: "/tmp/a.webp".into(),
+            }],
+        }));
+        assert_eq!(model.packs.len(), 1);
+        assert_eq!(model.packs[0].name, "Cats");
+        assert_eq!(model.active_pack.as_deref(), Some("pack-1"));
+        assert_eq!(model.active_pack_stickers().len(), 1);
+        // A second event for the same pack replaces it, it does not duplicate.
+        model.apply(&UiEvent::StickerPack(wa_types::StickerPackView {
+            id: "pack-1".into(),
+            name: "Cats 2".into(),
+            publisher: "Ada".into(),
+            stickers: Vec::new(),
+        }));
+        assert_eq!(model.packs.len(), 1);
+        assert_eq!(model.packs[0].name, "Cats 2");
     }
 
     #[test]

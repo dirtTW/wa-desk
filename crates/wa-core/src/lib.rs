@@ -31,6 +31,7 @@ mod history;
 mod media;
 mod messaging;
 mod status;
+mod sticker_packs;
 
 /// Durable copy of a media-message protobuf, used to download decrypted media
 /// after a restart.
