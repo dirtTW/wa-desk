@@ -266,6 +266,11 @@ pub struct ChatRow {
     pub last_ts: i64,
     /// The chat is a community (from its group metadata).
     pub community: bool,
+    /// For a group inside a community: the parent community's JID (filled from
+    /// the group's metadata, so the Communities screen can list it).
+    pub parent: Option<String>,
+    /// The community's announcement group (hidden from the chat list).
+    pub announce: bool,
 }
 
 /// The sidebar's filter pills.
@@ -519,6 +524,33 @@ impl Model {
             parent_jid: None,
             is_announce: false,
         });
+
+        // A community with its announcement group and one child group, for the
+        // Communities screen.
+        for (jid, name, community, parent, announce) in [
+            ("1200@g.us", "Team Community", true, None, false),
+            (
+                "1200-announce@g.us",
+                "Announcements",
+                false,
+                Some("1200@g.us"),
+                true,
+            ),
+            ("1201@g.us", "Deploys", false, Some("1200@g.us"), false),
+        ] {
+            let row = model
+                .chats
+                .entry(jid.to_string())
+                .or_insert_with(|| ChatRow {
+                    jid: jid.to_string(),
+                    ..Default::default()
+                });
+            row.name = name.to_string();
+            row.community = community;
+            row.parent = parent.map(str::to_string);
+            row.announce = announce;
+            row.last_ts = now - 3_600_000;
+        }
 
         // Two calls, so the Calls screen has something to show in `--preview`.
         model.call_log = vec![
@@ -1065,6 +1097,8 @@ impl Model {
     pub fn group_loaded(&mut self, info: GroupInfoView) {
         if let Some(row) = self.chats.get_mut(&info.jid) {
             row.community = info.is_community;
+            row.parent = info.parent_jid.clone();
+            row.announce = info.is_announce;
             if !info.subject.is_empty() {
                 row.name = info.subject.clone();
             }
@@ -1823,6 +1857,37 @@ impl Model {
         (groups, communities, unread, favourites)
     }
 
+    /// The Communities screen: every community, newest first, with the groups
+    /// that belong to it (a group's metadata names its parent).
+    pub fn communities(&self) -> Vec<(&ChatRow, Vec<&ChatRow>)> {
+        let mut parents: Vec<&ChatRow> = self
+            .chats
+            .values()
+            .filter(|row| row.community && !row.jid.ends_with("@newsletter"))
+            .collect();
+        parents.sort_by(|a, b| {
+            b.last_ts
+                .cmp(&a.last_ts)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        parents
+            .into_iter()
+            .map(|parent| {
+                let mut children: Vec<&ChatRow> = self
+                    .chats
+                    .values()
+                    .filter(|row| row.parent.as_deref() == Some(parent.jid.as_str()))
+                    .collect();
+                children.sort_by(|a, b| {
+                    b.announce
+                        .cmp(&a.announce)
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                });
+                (parent, children)
+            })
+            .collect()
+    }
+
     /// Add or remove a chat from the favourites (the official "Add to
     /// favourites" entry); returns the new state.
     pub fn toggle_favourite(&mut self, jid: &str) -> bool {
@@ -2352,6 +2417,8 @@ impl Model {
                     unread: row.unread,
                     last_ts: row.last_ts,
                     community: row.community,
+                    parent: None,
+                    announce: false,
                 },
             );
         }
@@ -2927,6 +2994,38 @@ mod tests {
     /// The chat list keeps plain names even when the person is not saved - the
     /// `~` mark is for the group bubbles only.
     /// The Favorites pill lists exactly the chats marked in the chat menu.
+    /// The Communities screen lists each community with its groups, the
+    /// announcement group first.
+    #[test]
+    fn communities_group_their_children() {
+        let mut model = Model::new();
+        for (jid, name, community, parent, announce) in [
+            ("9@g.us", "Team Community", true, None, false),
+            ("9-ann@g.us", "Announcements", false, Some("9@g.us"), true),
+            ("9-a@g.us", "Deploys", false, Some("9@g.us"), false),
+            ("8@g.us", "Other", false, None, false),
+        ] {
+            let row = model
+                .chats
+                .entry(jid.to_string())
+                .or_insert_with(|| ChatRow {
+                    jid: jid.to_string(),
+                    ..Default::default()
+                });
+            row.name = name.to_string();
+            row.community = community;
+            row.parent = parent.map(str::to_string);
+            row.announce = announce;
+        }
+        let communities = model.communities();
+        assert_eq!(communities.len(), 1, "only the parent is a community");
+        let (parent, children) = &communities[0];
+        assert_eq!(parent.name, "Team Community");
+        assert_eq!(children.len(), 2, "the announcement and the topic group");
+        assert!(children[0].announce, "announcements come first");
+        assert_eq!(children[0].name, "Announcements");
+    }
+
     #[test]
     fn favourites_filter_the_chat_list() {
         let mut model = Model::new();

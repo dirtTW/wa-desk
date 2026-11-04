@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.11] - 2026-11-04
+
+- **Communities screen (was ❌).** Sampled the official Communities drawer ("Create communities" ·
+  *"Bring members together in topic-based groups and easily send them admin announcements. Your
+  personal messages in communities are end-to-end encrypted"*) and built the screen: 64 px header
+  with the close button, the same empty state with a *New community* tile (the phone creates them),
+  and a list of 72 px community cards with the avatar, name and "N groups". Selecting a community
+  opens its groups **announcements first** (badged "Announcements") and clicking one opens the chat.
+  `ChatRow` now keeps `parent`/`announce`, filled from the group metadata in `group_loaded`, and
+  `Model::communities()` returns each parent with its children.
+  Test: `model::tests::communities_group_their_children`. Capture: `target/our_communities2.png`.
+- The rail's Communities button opens the screen (it used to switch the chat-list filter); the
+  Communities pill stays in the list.
+- `WA_DESK_SCREEN=communities` joins the screenshot hooks, and the demo model carries a community
+  with an announcement group and one topic group.
+- `docs/PARITY.md` marks the Communities screen done.
+- Tests: 113 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.10] - 2026-11-04
 
 - **Channels panel matches the official one.** Sampled the Channels drawer (`Discover channels`,
