@@ -1703,7 +1703,10 @@ impl WaDesk {
         while let Ok((id, reply)) = self.media_rx.try_recv() {
             match reply {
                 Ok(path) => self.model.media_ready(&id, &path),
-                Err(_) => self.model.media_failed(&id),
+                Err(err) => {
+                    diag(&format!("media {id} failed: {err}"));
+                    self.model.media_failed_with(&id, &err);
+                }
             }
             changed = true;
         }
@@ -2383,6 +2386,7 @@ impl WaDesk {
             | BubbleAction::Delete(id)
             | BubbleAction::Star(id)
             | BubbleAction::PlayAudio(id)
+            | BubbleAction::LoadMedia(id)
             | BubbleAction::Forward(id) => id.clone(),
             BubbleAction::React(id, _) => id.clone(),
         };
@@ -2390,6 +2394,12 @@ impl WaDesk {
         match action {
             BubbleAction::OpenMedia(id) => {
                 self.model.open_viewer(&id);
+            }
+            BubbleAction::LoadMedia(id) => {
+                self.model.retry_media(&id);
+                if self.model.request_media(&id) {
+                    self.send(Command::FetchMedia { id });
+                }
             }
             BubbleAction::Reply(_) => {
                 if let Some(message) = message {
@@ -2532,10 +2542,67 @@ fn bubble(
     scroll: bool,
     playback: &crate::audio::PlaybackState,
     tail: bool,
-    // Group chats show the sender's photo in the left gutter on the first
-    // bubble of each run, and the name only there.
     avatar: Option<&egui::TextureHandle>,
     show_sender: bool,
+) -> Option<BubbleAction> {
+    // Group chats wrap every bubble in the same 40 px gutter (photo or initials
+    // at the head of a run), so text, photos, stickers and voice notes line up.
+    if !(message.is_group && !message.from_me) {
+        return bubble_content(
+            ui, palette, model, message, textures, ctx, search, scroll, playback, tail,
+        );
+    }
+    ui.horizontal_top(|ui| {
+        let (cell, _) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::hover());
+        if show_sender {
+            let center = egui::pos2(cell.left() + 16.0, cell.top() + 18.0);
+            match avatar {
+                Some(texture) => {
+                    let size = texture.size_vec2();
+                    let scale = (32.0 / size.x.max(1.0)).min(32.0 / size.y.max(1.0));
+                    ui.painter().image(
+                        texture.id(),
+                        egui::Rect::from_center_size(center, size * scale),
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
+                None => {
+                    let name = message.sender_name.clone().unwrap_or_default();
+                    ui.painter()
+                        .circle_filled(center, 16.0, sender_color(&name, palette));
+                    ui.painter().text(
+                        center,
+                        egui::Align2::CENTER_CENTER,
+                        call_initials(&name),
+                        egui::FontId::proportional(12.0),
+                        egui::Color32::from_rgb(11, 20, 26),
+                    );
+                }
+            }
+        }
+        ui.vertical(|ui| {
+            bubble_content(
+                ui, palette, model, message, textures, ctx, search, scroll, playback, tail,
+            )
+        })
+        .inner
+    })
+    .inner
+}
+
+#[allow(clippy::too_many_arguments)]
+fn bubble_content(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    model: &Model,
+    message: &MessageView,
+    textures: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    ctx: &egui::Context,
+    search: Option<&str>,
+    scroll: bool,
+    playback: &crate::audio::PlaybackState,
+    tail: bool,
 ) -> Option<BubbleAction> {
     let align = if message.from_me {
         egui::Align::Max
@@ -2544,7 +2611,6 @@ fn bubble(
     };
     let mut action: Option<BubbleAction> = None;
     let max_width = (ui.available_width() * 0.66).max(160.0);
-    let gutter_owner = message.is_group && !message.from_me && show_sender;
 
     ui.with_layout(egui::Layout::top_down(align), |ui| {
         ui.set_max_width(max_width);
@@ -2564,7 +2630,7 @@ fn bubble(
                     .size(11.0)
                     .color(palette.secondary),
             );
-            pills_row(ui, model, message);
+            pills_row(ui, palette, model, message);
             ui.add_space(if tail { 8.0 } else { 2.0 });
             return;
         }
@@ -2588,7 +2654,7 @@ fn bubble(
                     .size(11.0)
                     .color(palette.secondary),
             );
-            pills_row(ui, model, message);
+            pills_row(ui, palette, model, message);
             ui.add_space(if tail { 8.0 } else { 2.0 });
             return;
         }
@@ -2596,6 +2662,57 @@ fn bubble(
         // A photo paints its bytes once wa-core has the file; a video shows the
         // same texture as its poster. Anything else falls back to the caption or
         // the kind's word from wa-ui.
+        if matches!(message.kind.as_str(), "image" | "video")
+            && model.media_path(&message.id).is_none()
+        {
+            let width = max_width.min(240.0);
+            let failed = model.media_error(&message.id);
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, 140.0), egui::Sense::click());
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(8), fill);
+            draw_icon(ui, rect.shrink(52.0), Icon::Document, palette.secondary);
+            let kind_label = if message.kind == "video" {
+                "video"
+            } else {
+                "photo"
+            };
+            let label = match failed {
+                Some(err) => format!("Couldn't load the {kind_label} - tap to retry ({err})"),
+                None => format!("Loading the {kind_label}..."),
+            };
+            ui.painter().text(
+                egui::pos2(rect.center().x, rect.bottom() - 22.0),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::proportional(11.0),
+                palette.secondary,
+            );
+            if response.clicked() {
+                action = Some(BubbleAction::LoadMedia(message.id.clone()));
+            }
+            context_menu(&response, palette, model, message, &mut action);
+            if !message.text.trim().is_empty() {
+                ui.label(
+                    egui::RichText::new(&message.text)
+                        .size(14.0)
+                        .color(palette.text),
+                );
+            }
+            ui.label(
+                egui::RichText::new(model.bubble_stamp(message))
+                    .size(11.0)
+                    .color(palette.secondary),
+            );
+            pills_row(ui, palette, model, message);
+            ui.add_space(if tail { 8.0 } else { 2.0 });
+            return;
+        }
         if matches!(message.kind.as_str(), "image" | "video")
             && let Some(texture) = message
                 .gif
@@ -2630,7 +2747,7 @@ fn bubble(
                     .size(11.0)
                     .color(palette.secondary),
             );
-            pills_row(ui, model, message);
+            pills_row(ui, palette, model, message);
             ui.add_space(if tail { 8.0 } else { 2.0 });
             return;
         }
@@ -2742,7 +2859,7 @@ fn bubble(
                 hit.scroll_to_me(Some(egui::Align::Center));
             }
             context_menu(&hit, palette, model, message, &mut action);
-            pills_row(ui, model, message);
+            pills_row(ui, palette, model, message);
             ui.add_space(4.0);
             return;
         }
@@ -2865,8 +2982,7 @@ fn bubble(
             se: if message.from_me { square } else { 8 },
         };
         let padding = 9.0;
-        let gutter_space = if gutter_owner { 40.0 } else { 0.0 };
-        let max_text = (max_width - gutter_space - padding * 2.0).max(80.0);
+        let max_text = (max_width - padding * 2.0).max(80.0);
         // Measure the body so the bubble hugs the text (a plain `Frame` lets a
         // right-aligned child stretch it to the full width and height).
         let text_job = match search {
@@ -2919,46 +3035,16 @@ fn bubble(
         });
         let width =
             (body_size.x.max(time.size().x + tick_width + 10.0) + padding * 2.0).min(max_width);
-        let mut height = body_size.y + time.size().y + 8.0;
+        // A quoted reply sits in an inset card above the body, like the
+        // official client's coloured quote.
+        let quote = message.reply_to.clone();
+        let quote_height = if quote.is_some() { 34.0 } else { 0.0 };
+        let mut height = body_size.y + time.size().y + 8.0 + quote_height;
         if let Some(galley) = &sender_galley {
             height += galley.size().y + 1.0;
         }
-        let gutter = if gutter_owner { 40.0 } else { 0.0 };
-        let (outer, hit) =
-            ui.allocate_exact_size(egui::vec2(width + gutter, height), egui::Sense::click());
-        let rect = egui::Rect::from_min_size(
-            egui::pos2(outer.left() + gutter, outer.top()),
-            egui::vec2(width, height),
-        );
+        let (rect, hit) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
         let painter = ui.painter();
-        if gutter_owner {
-            let center = egui::pos2(outer.left() + 16.0, outer.top() + 18.0);
-            match avatar {
-                Some(texture) => {
-                    let size = texture.size_vec2();
-                    let scale = (32.0 / size.x.max(1.0)).min(32.0 / size.y.max(1.0));
-                    painter.image(
-                        texture.id(),
-                        egui::Rect::from_center_size(center, size * scale),
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                }
-                None => {
-                    // No photo yet (or none at all): the initials disc the
-                    // official client uses, coloured per sender.
-                    let name = message.sender_name.clone().unwrap_or_default();
-                    painter.circle_filled(center, 16.0, sender_color(&name, palette));
-                    painter.text(
-                        center,
-                        egui::Align2::CENTER_CENTER,
-                        call_initials(&name),
-                        egui::FontId::proportional(12.0),
-                        egui::Color32::from_rgb(11, 20, 26),
-                    );
-                }
-            }
-        }
         painter.rect_filled(rect, radius, fill);
         if search.is_some() {
             painter.rect_stroke(
@@ -2968,7 +3054,46 @@ fn bubble(
                 egui::StrokeKind::Inside,
             );
         }
-        let mut y = rect.top() + 5.0;
+        if let Some(quote) = &quote {
+            let card = egui::Rect::from_min_size(
+                egui::pos2(rect.left() + 6.0, rect.top() + 5.0),
+                egui::vec2((rect.width() - 12.0).max(60.0), 28.0),
+            );
+            let author = Model::quote_author(quote);
+            let bar = sender_color(&author, palette);
+            let card_fill = if message.from_me {
+                egui::Color32::from_black_alpha(28)
+            } else {
+                palette.rail
+            };
+            painter.rect_filled(card, egui::CornerRadius::same(6), card_fill);
+            painter.rect_filled(
+                egui::Rect::from_min_size(card.min, egui::vec2(3.0, card.height())),
+                egui::CornerRadius::same(2),
+                bar,
+            );
+            painter.text(
+                egui::pos2(card.left() + 9.0, card.top() + 3.0),
+                egui::Align2::LEFT_TOP,
+                &author,
+                egui::FontId::proportional(11.5),
+                bar,
+            );
+            let quoted = if quote.text.trim().is_empty() {
+                quote.kind.clone()
+            } else {
+                quote.text.clone()
+            };
+            let galley =
+                painter.layout_no_wrap(quoted, egui::FontId::proportional(12.0), palette.secondary);
+            let clipped = painter.with_clip_rect(card.shrink2(egui::vec2(9.0, 0.0)));
+            clipped.galley(
+                egui::pos2(card.left() + 9.0, card.top() + 15.0),
+                galley,
+                palette.secondary,
+            );
+        }
+        let mut y = rect.top() + 5.0 + quote_height;
         if let Some(galley) = sender_galley {
             let inner = galley.size().y;
             painter.galley(egui::pos2(rect.left() + padding, y), galley, palette.text);
@@ -3014,7 +3139,7 @@ fn bubble(
             hit.scroll_to_me(Some(egui::Align::Center));
         }
         context_menu(&hit, palette, model, message, &mut action);
-        pills_row(ui, model, message);
+        pills_row(ui, palette, model, message);
         ui.add_space(4.0);
     });
     action
@@ -3111,23 +3236,68 @@ fn menu_row(ui: &mut egui::Ui, palette: &crate::theme::Palette, icon: Icon, labe
 }
 
 /// The reaction pills under a message, ours in blue like WhatsApp.
-fn pills_row(ui: &mut egui::Ui, model: &Model, message: &MessageView) {
+fn pills_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    model: &Model,
+    message: &MessageView,
+) {
     let pills = model.reactions_for(&message.id);
     if pills.is_empty() {
         return;
     }
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
         for (emoji, count, mine) in pills {
-            let label = if count > 1 {
-                format!("{emoji} {count}")
-            } else {
-                emoji
-            };
-            let mut text = egui::RichText::new(label).size(13.0);
-            if mine {
-                text = text.color(egui::Color32::from_rgb(83, 189, 235));
+            let label = (count > 1).then(|| count.to_string());
+            let font = egui::FontId::proportional(11.5);
+            let label_width = label
+                .as_ref()
+                .map(|text| {
+                    ui.painter()
+                        .layout_no_wrap(text.clone(), font.clone(), palette.secondary)
+                        .size()
+                        .x
+                })
+                .unwrap_or(0.0);
+            let width = 8.0
+                + 14.0
+                + if label.is_some() {
+                    3.0 + label_width
+                } else {
+                    0.0
+                }
+                + 8.0;
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::hover());
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(11), palette.elevated);
+            let glyph = emoji.chars().next().unwrap_or('?');
+            if let Some(texture) = crate::emoji_glyph::texture_shared(ui.ctx(), glyph, 14) {
+                let size = texture.size_vec2();
+                let scale = (14.0 / size.x.max(1.0)).min(14.0 / size.y.max(1.0));
+                ui.painter().image(
+                    texture.id(),
+                    egui::Rect::from_center_size(
+                        egui::pos2(rect.left() + 15.0, rect.center().y),
+                        size * scale,
+                    ),
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
             }
-            ui.label(text);
+            if let Some(label) = label {
+                ui.painter().text(
+                    egui::pos2(rect.left() + 24.0, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    label,
+                    font,
+                    if mine {
+                        palette.read
+                    } else {
+                        palette.secondary
+                    },
+                );
+            }
         }
     });
 }
@@ -5187,10 +5357,11 @@ impl eframe::App for WaDesk {
         // The session runs on other threads and pushes into a channel; without a
         // timer egui would only repaint on mouse/keyboard input, so the chat list
         // (and new messages) could sit unseen until the window was touched.
-        let gif_on_screen = self
-            .model
-            .active_row()
-            .is_some_and(|row| row.messages.iter().any(|message| message.gif));
+        let gif_on_screen = crate::gif::any_prepared()
+            && self
+                .model
+                .active_row()
+                .is_some_and(|row| row.messages.iter().any(|message| message.gif));
         if self.audio.state().playing || self.video_playing || gif_on_screen {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else {

@@ -472,6 +472,10 @@ fn main() {
                             return;
                         };
                         let reply = session.fetch_media(&id).await;
+                        match &reply {
+                            Ok(path) => app::diag(&format!("media {id}: {path}")),
+                            Err(err) => app::diag(&format!("media {id} failed: {err}")),
+                        }
                         let _ = media_tx.send((id, reply));
                     });
                 }

@@ -207,6 +207,8 @@ pub enum BubbleAction {
     Star(String),
     /// Start or stop the voice note's playback.
     PlayAudio(String),
+    /// (Re)fetch a photo/video whose file is not on disk.
+    LoadMedia(String),
 }
 
 /// A followed channel and its (read-only) posts.
@@ -329,6 +331,8 @@ pub struct Model {
     pub connection_epoch: u64,
     /// Starred message ids, across chats.
     pub starred: std::collections::BTreeSet<String>,
+    /// Why a media download failed, by message id (shown in the bubble).
+    pub media_errors: std::collections::HashMap<String, String>,
     /// The first unread message of a chat when it was opened, by chat id: the
     /// conversation draws the "Unread messages" divider there.
     pub unread_anchor: std::collections::HashMap<String, String>,
@@ -458,6 +462,15 @@ impl Model {
             now - 8 * 60_000,
             true,
         );
+        // A second message in Ada's run: no photo, but the same gutter.
+        group(
+            "1@s.whatsapp.net",
+            "Ada",
+            "d1b",
+            "the staging build is up too",
+            now - 8 * 60_000 - 30_000,
+            false,
+        );
         // Yesterday, so the conversation paints a date chip.
         group(
             "1@s.whatsapp.net",
@@ -584,6 +597,55 @@ impl Model {
             now - 90_000,
             true,
         )));
+        // A photo whose file is missing: the placeholder with a retry hint.
+        let mut photo = view(
+            "1203@g.us",
+            "Team",
+            "d10",
+            "photo from yesterday",
+            now - 6 * 60_000,
+            false,
+        );
+        photo.kind = "image".to_string();
+        photo.sender = Some("1@s.whatsapp.net".to_string());
+        photo.sender_name = Some("Ada".to_string());
+        model.apply(&UiEvent::Message(photo));
+        model.media_failed_with("d10", "the link expired");
+        // A quoted reply, with a reaction on it, for the inset card and chips.
+        let mut reply = view(
+            "1203@g.us",
+            "Team",
+            "d11",
+            "will do, thanks",
+            now - 5 * 60_000 - 30_000,
+            true,
+        );
+        reply.reply_to = Some(wa_types::ReplyView {
+            id: "d3".to_string(),
+            sender: Some("2@s.whatsapp.net".to_string()),
+            sender_name: Some("Budi".to_string()),
+            kind: "text".to_string(),
+            text: "can someone review the PR?".to_string(),
+            thumb: None,
+        });
+        model.apply(&UiEvent::Message(reply));
+        model.apply(&UiEvent::Reaction {
+            chat: "1203@g.us".to_string(),
+            id: "d11".to_string(),
+            sender: "2@s.whatsapp.net".to_string(),
+            from_me: false,
+            emoji: "👍".to_string(),
+            timestamp: now,
+        });
+        model.apply(&UiEvent::Reaction {
+            chat: "1203@g.us".to_string(),
+            id: "d11".to_string(),
+            sender: "0@s.whatsapp.net".to_string(),
+            from_me: true,
+            emoji: "👍".to_string(),
+            timestamp: now + 1,
+        });
+
         model.open_chat("1203@g.us");
         model
     }
@@ -951,6 +1013,17 @@ impl Model {
 
     /// The delivery marker for one of our own messages: `sent`, `delivered` or
     /// `read`. Unknown ids count as sent (the stanza was accepted).
+    /// The name a quoted reply shows: the author's display name, or "You" for
+    /// our own messages.
+    pub fn quote_author(reply: &wa_types::ReplyView) -> String {
+        reply
+            .sender_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| reply.sender.clone().filter(|jid| !jid.is_empty()))
+            .unwrap_or_else(|| "You".to_string())
+    }
+
     /// The stickers of the pack open in the Packs tab.
     pub fn active_pack_stickers(&self) -> Vec<wa_types::StickerItemView> {
         let Some(id) = self.active_pack.as_deref() else {
@@ -1792,8 +1865,22 @@ impl Model {
             .insert(id.to_string(), MediaState::Path(path.to_string()));
     }
 
-    pub fn media_failed(&mut self, id: &str) {
+    pub fn media_failed_with(&mut self, id: &str, reason: &str) {
         self.media.insert(id.to_string(), MediaState::Failed);
+        self.media_errors
+            .insert(id.to_string(), reason.trim().to_string());
+    }
+
+    /// Drop a failed state so the next request fetches again (tap to retry).
+    pub fn retry_media(&mut self, id: &str) {
+        if matches!(self.media.get(id), Some(MediaState::Failed)) {
+            self.media.remove(id);
+            self.media_errors.remove(id);
+        }
+    }
+
+    pub fn media_error(&self, id: &str) -> Option<&str> {
+        self.media_errors.get(id).map(String::as_str)
     }
 
     /// What a bubble shows when the media itself is not painted: the caption
@@ -1828,6 +1915,18 @@ impl Model {
         }
         if let Some(row) = self.chats.get_mut(jid) {
             row.unread = 0;
+            // Media that failed earlier gets another chance: the phone can
+            // re-upload it, and a photo with a caption must not stay a text
+            // bubble for the rest of the session.
+            let failed: Vec<String> = row
+                .messages
+                .iter()
+                .filter(|message| matches!(self.media.get(&message.id), Some(MediaState::Failed)))
+                .map(|message| message.id.clone())
+                .collect();
+            for id in failed {
+                self.media.remove(&id);
+            }
         }
         self.search_open = false;
         self.chat_search.clear();
@@ -2578,6 +2677,24 @@ mod tests {
     }
 
     #[test]
+    fn a_quote_names_its_author() {
+        let mut reply = wa_types::ReplyView {
+            id: "m1".into(),
+            sender: None,
+            sender_name: None,
+            kind: "text".into(),
+            text: "hi".into(),
+            thumb: None,
+        };
+        assert_eq!(Model::quote_author(&reply), "You");
+        reply.sender_name = Some("Ada".into());
+        assert_eq!(Model::quote_author(&reply), "Ada");
+        reply.sender_name = Some("   ".into());
+        reply.sender = Some("2@s.whatsapp.net".into());
+        assert_eq!(Model::quote_author(&reply), "2@s.whatsapp.net");
+    }
+
+    #[test]
     fn the_media_cache_survives_a_restart() {
         let dir = std::env::temp_dir().join(format!("wa-media-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -2604,6 +2721,30 @@ mod tests {
         );
         // And a cached path stops the fetch.
         assert!(!restarted.request_media("m1"));
+
+        // Timing: restoring 2,000 cached paths and answering "where is this?"
+        // must be a memory lookup, far faster than the round trip it replaces.
+        let mut many = Model::new();
+        for index in 0..2_000 {
+            many.media_ready(&format!("id{index:04}"), &sticker.to_string_lossy());
+        }
+        let json = many.media_cache_json();
+        let started = std::time::Instant::now();
+        let mut warmed = Model::new();
+        warmed.load_media_cache(&json);
+        let restore = started.elapsed();
+        let started = std::time::Instant::now();
+        let painted = warmed.media_path("id1999");
+        let lookup = started.elapsed();
+        assert!(painted.is_some(), "the restarted chat paints the sticker");
+        assert!(
+            restore < std::time::Duration::from_millis(200),
+            "restoring the cache took {restore:?}"
+        );
+        assert!(
+            lookup < std::time::Duration::from_millis(5),
+            "a cached lookup took {lookup:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2735,8 +2876,13 @@ mod tests {
             model.media.get("img"),
             Some(&MediaState::Path("/tmp/x.jpg".into()))
         );
-        model.media_failed("img");
+        model.media_failed_with("img", "the link expired");
         assert_eq!(model.media.get("img"), Some(&MediaState::Failed));
+        assert_eq!(model.media_error("img"), Some("the link expired"));
+        // Tapping the placeholder clears the failure and fetches again.
+        model.retry_media("img");
+        assert!(!model.media.contains_key("img"));
+        assert_eq!(model.media_error("img"), None);
         let mut clip = photo.clone();
         clip.kind = "video".to_string();
         assert_eq!(model.bubble_body(&clip), "Video");

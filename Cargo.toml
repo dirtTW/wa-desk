@@ -11,7 +11,7 @@ whatsapp-rust = { path = "vendor/whatsapp-rust" }
 wacore-appstate = { path = "vendor/wacore-appstate" }
 
 [workspace.package]
-version = "0.2.0-rc.96"
+version = "0.2.0-rc.97"
 edition = "2024"
 rust-version = "1.94"
 # The distributed binary statically links `wacore-libsignal`, whose files carry
@@ -54,11 +54,14 @@ incremental = true
 opt-level = 1
 
 [profile.release]
-# CI/release speed: `codegen-units = 1` + thin LTO made the portable build take
-# minutes. Parallel codegen trades some binary size for wall time.
-lto = false
-codegen-units = 16
+# The released binary ships to users, so size wins over build time here: fat
+# LTO plus a single codegen unit, symbols stripped, and abort-on-panic (the app
+# has no catch_unwind). `--profile ci` keeps the fast settings for CI runs.
+lto = "fat"
+codegen-units = 1
 strip = true
+panic = "abort"
+opt-level = 3
 
 # CI's test and lint profiles: dependencies are built without optimisation.
 # `[profile.dev.package."*"] opt-level = 1` is right for everyday runs, but in CI

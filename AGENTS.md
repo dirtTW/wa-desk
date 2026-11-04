@@ -514,6 +514,11 @@ device until you remove it from the phone).
   the coloured initials disc until it loads. The sender's name is drawn only at the head.
 - **Days are separated by a chip.** `Model::starts_new_day` (pure, tested) inserts the official
   centered date chip before the first message of a new day, using `wa_ui::labels::day_of`.
+- **Media that fails is visible and retryable.** A missing photo/video draws the empty tile with
+  the reason (`Model::media_errors`), a tap retries, reopening a chat clears `Failed` states, and
+  `FetchMedia` logs to `diagnostics.log`.
+- **The group gutter wraps every bubble kind.** `bubble` paints the 40 px sender column and calls
+  `bubble_content`, so text, photos, stickers, voice notes and replies share one left edge.
 - **Bubble tails follow the run.** `Model::ends_run` decides which bubble squares its tail
   corner (same sender/direction, within 60 s); `bubble(..., tail)` uses it, so a run reads as one
   block like the official client.

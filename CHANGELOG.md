@@ -4,6 +4,30 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.97] - 2026-11-04
+
+- **Photos and videos that cannot download now say so.** A missing photo/video drew a bubble that
+  only said "Photo"; it now draws the official empty tile with the reason ("Couldn't load the
+  photo - tap to retry (…)" / "Loading the photo…"), a tap clears the failure and fetches again
+  (`BubbleAction::LoadMedia`), the reason is kept per message (`Model::media_errors`), failed media
+  is retried when a chat is reopened, and `FetchMedia` logs its result to `diagnostics.log`.
+- **Every bubble shares the group gutter.** The 40 px sender column moved into a wrapper around
+  *all* bubble kinds, so photos, stickers, voice notes, documents and replies line up with text
+  instead of sitting 40 px to the left; the photo/initials disc still only paints at the head of a
+  run.
+- **Quoted replies are painted** inside the bubble as the official inset card: coloured left bar
+  and author (`Model::quote_author`, tested), one clipped line of the quoted text, and a
+  translucent fill on our green bubbles. **Reaction pills** are rounded chips with colour emoji and
+  a count instead of a plain emoji string.
+- **Flicker fix.** The window only asked for the 10 fps repaint while a GIF actually had decoded
+  frames (`gif::any_prepared`); having a GIF in the chat used to force a full relayout ten times a
+  second.
+- **The release binary is half the size**: fat LTO, one codegen unit, stripped symbols and
+  abort-on-panic take `wa-desk-native.exe` from **52.9 MB to 25.2 MB (-52%)**, and the installer
+  payload from 55.3 MB to 26.4 MB.
+- Tests: 94 native + 38 wa-core, clippy clean, selftest green (including the media-cache timing
+  check: 2,000 restored paths in < 200 ms and a cached lookup in < 5 ms).
+
 ## [0.2.0-rc.96] - 2026-11-04
 
 - **Media loads instantly on the next launch.** The window now keeps `media.json` beside

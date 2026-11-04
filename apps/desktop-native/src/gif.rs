@@ -76,6 +76,16 @@ pub fn frame(
     crate::app::texture_at(ctx, textures, &key, Some(path))
 }
 
+/// Is any GIF decoded and therefore animating right now? The window only needs
+/// the fast repaint when this is true - merely *having* a GIF in the chat must
+/// not make it relayout ten times a second.
+pub fn any_prepared() -> bool {
+    clips()
+        .lock()
+        .map(|all| all.values().any(|clip| clip.is_some()))
+        .unwrap_or(false)
+}
+
 /// Forget a clip (used when the chat changes, so decodes do not pile up).
 pub fn clear() {
     if let Ok(mut all) = clips().lock() {
