@@ -60,3 +60,15 @@ lto = false
 codegen-units = 16
 strip = true
 
+# CI's test and lint profiles: dependencies are built without optimisation.
+# `[profile.dev.package."*"] opt-level = 1` is right for everyday runs, but in CI
+# the test suite does not need optimised cryptography and opt-level 0 compiles
+# the dependency tree noticeably faster.
+[profile.ci]
+inherits = "dev"
+debug = false
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 0
+

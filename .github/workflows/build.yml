@@ -44,7 +44,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --profile ci -- -D warnings
       # Known-vulnerability scan. `.cargo/audit.toml` records the accepted
       # advisories and why each one cannot be cleared yet. The prebuilt binary
       # installs in seconds; `cargo install` compiled it from source.
@@ -79,10 +79,10 @@ jobs:
           key: ${{ runner.os }}-cargo-test-${{ steps.rustc.outputs.version }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-      - run: cargo test --workspace
+      - run: cargo test --workspace --profile ci
       # The native UI is verified headlessly: the selftest folds scripted
       # protocol events and prints what the window would show.
-      - run: cargo run -q -p wa-desktop-native -- --selftest
+      - run: cargo run -q --profile ci -p wa-desktop-native -- --selftest
 
   build:
     strategy:
