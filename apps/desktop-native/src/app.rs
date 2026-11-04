@@ -4632,11 +4632,32 @@ impl WaDesk {
                         }
                         if self.status_compose.is_some() {
                             ui.add_space(16.0);
-                            ui.label(
-                                egui::RichText::new("Text status")
-                                    .size(13.0)
-                                    .color(palette.accent),
-                            );
+                            // The official composer row: Emoji, Font, Palette,
+                            // Send, and a close control.
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Text status")
+                                        .size(13.0)
+                                        .color(palette.accent),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if icon_button(ui, Icon::Close, &palette)
+                                            .on_hover_text("Close status posting view")
+                                            .clicked()
+                                        {
+                                            self.status_compose = None;
+                                        }
+                                        if icon_button(ui, Icon::Emoji, &palette)
+                                            .on_hover_text("Emoji")
+                                            .clicked()
+                                        {
+                                            self.model.emoji_open = !self.model.emoji_open;
+                                        }
+                                    },
+                                );
+                            });
                             // The box takes the chosen background, like the
                             // official composer, and the palette below is the
                             // official 20-colour array from `wa-ui`.
@@ -5558,6 +5579,36 @@ impl WaDesk {
                 |ui| {
                     ui.label(
                         egui::RichText::new(chats.to_string())
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
+        settings_card(ui, palette, "LINKED DEVICES", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "This device",
+                "The session in this window; the phone owns the full device list.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("WA Desk")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Manage devices",
+                "Remove a linked device from the phone: \
+                 Settings -> Linked devices.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Phone")
                             .size(13.0)
                             .color(palette.secondary),
                     );

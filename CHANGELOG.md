@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.14] - 2026-11-04
+
+- **Status composer gained the official controls.** Sampled the composer row of `web.whatsapp.com`
+  ("Emoji · Font · Palette · Send" plus "Close status posting view") and added the two that were
+  missing: the **Emoji** button (opens the picker for the status text) and the **close** control
+  that drops the draft and leaves the posting view, next to the Font palette and Send we already
+  had.
+- **Account shows a read-only Linked devices card** ("This device — WA Desk", "Manage devices —
+  Phone") so the linked-device surface is honest instead of absent: WhatsApp gives a linked device
+  no control over the device list, and the card says where to remove one.
+- `docs/PARITY.md` marks the linked-devices/2FA/block-list row as 🟡 read-only with the reason.
+- Tests: 116 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.13] - 2026-11-04
 
 - **Voice-note recording (was 🟡).** The composer shows a **microphone** while the draft is empty
