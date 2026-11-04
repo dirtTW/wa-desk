@@ -18,6 +18,13 @@ The live client is reached through the browser MCP. Two things matter:
   `Channels`, `Communities`, `You`; the composer's attach button is `Attach`; the settings rows and
   the attach entries are plain `role=button` rows with their label as inner text.
 
+Opened on 2026-11-05: the **status viewer** (rail `Status`, then a `aria-label="View status"`
+row). The official chrome is: the poster's name and the timestamp as **two lines** top-left
+("Daffa" / "Yesterday at 10:29 PM"), the thin segmented progress bar across the very top, the story
+body centred on the dark stage, and the close control top-right - ours draws the same segments and
+body with the name and time on **one** line ("Ada · 5:52 am"), so the two-line header is the
+remaining delta (`target/our_status_viewer.png`).
+
 Opened on 2026-11-05: the **Account** pane (behind `You` then `Account`) lists exactly
 **Security notifications · Request account info · How to delete my account**. Our Account page now
 carries those three beside the account info, linked devices, startup and log-out cards

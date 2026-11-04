@@ -4,6 +4,17 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.29] - 2026-11-05
+
+- **The official status viewer was sampled.** Rail `Status` → a `aria-label="View status"` row, both
+  driven with the `PointerEvent` recipe. What it shows: the poster's name and the timestamp on **two
+  lines** top-left ("Daffa" / "Yesterday at 10:29 PM"), the thin segmented progress bar across the
+  top, the story body centred on the dark stage, the close control top-right.
+- Recorded in `docs/PARITY.md` with the delta to our viewer: we draw the same segments and body, but
+  the name and time share **one** line ("Ada · 5:52 am"); making it two lines is the next change
+  (`target/our_status_viewer.png`).
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.28] - 2026-11-05
 
 - **A Settings sub-page was opened on the live client.** Walking up from the "Account" label to the
