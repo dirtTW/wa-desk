@@ -2221,6 +2221,9 @@ impl WaDesk {
 
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
+                    // Always reserve the bar: when it appeared mid-scroll the
+                    // rows shifted a few pixels sideways, which flickers.
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                     .show(ui, |ui| {
                         for row in &rows {
                             let selected = self.model.active.as_deref() == Some(row.jid.as_str());
@@ -2454,10 +2457,10 @@ impl WaDesk {
                 let height = ui.available_height() - 64.0;
                 // WhatsApp anchors a short conversation to the composer; the
                 // previous frame's content height tells us how much to pad.
-                let content_height: f32 = ctx.data(|data| {
-                    data.get_temp(egui::Id::new("chat-content-height"))
-                        .unwrap_or(0.0)
-                });
+                // Keyed by chat: a *global* height padded the new chat with the
+                // previous one's for a frame, so the list jumped on every click.
+                let height_key = egui::Id::new(("chat-content-height", jid.as_str()));
+                let content_height: f32 = ctx.data(|data| data.get_temp(height_key).unwrap_or(0.0));
                 let spare = (height - content_height).max(0.0);
                 let mut chosen: Option<BubbleAction> = None;
                 let playback = self.audio.state();
@@ -2524,7 +2527,7 @@ impl WaDesk {
                                 }
                                 ctx.data_mut(|data| {
                                     data.insert_temp(
-                                        egui::Id::new("chat-content-height"),
+                                        height_key,
                                         (ui.min_rect().height() - spare).max(0.0),
                                     );
                                 });

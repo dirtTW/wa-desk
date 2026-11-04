@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.20] - 2026-11-05
+
+- **Flicker when scrolling the chat list: the scrollbar width.** The sidebar's `ScrollArea` used the
+  default `VisibleWhenNeeded`, so the moment the list grew past the panel a bar appeared and every
+  row shifted a few pixels sideways - visible as a sideways twitch while scrolling. It is now
+  `AlwaysVisible`, so the width never changes.
+- **Flicker when clicking a chat: the bottom-anchoring height was global.** The conversation pads a
+  short chat down to the composer using the *previous frame's* content height, cached under one
+  global id. Switching chats therefore padded the new chat with the old chat's height for a frame,
+  and the bubbles jumped before settling. The cache is now keyed by
+  `("chat-content-height", jid)`, so each chat remembers its own.
+- Both were found by reading the paint path rather than by profiling: the two places that change
+  layout between frames are this cache and the scrollbar visibility, and nothing else in the list
+  animates or changes size (rows are a fixed 72 px, avatars are painted discs until the photo
+  texture arrives).
+- Also in this build: the chat-list row overlap fix, the desktop header (26 px "Chats", no avatar),
+  the desktop pill order (All, Groups, Communities, Unread, caret) and the long lorem-ipsum demo
+  message from rc.19.
+- Tests: 116 native + 39 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.19] - 2026-11-05
 
 - **Fixed the overlapping chat rows** (the "seem broken" screenshot): a preview with newlines - a
