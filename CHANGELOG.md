@@ -4,7 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.71] — 2026-11-04
+## [0.2.0-rc.72] — 2026-11-04
+
+- **Read badges stay in step with the phone.** A `read`/`played` receipt or a
+  `ChatReadMark` from the chat app-state clears the chat's unread count (already), and a
+  `ChatReadMark { read: false }` now restores at least one badge, so marking a chat unread on
+  the phone shows here too. The window polls the chat app-state every 45 s in addition to the
+  live patches, because a missed `markChatAsRead` mutation would otherwise leave a stale badge
+  forever - the same reason the official client re-syncs its state on resume.
+- Verified on the real account that the sync path runs (`chat state sync`, participating
+  groups) and that the rail/list badges derive from the same counters.
+
+
 
 - **Groups are listed properly.** My rc.70 claim that groups need a relink was wrong: the
   protocol client exposes `groups().get_participating()`, and `Session::participating_groups()`

@@ -127,6 +127,8 @@ pub struct WaDesk {
     focus_search: bool,
     /// The connection epoch the backfill already started for.
     seen_epoch: u64,
+    /// When the chat app-state was last polled for read marks/mutes.
+    last_state_sync: std::time::Instant,
     /// Group JIDs whose metadata has been requested.
     groups_asked: std::collections::HashSet<String>,
     /// The Chats kebab menu is open.
@@ -189,6 +191,7 @@ impl WaDesk {
             last_sync: std::time::Instant::now(),
             focus_search: false,
             seen_epoch: 0,
+            last_state_sync: std::time::Instant::now(),
             groups_asked: std::collections::HashSet::new(),
             show_chat_menu: std::env::var("WA_DESK_MENU").is_ok(),
         }
@@ -2367,6 +2370,16 @@ impl eframe::App for WaDesk {
             }
             self.send(Command::SyncChatState);
             self.send(Command::SyncGroups);
+            self.last_state_sync = std::time::Instant::now();
+        }
+        // Read marks, mutes and pins live in the chat app-state collection. A
+        // slow poll keeps the badges in step with the phone (the official client
+        // receives the same patches live, but a missed one would stick forever).
+        if self.model.login.is_linked()
+            && self.last_state_sync.elapsed() >= std::time::Duration::from_secs(45)
+        {
+            self.last_state_sync = std::time::Instant::now();
+            self.send(Command::SyncChatState);
         }
         if self.model.login.is_linked()
             && self.sync_rounds > 0

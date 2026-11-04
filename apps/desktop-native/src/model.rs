@@ -507,10 +507,13 @@ impl Model {
                 }
             }
             UiEvent::ChatReadMark { chat, read } => {
-                if let Some(row) = self.chats.get_mut(chat)
-                    && *read
-                {
-                    row.unread = 0;
+                if let Some(row) = self.chats.get_mut(chat) {
+                    if *read {
+                        row.unread = 0;
+                    } else {
+                        // The phone marked it unread: keep at least one badge.
+                        row.unread = row.unread.max(1);
+                    }
                 }
             }
             UiEvent::Receipt { chat, ids, status } => {
