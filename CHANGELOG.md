@@ -4,7 +4,15 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.61] — 2026-11-04
+## [0.2.0-rc.62] — 2026-11-04
+
+- **Fixed the red `check` job on v0.2.0-rc.61.** The updater's test fixtures hardcoded the
+  Windows asset name (`wa-desk-native.exe`), so on the Linux runner `parse_releases` found no
+  matching asset and the tests panicked. The fixtures now build their JSON from `asset_name()`,
+  including a newer release that only ships the *other* platform's binary (it must be skipped).
+  No runtime change: the rc.61 binaries are correct.
+
+
 
 - **Fixed: the updater could not find or download a release.** Two things were wrong. The
   native app had no updater at all, and the obvious GitHub endpoint cannot work here: **every

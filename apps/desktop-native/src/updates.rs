@@ -242,70 +242,69 @@ mod tests {
     }
 
     #[test]
+    fn the_newest_release_with_a_platform_asset_wins() {
+        // The asset name is picked at compile time, so the fixtures must use it
+        // too (the `check` job runs on Linux and Windows).
+        let platform = asset_name();
+        let other = if platform == "wa-desk-native.exe" {
+            "wa-desk-native"
+        } else {
+            "wa-desk-native.exe"
+        };
+        let json = serde_json::json!([
+            {"tag_name": "v0.2.0-rc.62", "draft": false, "html_url": "x",
+             "assets": [{"name": platform, "size": 10,
+                         "browser_download_url": "https://example/newest"}]},
+            {"tag_name": "v0.2.0-rc.61", "draft": false, "html_url": "y",
+             "assets": [{"name": platform, "size": 9,
+                         "browser_download_url": "https://example/old"}]},
+            {"tag_name": "v0.2.0-rc.63", "draft": true, "html_url": "z",
+             "assets": [{"name": platform, "size": 11,
+                         "browser_download_url": "https://example/draft"}]},
+            // Newer, published, but only ships the other platform's binary.
+            {"tag_name": "v0.2.0-rc.64", "draft": false, "html_url": "w",
+             "assets": [{"name": other, "size": 12,
+                         "browser_download_url": "https://example/other-platform"}]}
+        ])
+        .to_string();
+
+        let release = parse_releases(&json, "0.2.0-rc.60")
+            .expect("a parseable list")
+            .expect("a newer release");
+        assert_eq!(release.tag, "v0.2.0-rc.62");
+        assert_eq!(release.url, "https://example/newest");
+        assert_eq!(release.size, 10);
+    }
+
+    #[test]
+    fn an_up_to_date_app_gets_nothing() {
+        let json = serde_json::json!([
+            {"tag_name": "v0.2.0-rc.60", "draft": false,
+             "assets": [{"name": asset_name(), "browser_download_url": "u"}]}
+        ])
+        .to_string();
+        assert_eq!(parse_releases(&json, "0.2.0-rc.60").unwrap(), None);
+        assert!(parse_releases("[]", "0.2.0-rc.60").unwrap().is_none());
+        assert!(parse_releases("not json", "0.2.0-rc.60").is_err());
+    }
+
+    #[test]
     fn the_newest_core_wins_over_a_busier_rc_line() {
-        let json = r#"[
+        let json = serde_json::json!([
             {"tag_name": "v0.2.0-rc.90", "draft": false, "html_url": "a",
-             "assets": [{"name": "wa-desk-native.exe", "size": 10,
+             "assets": [{"name": asset_name(), "size": 10,
                          "browser_download_url": "https://example/rc90"}]},
             {"tag_name": "v0.3.0-rc.1", "draft": false, "html_url": "b",
-             "assets": [{"name": "wa-desk-native.exe", "size": 11,
+             "assets": [{"name": asset_name(), "size": 11,
                          "browser_download_url": "https://example/030"}]}
-        ]"#;
-        let release = parse_releases(json, "0.2.0-rc.60")
+        ])
+        .to_string();
+        let release = parse_releases(&json, "0.2.0-rc.60")
             .expect("parse")
             .expect("a newer release");
         assert_eq!(release.tag, "v0.3.0-rc.1");
         assert_eq!(release.url, "https://example/030");
     }
-
-    #[test]
-    fn the_newest_release_with_a_platform_asset_wins() {
-        let json = r#"[
-            {"tag_name": "v0.2.0-rc.62", "draft": false, "html_url": "x",
-             "assets": [{"name": "wa-desk-native.exe", "size": 10,
-                         "browser_download_url": "https://example/exe"}]},
-            {"tag_name": "v0.2.0-rc.61", "draft": false, "html_url": "y",
-             "assets": [{"name": "wa-desk-native.exe", "size": 9,
-                         "browser_download_url": "https://example/old"}]},
-            {"tag_name": "v0.2.0-rc.63", "draft": true, "html_url": "z",
-             "assets": [{"name": "wa-desk-native.exe", "size": 11,
-                         "browser_download_url": "https://example/draft"}]},
-            {"tag_name": "v0.2.0-rc.64", "draft": false, "html_url": "w",
-             "assets": [{"name": "wa-desk-linux", "size": 12,
-                         "browser_download_url": "https://example/linux-only"}]}
-        ]"#;
-        let release = parse_releases(json, "0.2.0-rc.60")
-            .expect("a parseable list")
-            .expect("a newer release");
-        // `cfg!` picks the asset name at compile time.
-        let expected = if cfg!(windows) {
-            "https://example/exe"
-        } else {
-            "https://example/linux-only"
-        };
-        assert_eq!(release.url, expected);
-        assert_eq!(release.size, if cfg!(windows) { 10 } else { 12 });
-        assert_eq!(
-            release.tag,
-            if cfg!(windows) {
-                "v0.2.0-rc.62"
-            } else {
-                "v0.2.0-rc.64"
-            }
-        );
-    }
-
-    #[test]
-    fn an_up_to_date_app_gets_nothing() {
-        let json = r#"[
-            {"tag_name": "v0.2.0-rc.60", "draft": false,
-             "assets": [{"name": "wa-desk-native.exe", "browser_download_url": "u"}]}
-        ]"#;
-        assert_eq!(parse_releases(json, "0.2.0-rc.60").unwrap(), None);
-        assert!(parse_releases("[]", "0.2.0-rc.60").unwrap().is_none());
-        assert!(parse_releases("not json", "0.2.0-rc.60").is_err());
-    }
-
     #[test]
     fn the_asset_name_matches_the_release_job() {
         let expected = if cfg!(windows) {
