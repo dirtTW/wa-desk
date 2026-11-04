@@ -504,6 +504,9 @@ device until you remove it from the phone).
   process-wide registry (cleared when the chat changes) and steps it with the pure `frame_index`;
   the bubble paints frames through the shared texture cache and the window repaints while one is
   visible.
+- **Bubble tails follow the run.** `Model::ends_run` decides which bubble squares its tail
+  corner (same sender/direction, within 60 s); `bubble(..., tail)` uses it, so a run reads as one
+  block like the official client.
 - **Delivery ticks.** `Model::ticks` records `sent`/`delivered`/`read` per message id (from
   `UiEvent::Sent`/`Receipt`); the bubble paints one grey `check`, grey `done_all` or the blue
   `done_all` (`palette.read`).

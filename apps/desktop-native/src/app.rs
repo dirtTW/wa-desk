@@ -2150,6 +2150,7 @@ impl WaDesk {
                                 if is_hit { Some(query.as_str()) } else { None },
                                 focus == Some(index),
                                 &playback,
+                                Model::ends_run(&row.messages, index),
                             ) {
                                 chosen = Some(action);
                             }
@@ -2461,6 +2462,7 @@ fn bubble(
     search: Option<&str>,
     scroll: bool,
     playback: &crate::audio::PlaybackState,
+    tail: bool,
 ) -> Option<BubbleAction> {
     let align = if message.from_me {
         egui::Align::Max
@@ -2761,12 +2763,14 @@ fn bubble(
         } else {
             palette.bubble_in
         };
-        // WhatsApp's tail: the corner on the sender's side is square-ish.
+        // WhatsApp's tail: only the last bubble of a sender run squares the
+        // corner on the sender's side, so a run reads as one block.
+        let square = if tail { 2 } else { 8 };
         let radius = egui::CornerRadius {
             nw: 8,
             ne: 8,
-            sw: if message.from_me { 8 } else { 2 },
-            se: if message.from_me { 2 } else { 8 },
+            sw: if message.from_me { 8 } else { square },
+            se: if message.from_me { square } else { 8 },
         };
         let padding = 9.0;
         let max_text = max_width - padding * 2.0;

@@ -445,6 +445,15 @@ impl Model {
             now - 8 * 60_000,
             true,
         );
+        // A second bubble in the same run: only the last one gets the tail.
+        group(
+            "0@s.whatsapp.net",
+            "You",
+            "d2b",
+            "and the changelog",
+            now - 7 * 60_000,
+            true,
+        );
         group(
             "2@s.whatsapp.net",
             "Budi",
@@ -869,6 +878,25 @@ impl Model {
             .collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         rows
+    }
+
+    /// Is the message at `index` the last of its sender run? WhatsApp only puts
+    /// the square "tail" corner on that bubble; the rest of a run is rounded.
+    pub fn ends_run(messages: &[MessageView], index: usize) -> bool {
+        let Some(message) = messages.get(index) else {
+            return false;
+        };
+        let Some(next) = messages.get(index + 1) else {
+            return true;
+        };
+        if next.from_me != message.from_me
+            || next.sender != message.sender
+            || next.is_group != message.is_group
+        {
+            return true;
+        }
+        // A new "day"/burst after a long pause starts a fresh run.
+        next.timestamp.saturating_sub(message.timestamp) > 60_000
     }
 
     /// The delivery marker for one of our own messages: `sent`, `delivered` or
@@ -2411,6 +2439,27 @@ mod tests {
             status: "read".into(),
         });
         assert_eq!(model.tick_status(&own), "read");
+    }
+
+    #[test]
+    fn only_the_last_bubble_of_a_run_gets_the_tail() {
+        let mut first = view("1@s.whatsapp.net", "Ada", "a", "one", 1_000, false);
+        first.sender = Some("1@s.whatsapp.net".into());
+        let mut second = view("1@s.whatsapp.net", "Ada", "b", "two", 2_000, false);
+        second.sender = Some("1@s.whatsapp.net".into());
+        let mut other = view("1@s.whatsapp.net", "Ada", "c", "three", 3_000, true);
+        other.sender = None;
+        let messages = vec![first.clone(), second.clone(), other.clone()];
+        assert!(!Model::ends_run(&messages, 0), "the run continues");
+        assert!(Model::ends_run(&messages, 1), "our own message ends it");
+        assert!(Model::ends_run(&messages, 2), "the last one always ends it");
+
+        // A long pause starts a new run even from the same sender.
+        let mut later = second.clone();
+        later.id = "d".into();
+        later.timestamp += 120_000;
+        let paused = vec![first, later];
+        assert!(Model::ends_run(&paused, 0));
     }
 
     #[test]

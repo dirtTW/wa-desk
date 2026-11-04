@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.91] - 2026-11-04
+
+- **Bubbles tail like the official client.** The square "tail" corner was on every bubble; now it
+  only appears on the **last** message of a sender run (`Model::ends_run`, a pure rule: same
+  sender, same direction, within 60 s), so consecutive messages read as one block with rounded
+  corners between them. Test: `only_the_last_bubble_of_a_run_gets_the_tail`. Screenshot:
+  `target/bubble_tails2.png` (two own messages: rounded then tailed).
+- CI notes from this run: rc.87's **publish** step failed three times on GitHub infrastructure
+  (HTTP 500, then `ReleaseAsset.name already exists`, then HTTP 502) while lint/test/both builds
+  passed; rc.88 failed a real test (`the_sticker_keeps_alpha` ran without ffmpeg on the CI image)
+  which is fixed in rc.90; rc.83–rc.86 are published.
+- Tests: 83 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.90] - 2026-11-04
 
 - **GIFs animate in the bubble.** A GIF is a muted looping video, and the bubble now plays it
