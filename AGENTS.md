@@ -472,6 +472,15 @@ device until you remove it from the phone).
   SendText and an optional reaction through the normal `Command` channel. The key is encrypted at
   rest by `ai::keys` (AES-256-GCM under `ai.key`); Settings -> AI writes it. Integration tests run
   against a local mock endpoint (`mock_server` in the `ai` tests).
+- **Calls are wired end to end on the native side.** `wa-core/src/calls.rs` owns the VoIP session;
+  the window starts/answers/ends them through `Command::CallStart`/`CallAccept`/`CallReject`/
+  `CallHangup`/`CallMute`, and `call_overlay` paints `wa_ui::calls::overlay` (Accept/Decline while
+  ringing, mute/hang-up once live, timer from `CallOverlay::status`). `audio.rs` plays
+  `UiEvent::CallAudio` on a dedicated sink and `mic.rs` (cpal) resamples the microphone to
+  16 kHz/960-sample frames for `Session::send_call_audio`. Remote H.264 is not decoded yet.
+- **Delivery ticks.** `Model::ticks` records `sent`/`delivered`/`read` per message id (from
+  `UiEvent::Sent`/`Receipt`); the bubble paints one grey `check`, grey `done_all` or the blue
+  `done_all` (`palette.read`).
 - **The window is `egui`, not a WebView** (`apps/desktop-native`): `--preview` renders the demo
   model, `WA_DESK_SETTINGS_SECTION=n` picks a settings page and `WA_DESK_SIZE=WxH` pins the
   window; `--screenshot` saves one settled frame.

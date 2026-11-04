@@ -31,6 +31,10 @@ enum Command {
         seconds: f32,
     },
     Volume(f32),
+    /// One 16 kHz mono playout frame from the peer.
+    CallAudio(Vec<i16>),
+    /// The call is over: drop the playout queue.
+    CallStop,
     Stop,
 }
 
@@ -92,6 +96,16 @@ impl Audio {
         let _ = self.tx.send(Command::Volume(volume));
     }
 
+    /// Play one 16 kHz mono frame from the peer (a call's playout).
+    pub fn play_call_audio(&self, samples: Vec<i16>) {
+        let _ = self.tx.send(Command::CallAudio(samples));
+    }
+
+    /// Drop the playout queue when the call ends.
+    pub fn stop_call(&self) {
+        let _ = self.tx.send(Command::CallStop);
+    }
+
     pub fn stop(&self) {
         let _ = self.tx.send(Command::Stop);
     }
@@ -120,6 +134,10 @@ fn audio_thread(
         return;
     };
     let Ok(sink) = Sink::try_new(&handle) else {
+        return;
+    };
+    // The call has its own sink: a voice note and a call never share a queue.
+    let Ok(call_sink) = Sink::try_new(&handle) else {
         return;
     };
     let mut volume = 1.0f32;
@@ -167,6 +185,26 @@ fn audio_thread(
             Ok(Command::Volume(value)) => {
                 volume = value.clamp(0.0, 1.0);
                 sink.set_volume(volume);
+            }
+            Ok(Command::CallAudio(samples)) => {
+                if samples.is_empty() {
+                    continue;
+                }
+                // 16 kHz mono PCM from the peer (`wa_ui::calls::audio_format`).
+                let pcm: Vec<f32> = samples
+                    .into_iter()
+                    .map(|sample| sample as f32 / 32_768.0)
+                    .collect();
+                // Do not let a stalled device grow the queue without bound.
+                if call_sink.len() > 40 {
+                    continue;
+                }
+                call_sink.set_volume(volume);
+                call_sink.append(rodio::buffer::SamplesBuffer::new(1, 16_000, pcm));
+                call_sink.play();
+            }
+            Ok(Command::CallStop) => {
+                call_sink.stop();
             }
             Ok(Command::Stop) => {
                 sink.stop();

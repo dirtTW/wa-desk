@@ -30,6 +30,26 @@ pub enum Command {
         chat: String,
         typing: bool,
     },
+    /// Start a call in the open chat. `video` picks the camera flavour.
+    CallStart {
+        chat: String,
+        video: bool,
+    },
+    /// Answer the ringing call.
+    CallAccept {
+        call_id: String,
+        video: bool,
+    },
+    /// Decline the ringing call.
+    CallReject {
+        call_id: String,
+    },
+    /// End the call we are in.
+    CallHangup,
+    /// Mute or unmute our microphone.
+    CallMute {
+        muted: bool,
+    },
     /// Ask the phone to show a pairing code instead of a QR.
     PairCode {
         phone: String,
@@ -293,6 +313,47 @@ pub struct Model {
     pub connection_epoch: u64,
     /// Starred message ids, across chats.
     pub starred: std::collections::BTreeSet<String>,
+    /// The call in progress, if any.
+    pub call: Option<CallState>,
+    /// Delivery state of our own messages, by message id (`sent`, `delivered`,
+    /// `read`).
+    pub ticks: std::collections::HashMap<String, String>,
+    /// A short line about the last call ("Missed call"), shown for a while.
+    pub call_note: Option<(String, std::time::Instant)>,
+}
+
+/// One voice/video call as the window paints it.
+#[derive(Debug, Clone, Default)]
+pub struct CallState {
+    pub call_id: String,
+    /// The peer's JID.
+    pub peer: String,
+    /// Display name, resolved from the chat list.
+    pub peer_name: String,
+    /// `ringing`, `calling`, `connecting` or `connected`.
+    pub state: String,
+    pub video: bool,
+    pub muted: bool,
+    /// Unix ms when the call connected.
+    pub started_at: Option<i64>,
+}
+
+impl CallState {
+    /// The `wa-ui` overlay plan for this call.
+    pub fn overlay(&self, now: i64) -> wa_ui::calls::CallOverlay {
+        wa_ui::calls::overlay(&self.overlay_input(now))
+    }
+
+    pub fn overlay_input(&self, now: i64) -> wa_ui::calls::CallOverlayInput {
+        wa_ui::calls::CallOverlayInput {
+            state: self.state.clone(),
+            video: self.video,
+            send_video: self.video && self.state != "ringing",
+            muted: self.muted,
+            started_at: self.started_at,
+            now,
+        }
+    }
 }
 
 impl Model {
@@ -423,6 +484,11 @@ impl Model {
             now - 3 * 60_000,
             false,
         )));
+        // Our own bubbles show the delivery ticks: d2 was read, d4 delivered.
+        model.ticks.insert("d2".to_string(), "read".to_string());
+        model
+            .ticks
+            .insert("d4".to_string(), "delivered".to_string());
         // `WA_DESK_CJK=1` (screenshot testing): simplified + traditional text
         // must draw with glyphs, not the missing-font boxes.
         if std::env::var("WA_DESK_CJK").is_ok() {
@@ -561,6 +627,11 @@ impl Model {
                 }
             }
             UiEvent::Message(message) | UiEvent::HistoryMessage(message) => {
+                if message.from_me {
+                    self.ticks
+                        .entry(message.id.clone())
+                        .or_insert_with(|| "sent".to_string());
+                }
                 self.upsert(message.clone());
             }
             UiEvent::Sent {
@@ -568,6 +639,7 @@ impl Model {
                 id,
                 timestamp,
             } => {
+                self.ticks.insert(id.clone(), "sent".to_string());
                 if let Some(last) = self
                     .chats
                     .get_mut(chat)
@@ -593,7 +665,9 @@ impl Model {
                 // A read (or played) receipt means the phone has read the chat:
                 // the local badge must go, not just the bubble ticks.
                 let read = matches!(status.as_str(), "read" | "played");
-                let _ = ids;
+                for id in ids {
+                    self.ticks.insert(id.clone(), status.clone());
+                }
                 if let Some(row) = self.chats.get_mut(chat)
                     && read
                 {
@@ -659,6 +733,52 @@ impl Model {
             } => {
                 self.apply_reaction(id, *from_me, emoji);
             }
+            UiEvent::CallIncoming {
+                call_id,
+                peer,
+                video,
+                ..
+            } => {
+                let name = self
+                    .chats
+                    .get(peer)
+                    .map(|row| self.title(row))
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| peer.clone());
+                self.call = Some(CallState {
+                    call_id: call_id.clone(),
+                    peer: peer.clone(),
+                    peer_name: name,
+                    state: "ringing".to_string(),
+                    video: *video,
+                    muted: false,
+                    started_at: None,
+                });
+            }
+            UiEvent::CallState { call_id, state } => {
+                if let Some(call) = self.call.as_mut()
+                    && &call.call_id == call_id
+                {
+                    call.state = state.clone();
+                    if state == "connected" && call.started_at.is_none() {
+                        call.started_at = Some(self.now);
+                    }
+                }
+            }
+            UiEvent::CallEnded { call_id, reason } => {
+                if let Some(call) = self.call.as_ref()
+                    && &call.call_id == call_id
+                {
+                    self.call = None;
+                    self.call_note = Some((
+                        match reason.as_str() {
+                            "missed" => "Missed call".to_string(),
+                            _ => "Call ended".to_string(),
+                        },
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
             _ => {}
         }
     }
@@ -722,6 +842,15 @@ impl Model {
             .collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         rows
+    }
+
+    /// The delivery marker for one of our own messages: `sent`, `delivered` or
+    /// `read`. Unknown ids count as sent (the stanza was accepted).
+    pub fn tick_status(&self, message: &MessageView) -> &str {
+        self.ticks
+            .get(&message.id)
+            .map(String::as_str)
+            .unwrap_or("sent")
     }
 
     /// Channels, newest activity first, with their follower line.
@@ -2209,6 +2338,26 @@ mod tests {
             false,
         )));
         assert_eq!(model.active_row().unwrap().unread, 0);
+    }
+
+    #[test]
+    fn delivery_ticks_follow_receipts() {
+        let mut model = Model::new();
+        let own = view("1@s.whatsapp.net", "Ada", "m1", "hi", 1, true);
+        model.apply(&UiEvent::Message(own.clone()));
+        assert_eq!(model.tick_status(&own), "sent");
+        model.apply(&UiEvent::Receipt {
+            chat: "1@s.whatsapp.net".into(),
+            ids: vec!["m1".into()],
+            status: "delivered".into(),
+        });
+        assert_eq!(model.tick_status(&own), "delivered");
+        model.apply(&UiEvent::Receipt {
+            chat: "1@s.whatsapp.net".into(),
+            ids: vec!["m1".into()],
+            status: "read".into(),
+        });
+        assert_eq!(model.tick_status(&own), "read");
     }
 
     #[test]

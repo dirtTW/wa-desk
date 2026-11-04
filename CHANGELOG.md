@@ -4,6 +4,37 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.83] - 2026-11-04
+
+- **Read receipts (the checkmarks) are back.** The window never recorded delivery state, so our
+  bubbles showed only the clock. The model now keeps `ticks` per message id: `sent` when the
+  stanza is accepted (`UiEvent::Sent`), `delivered`/`read` from `UiEvent::Receipt`, and the bubble
+  paints the official marker next to the time - one grey `check`, grey `done_all` when delivered,
+  blue `done_all` (`palette.read`) when read. Test:
+  `model::tests::delivery_ticks_follow_receipts`. Screenshot: `target/ticks.png`.
+- **Voice/video calls reach the window** (the last JS-era feature). `wa-core` already owned the
+  VoIP session; the port adds the native side: header phone/video icons and the kebab's
+  **Voice call / Video call** rows call `Command::CallStart`, `wa_ui::calls::call_guard` blocks
+  groups and self-chat with a toast, and the full-screen sheet uses `wa_ui::calls::overlay` -
+  Accept/Decline while ringing (Esc declines) and mute/hang-up once live, with the timer from
+  `CallOverlay::status`.
+- **Call media**: `UiEvent::CallAudio` frames (16 kHz mono) play through a dedicated `rodio` sink
+  in `audio.rs`; the microphone (`mic.rs`, `cpal`) is downmixed and resampled to 16 kHz in 960
+  sample frames and pushed through `Session::send_call_audio` while the call is connected, with
+  `Session::set_call_muted` behind the mute button. Remote H.264 frames are not decoded yet, so a
+  video call shows the dark stage with a note - audio works in both cases.
+- **The two kebab menus were swapped.** The Chats header's ⋮ toggled the *open chat's* menu, so a
+  group chat's "Group info" sheet appeared; it now opens the Chats menu. The conversation header's
+  ⋮ was group-only and jumped straight to group info; it now opens the chat menu (calls, mute,
+  pin, unread, archive, clear, delete, import, and Group info for groups) for every chat, and the
+  header order is the official one: video, phone, search, ⋮.
+- **The Chats menu is the official card**: New group / Starred messages / Select chats / Mark all
+  as read, then App lock / Log out, with a divider. "Mark all as read" sends `MarkRead` for every
+  unread chat; Select chats and App lock say they are not supported yet. New contact moved to the
+  new-chat picker's "create" rows. Screenshot: `target/chats_menu.png`.
+- Tests: 68 native (`delivery_ticks_follow_receipts`, `mic::tests::the_call_format_matches_wa_ui`),
+  clippy clean, selftest green. Screenshot of the sheet: `target/call_connected.png`.
+
 ## [0.2.0-rc.82] - 2026-11-04
 
 - **The AI auto-reply loop is back** (it only existed in the removed JS shell). `ai.rs` holds the

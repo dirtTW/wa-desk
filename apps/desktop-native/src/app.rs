@@ -94,6 +94,8 @@ pub struct WaDesk {
     scrolled_hit: i64,
     /// A short status line for the viewer (saved path, failures).
     note: String,
+    /// A transient toast ("Use the contact screen to call"), a few seconds.
+    notice: Option<(String, std::time::Instant)>,
     /// Self-update state and its worker replies.
     update: UpdateState,
     update_tx: std::sync::mpsc::Sender<UpdateMsg>,
@@ -218,6 +220,7 @@ impl WaDesk {
             favorites_rx: native.favorites,
             scrolled_hit: -1,
             note: String::new(),
+            notice: None,
             update: UpdateState::Idle,
             update_tx: update_tx.clone(),
             update_rx,
@@ -299,6 +302,19 @@ impl WaDesk {
         if std::env::var("WA_DESK_EMOJI").is_ok() {
             self.model.emoji_open = true;
         }
+        // `WA_DESK_CALL=ringing|connected` paints the call sheet.
+        if let Ok(kind) = std::env::var("WA_DESK_CALL") {
+            let connected = kind != "ringing";
+            self.model.call = Some(crate::model::CallState {
+                call_id: "demo-call".to_string(),
+                peer: "1@s.whatsapp.net".to_string(),
+                peer_name: "Ada Lovelace".to_string(),
+                state: if connected { "connected" } else { "ringing" }.to_string(),
+                video: false,
+                muted: false,
+                started_at: connected.then(|| now_ms() - 42_000),
+            });
+        }
         // `WA_DESK_VIEWER=1` opens the media viewer on the demo video;
         // `WA_DESK_DEMO_VIDEO=<clip>` supplies a real file to play and
         // `WA_DESK_VIEWER_PLAY=1` starts it so a screenshot shows playback.
@@ -377,35 +393,46 @@ impl WaDesk {
                     .inner_margin(egui::Margin::symmetric(6, 6)),
             )
             .show(ctx, |ui| {
-                ui.set_min_width(220.0);
-                if menu_row(ui, &palette, Icon::Settings, "Settings") {
-                    self.show_settings = true;
-                    self.show_chat_menu = false;
-                }
-                if menu_row(ui, &palette, Icon::Document, "Sync chat history") {
-                    self.send(Command::InitialSync);
-                    self.send(Command::SyncChatState);
-                    self.show_chat_menu = false;
-                }
-                if menu_row(ui, &palette, Icon::Groups, "Sync groups") {
-                    self.send(Command::SyncGroups);
+                ui.set_min_width(230.0);
+                // The official Chats menu: New group, Starred messages, Select
+                // chats, Mark all as read, then App lock and Log out.
+                if menu_row(ui, &palette, Icon::GroupAdd, "New group") {
+                    self.show_new_group = true;
+                    self.send(Command::Contacts);
                     self.show_chat_menu = false;
                 }
                 if menu_row(ui, &palette, Icon::Star, "Starred messages") {
                     self.show_starred = true;
                     self.show_chat_menu = false;
                 }
-                if menu_row(ui, &palette, Icon::GroupAdd, "New group") {
-                    self.show_new_group = true;
-                    self.send(Command::Contacts);
+                if menu_row(ui, &palette, Icon::SelectChats, "Select chats") {
+                    self.notice = Some((
+                        "Selecting several chats is not supported yet.".to_string(),
+                        std::time::Instant::now(),
+                    ));
                     self.show_chat_menu = false;
                 }
-                if menu_row(ui, &palette, Icon::PersonAdd, "New contact") {
-                    self.show_new_contact = true;
+                if menu_row(ui, &palette, Icon::MarkRead, "Mark all as read") {
+                    let unread: Vec<String> = self
+                        .model
+                        .chats
+                        .values()
+                        .filter(|row| row.unread > 0)
+                        .map(|row| row.jid.clone())
+                        .collect();
+                    for chat in unread {
+                        self.send(Command::MarkRead { chat });
+                    }
                     self.show_chat_menu = false;
                 }
-                if menu_row(ui, &palette, Icon::Status, "Refresh statuses") {
-                    self.send(Command::StatusHistory);
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+                if menu_row(ui, &palette, Icon::Lock, "App lock") {
+                    self.notice = Some((
+                        "App lock is not supported yet.".to_string(),
+                        std::time::Instant::now(),
+                    ));
                     self.show_chat_menu = false;
                 }
                 if menu_row(ui, &palette, Icon::Logout, "Log out") {
@@ -432,6 +459,8 @@ impl WaDesk {
                 }
             } else if action == "import" {
                 self.import_chat_export(&chat);
+            } else if action == "voice" || action == "video" {
+                self.start_call(action == "video");
             } else {
                 self.send(Command::ChatAction {
                     chat: chat.clone(),
@@ -472,6 +501,15 @@ impl WaDesk {
                 if is_group && menu_row(ui, &palette, Icon::Groups, "Group info") {
                     chosen = Some("info".to_string());
                 }
+                // The official menu leads with the calls.
+                if !is_group {
+                    if menu_row(ui, &palette, Icon::Phone, "Voice call") {
+                        chosen = Some("voice".to_string());
+                    }
+                    if menu_row(ui, &palette, Icon::VideoCall, "Video call") {
+                        chosen = Some("video".to_string());
+                    }
+                }
                 for (label, action) in [
                     ("Mute for 8 hours", "mute8h"),
                     ("Mute for 1 week", "mute1w"),
@@ -505,6 +543,19 @@ impl WaDesk {
             .resizable(false)
             .default_width(360.0)
             .show(ctx, |ui| {
+                // The official picker leads with the two "create" rows.
+                ui.horizontal(|ui| {
+                    if menu_row(ui, &palette, Icon::GroupAdd, "New group") {
+                        self.show_new_group = true;
+                        self.send(Command::Contacts);
+                        self.show_new_chat = false;
+                    }
+                    if menu_row(ui, &palette, Icon::PersonAdd, "New contact") {
+                        self.show_new_contact = true;
+                        self.show_new_chat = false;
+                    }
+                });
+                ui.separator();
                 ui.add(
                     egui::TextEdit::singleline(&mut self.new_chat_search)
                         .hint_text("Search contacts")
@@ -1072,6 +1123,215 @@ impl WaDesk {
         }
     }
 
+    /// Start a call in the open chat, with the official guard for groups and
+    /// self-chat.
+    fn start_call(&mut self, video: bool) {
+        let Some(jid) = self.model.active.clone() else {
+            return;
+        };
+        let guard = wa_ui::calls::call_guard(jid.ends_with("@g.us"), self.model.call.is_some());
+        if !guard.ok {
+            self.notice = guard.toast.map(|toast| (toast, std::time::Instant::now()));
+            return;
+        }
+        self.send(Command::CallStart { chat: jid, video });
+    }
+
+    /// The call sheet: ringing (accept/decline) or the live call (mute,
+    /// hang-up), with the remote video stage when the call has one.
+    fn call_overlay(&mut self, ctx: &egui::Context, call: &crate::model::CallState) {
+        let palette = self.palette.clone();
+        let now = now_ms();
+        let plan = call.overlay(now);
+        let status = plan.status(&call.overlay_input(now));
+        let screen = ctx.screen_rect();
+        let mut action: Option<Command> = None;
+
+        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            action = Some(if plan.ringing {
+                Command::CallReject {
+                    call_id: call.call_id.clone(),
+                }
+            } else {
+                Command::CallHangup
+            });
+        }
+
+        egui::Area::new(egui::Id::new("call-overlay"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(screen.min)
+            .show(ctx, |ui| {
+                let (rect, _) = ui.allocate_exact_size(screen.size(), egui::Sense::hover());
+                let painter = ui.painter().clone();
+                painter.rect_filled(
+                    rect,
+                    egui::CornerRadius::ZERO,
+                    egui::Color32::from_rgb(11, 20, 26),
+                );
+                if plan.video_stage {
+                    // The remote stage. Frames are decoded by the session; until
+                    // one arrives the stage stays dark, like the official client.
+                    let stage = egui::Rect::from_center_size(
+                        rect.center(),
+                        egui::vec2(rect.width() * 0.7, rect.height() * 0.55),
+                    );
+                    painter.rect_filled(stage, egui::CornerRadius::same(12), egui::Color32::BLACK);
+                    painter.text(
+                        stage.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "Camera isn't available in this build - audio only",
+                        egui::FontId::proportional(12.5),
+                        egui::Color32::from_gray(150),
+                    );
+                }
+
+                // Avatar: the chat's photo, or the name's initials.
+                self.ensure_avatar(ui.ctx(), &call.peer);
+                let avatar = self.avatar_for(&call.peer).cloned();
+                let avatar_center = egui::pos2(rect.center().x, rect.center().y - 70.0);
+                match avatar {
+                    Some(texture) => {
+                        let size = texture.size_vec2();
+                        let scale = 96.0 / size.x.max(1.0);
+                        painter.image(
+                            texture.id(),
+                            egui::Rect::from_center_size(avatar_center, size * scale),
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    None => {
+                        painter.circle_filled(avatar_center, 48.0, palette.selected);
+                        painter.text(
+                            avatar_center,
+                            egui::Align2::CENTER_CENTER,
+                            call_initials(&call.peer_name),
+                            egui::FontId::proportional(34.0),
+                            palette.text,
+                        );
+                    }
+                }
+                painter.text(
+                    egui::pos2(rect.center().x, avatar_center.y + 70.0),
+                    egui::Align2::CENTER_CENTER,
+                    &call.peer_name,
+                    egui::FontId::proportional(20.0),
+                    palette.text,
+                );
+                painter.text(
+                    egui::pos2(rect.center().x, avatar_center.y + 98.0),
+                    egui::Align2::CENTER_CENTER,
+                    &status,
+                    egui::FontId::proportional(13.0),
+                    palette.secondary,
+                );
+
+                // Controls.
+                let buttons_y = avatar_center.y + 190.0;
+                let left = egui::pos2(rect.center().x - 62.0, buttons_y);
+                let right = egui::pos2(rect.center().x + 62.0, buttons_y);
+                let button = |center: egui::Pos2,
+                              icon: Icon,
+                              background: egui::Color32,
+                              foreground: egui::Color32,
+                              id: &str,
+                              slash: bool|
+                 -> bool {
+                    let hit_rect = egui::Rect::from_center_size(center, egui::vec2(60.0, 60.0));
+                    let response = ui.interact(hit_rect, egui::Id::new(id), egui::Sense::click());
+                    painter.circle_filled(
+                        center,
+                        30.0,
+                        if response.hovered() {
+                            background.gamma_multiply(1.15)
+                        } else {
+                            background
+                        },
+                    );
+                    draw_icon(ui, hit_rect.shrink(17.0), icon, foreground);
+                    if slash {
+                        painter.line_segment(
+                            [
+                                egui::pos2(center.x - 13.0, center.y + 13.0),
+                                egui::pos2(center.x + 13.0, center.y - 13.0),
+                            ],
+                            egui::Stroke::new(2.5_f32, foreground),
+                        );
+                    }
+                    response.clicked()
+                };
+
+                if plan.ringing {
+                    let decline = button(
+                        left,
+                        Icon::CallEnd,
+                        palette.danger,
+                        egui::Color32::WHITE,
+                        "call-decline",
+                        false,
+                    );
+                    let accept = button(
+                        right,
+                        Icon::Phone,
+                        palette.accent,
+                        egui::Color32::from_rgb(11, 20, 26),
+                        "call-accept",
+                        false,
+                    );
+                    if decline {
+                        action = Some(Command::CallReject {
+                            call_id: call.call_id.clone(),
+                        });
+                    }
+                    if accept {
+                        action = Some(Command::CallAccept {
+                            call_id: call.call_id.clone(),
+                            video: call.video,
+                        });
+                    }
+                } else {
+                    let muted = plan.mute_pressed;
+                    let mute = button(
+                        left,
+                        Icon::Mic,
+                        if muted {
+                            palette.danger
+                        } else {
+                            palette.elevated
+                        },
+                        egui::Color32::WHITE,
+                        "call-mute",
+                        muted,
+                    );
+                    let hangup = button(
+                        right,
+                        Icon::CallEnd,
+                        palette.danger,
+                        egui::Color32::WHITE,
+                        "call-hangup",
+                        false,
+                    );
+                    if mute {
+                        action = Some(Command::CallMute { muted: !call.muted });
+                    }
+                    if hangup {
+                        action = Some(Command::CallHangup);
+                    }
+                }
+            });
+
+        if let Some(command) = action {
+            // Reflect the intent immediately; the session confirms with events.
+            if let Command::CallMute { muted } = &command
+                && let Some(state) = self.model.call.as_mut()
+            {
+                state.muted = *muted;
+            }
+            self.send(command);
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+    }
+
     /// Check the release list on a worker thread; the window never blocks.
     fn check_updates(&mut self) {
         self.update = UpdateState::Checking;
@@ -1103,6 +1363,14 @@ impl WaDesk {
                     message.kind.clone(),
                     message.text.clone(),
                 )),
+                UiEvent::CallAudio { samples, .. } => {
+                    self.audio.play_call_audio(samples.clone());
+                    None
+                }
+                UiEvent::CallEnded { .. } => {
+                    self.audio.stop_call();
+                    None
+                }
                 _ => None,
             };
             self.model.apply(&event);
@@ -1375,7 +1643,10 @@ impl WaDesk {
                             .on_hover_text("Menu")
                             .clicked()
                         {
-                            self.show_chat_actions = !self.show_chat_actions;
+                            // The sidebar kebab opens the Chats menu - not the
+                            // open chat's menu (that one lives in the header).
+                            self.show_chat_actions = false;
+                            self.show_chat_menu = !self.show_chat_menu;
                         }
                         if matches!(
                             self.update,
@@ -1545,6 +1816,15 @@ impl WaDesk {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
+                                    // Right to left: the kebab sits at the right edge,
+                                    // then search, then the calls - the official order.
+                                    if icon_button(ui, Icon::Menu, &palette)
+                                        .on_hover_text("Menu")
+                                        .clicked()
+                                    {
+                                        self.show_chat_menu = false;
+                                        self.show_chat_actions = !self.show_chat_actions;
+                                    }
                                     if icon_button(ui, Icon::Search, &palette)
                                         .on_hover_text("Search")
                                         .clicked()
@@ -1555,17 +1835,17 @@ impl WaDesk {
                                             self.model.search_hit = -1;
                                         }
                                     }
-                                    if row.jid.ends_with("@g.us")
-                                        && icon_button(ui, Icon::Menu, &palette)
-                                            .on_hover_text("Group info")
-                                            .clicked()
+                                    if icon_button(ui, Icon::Phone, &palette)
+                                        .on_hover_text("Voice call")
+                                        .clicked()
                                     {
-                                        self.show_group = true;
-                                        if self.model.request_group(&row.jid) {
-                                            self.send(Command::GroupInfo {
-                                                chat: row.jid.clone(),
-                                            });
-                                        }
+                                        self.start_call(false);
+                                    }
+                                    if icon_button(ui, Icon::VideoCall, &palette)
+                                        .on_hover_text("Video call")
+                                        .clicked()
+                                    {
+                                        self.start_call(true);
                                     }
                                 },
                             );
@@ -2312,6 +2592,12 @@ fn bubble(
             egui::FontId::proportional(11.0),
             palette.secondary,
         );
+        // Our own bubbles carry the delivery ticks: one grey check once the
+        // server has it, two grey when delivered, two blue when read.
+        let tick = message
+            .from_me
+            .then(|| model.tick_status(message).to_string());
+        let tick_width = if tick.is_some() { 16.0 } else { 0.0 };
         let sender = message
             .sender_name
             .clone()
@@ -2323,7 +2609,8 @@ fn bubble(
                 sender_color(name, palette),
             )
         });
-        let width = (body_size.x.max(time.size().x + 34.0) + padding * 2.0).min(max_width);
+        let width =
+            (body_size.x.max(time.size().x + tick_width + 10.0) + padding * 2.0).min(max_width);
         let mut height = body_size.y + time.size().y + 8.0;
         if let Some(galley) = &sender_galley {
             height += galley.size().y + 1.0;
@@ -2353,12 +2640,34 @@ fn bubble(
         }
         painter.galley(
             egui::pos2(
-                rect.right() - padding - time.size().x,
+                rect.right() - padding - tick_width - time.size().x,
                 rect.bottom() - 4.0 - time.size().y,
             ),
             time,
             palette.secondary,
         );
+        if let Some(status) = tick {
+            let read = matches!(status.as_str(), "read" | "played");
+            let delivered = matches!(status.as_str(), "delivered" | "read" | "played");
+            let name = if delivered { "done_all" } else { "check" };
+            let color = if read {
+                palette.read
+            } else {
+                palette.secondary
+            };
+            let tick_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.right() - padding - 14.0, rect.bottom() - 17.0),
+                egui::vec2(14.0, 14.0),
+            );
+            if let Some(texture) = crate::icons::texture(ui.ctx(), name, 14, color) {
+                painter.image(
+                    texture.id(),
+                    tick_rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
         if scroll {
             hit.scroll_to_me(Some(egui::Align::Center));
         }
@@ -3878,6 +4187,19 @@ fn paint_body(painter: &egui::Painter, origin: egui::Pos2, body: &BodyLayout) {
     }
 }
 
+/// The initials for an avatar fallback ("Ada Lovelace" -> "AL").
+fn call_initials(name: &str) -> String {
+    let mut letters = name
+        .split_whitespace()
+        .filter_map(|word| word.chars().next())
+        .take(2)
+        .collect::<String>();
+    if letters.is_empty() {
+        letters = name.chars().take(1).collect();
+    }
+    letters.to_uppercase()
+}
+
 /// One row of the settings section list.
 fn settings_list_row(
     ui: &mut egui::Ui,
@@ -4251,6 +4573,29 @@ impl eframe::App for WaDesk {
                 self.update_checked = true;
                 self.check_updates();
             }
+            if let Some((text, started)) = &self.notice
+                && started.elapsed() < std::time::Duration::from_secs(4)
+            {
+                let text = text.clone();
+                let palette = self.palette.clone();
+                egui::Area::new(egui::Id::new("notice"))
+                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 72.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        egui::Frame::new()
+                            .fill(palette.elevated)
+                            .corner_radius(egui::CornerRadius::same(8))
+                            .inner_margin(egui::Margin::symmetric(14, 7))
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new(text).size(12.5).color(palette.text));
+                            });
+                    });
+            }
+
+            if let Some(call) = self.model.call.clone() {
+                self.call_overlay(ctx, &call);
+            }
+
             self.sidebar(ctx);
             if self.show_group {
                 self.group_panel(ctx);
@@ -5154,6 +5499,13 @@ enum Icon {
     FullscreenExit,
     ChevronLeft,
     ChevronRight,
+    Phone,
+    CallEnd,
+    VideoCall,
+    Mic,
+    SelectChats,
+    MarkRead,
+    Lock,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -5236,6 +5588,13 @@ impl Icon {
             Icon::FullscreenExit => "fullscreen_exit",
             Icon::ChevronLeft => "chevron_left",
             Icon::ChevronRight => "chevron_right",
+            Icon::Phone => "call",
+            Icon::CallEnd => "call_end",
+            Icon::VideoCall => "videocam",
+            Icon::Mic => "mic",
+            Icon::SelectChats => "done_all",
+            Icon::MarkRead => "mark_chat_read",
+            Icon::Lock => "lock",
         }
     }
 }

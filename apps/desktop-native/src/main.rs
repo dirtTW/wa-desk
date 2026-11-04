@@ -22,6 +22,7 @@ mod emoji_glyph;
 mod icon;
 mod icons;
 mod login;
+mod mic;
 mod model;
 mod notify;
 mod settings;
@@ -241,9 +242,43 @@ fn main() {
         let ui_tx = events_out.clone();
         let ai_commands = command_tx.clone();
         let ai_dir = settings::NativeSettings::data_dir();
+        let ai_slot = session_slot.clone();
         handle.spawn(async move {
             let mut ai = ai::Runtime::new(ai_dir);
+            // The microphone only runs while a call is connected.
+            let mut microphone: Option<mic::Mic> = None;
             while let Some(event) = core_rx.recv().await {
+                match &event {
+                    wa_types::UiEvent::CallState { state, .. } if state == "connected" => {
+                        if microphone.is_none()
+                            && let Some(session) = ai_slot.lock().expect("session slot").clone()
+                        {
+                            let (frames_tx, frames_rx) = std::sync::mpsc::channel::<Vec<i16>>();
+                            match mic::Mic::start(frames_tx) {
+                                Ok(mic) => {
+                                    // 16 kHz mono frames straight into the call.
+                                    std::thread::spawn(move || {
+                                        while let Ok(frame) = frames_rx.recv() {
+                                            if session.send_call_audio(frame).is_err() {
+                                                break;
+                                            }
+                                        }
+                                    });
+                                    microphone = Some(mic);
+                                    app::diag("call: microphone started");
+                                }
+                                Err(err) => app::diag(&format!("call: {err}")),
+                            }
+                        }
+                    }
+                    wa_types::UiEvent::CallEnded { .. } => {
+                        let was_running = microphone.take().is_some();
+                        if was_running {
+                            app::diag("call: microphone stopped");
+                        }
+                    }
+                    _ => {}
+                }
                 ai.observe(&event, &ai_commands);
                 let _ = ui_tx.send(event);
             }
@@ -294,6 +329,31 @@ fn main() {
                 }
                 model::Command::Typing { chat, typing } => {
                     let _ = session.set_typing(&chat, typing).await;
+                }
+                model::Command::CallStart { chat, video } => {
+                    if let Err(err) = session.start_call(&chat, video).await {
+                        tracing::warn!(%err, "call start failed");
+                    }
+                }
+                model::Command::CallAccept { call_id, video } => {
+                    if let Err(err) = session.accept_call(&call_id, video).await {
+                        tracing::warn!(%err, "call accept failed");
+                    }
+                }
+                model::Command::CallReject { call_id } => {
+                    if let Err(err) = session.reject_call(&call_id).await {
+                        tracing::warn!(%err, "call reject failed");
+                    }
+                }
+                model::Command::CallHangup => {
+                    if let Err(err) = session.hangup_call().await {
+                        tracing::warn!(%err, "call hangup failed");
+                    }
+                }
+                model::Command::CallMute { muted } => {
+                    if let Err(err) = session.set_call_muted(muted) {
+                        tracing::warn!(%err, "call mute failed");
+                    }
                 }
                 model::Command::PairCode { phone } => {
                     match session.request_pair_code(&phone).await {

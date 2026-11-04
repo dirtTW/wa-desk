@@ -57,6 +57,9 @@ account. Issues and pull requests are welcome.
   General holds launch-at-login and the version; chat-history/group/status sync and relink sit
   next to it. Sync runs automatically on every connection (history batches, groups, statuses,
   chat state) and refreshes on a timer; profile photos are cached on disk.
+- **Voice and video calls**: start from the chat header or the kebab, accept/decline a call, mute
+  and hang up; audio is captured at 16 kHz and plays through a dedicated sink (remote video is
+  not decoded yet).
 - **Tray and notifications** (Windows): the WA Desk icon in the system tray with an Open / Quit
   menu, plus a desktop toast for messages that arrive while the window is in the background
   (a Settings switch, `--test-notification` from the CLI, session-bus notifications on Linux).
