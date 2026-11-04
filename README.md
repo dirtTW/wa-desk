@@ -42,8 +42,11 @@ account. Issues and pull requests are welcome.
 - **Status / stories** and **channels**, read-only for channels.
 - **Send files**: paperclip picker, or Ctrl+V a file copied in Explorer; composer text becomes
   the caption.
-- **Settings**: Light / Dark / System, AI form, history/group/status sync, relink, auto-update
-  from GitHub releases.
+- **Settings**: the official two-pane layout - profile header, General / Chats / AI / Updates /
+  Help sections with icons and subtitles, Log out. Theme lives under Chats, General holds
+  launch-at-login and the version; chat-history/group/status sync and relink sit next to it.
+  Sync runs automatically on every connection (history batches, groups, statuses, chat state) and
+  refreshes on a timer; profile photos are cached on disk.
 - **Official look**: WhatsApp's `--WDS-*` palette, Material Symbols rasterised with `resvg`,
   rounded composer and card menus.
 

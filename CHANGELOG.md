@@ -4,7 +4,30 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.75] — 2026-11-04
+## [0.2.0-rc.76] — 2026-11-04
+
+- **Profile photos are cached on disk** (`%APPDATA%\io.github.dirttw.wadesk-native\avatars\`). The
+  window paints the cached file immediately and refreshes it from the CDN in the background, so
+  the next launch shows every avatar without waiting for the network.
+- **Settings rebuilt like the official screen**: profile header (photo, name, connection), the
+  section list with icons and subtitles (General, Chats, AI assistant, Updates, Help and
+  feedback), a selected-row highlight and **Log out** in red; the detail pane on the right shows
+  the theme (**under Chats**, where the official client puts it), chat-history/groups/status
+  sync, the AI form, updates or project links.
+- **General → Startup and close**: a real "Launch WA Desk at login" toggle, implemented with the
+  per-user Run key through `windows-sys` (`autostart.rs`), plus the version line.
+- **Sync runs automatically.** Every connection now refreshes the address book + history
+  batches, groups, statuses and the chat app-state; read marks/mutes are polled every 45 s and
+  groups/statuses every 10 minutes, so the list, rings and badges keep up without a restart.
+- **Profile photos are cached on disk** (`%APPDATA%\io.github.dirttw.wadesk-native\avatars\`). The
+  window paints the cached file immediately and refreshes it from the CDN in the background, so
+  the next launch shows every avatar without waiting for the network.
+- **Import chat export**: the chat menu's "Import chat export…" reads a WhatsApp `.txt` export,
+  parses it with `wa_ui::export` and merges only the messages that are missing (second-level
+  timestamp windows handled), reporting how many were added.
+- 36 native tests, clippy `-D warnings` clean, selftest green.
+
+
 
 - **Media loads faster.** `FetchMedia` no longer runs inside the serial command loop: each
   download is a task behind a three-permit semaphore, so a photo grid fills in parallel instead

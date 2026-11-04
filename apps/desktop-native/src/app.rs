@@ -114,6 +114,8 @@ pub struct WaDesk {
     avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     /// Photos already asked for.
     avatar_asked: std::collections::HashSet<String>,
+    /// JIDs whose photo was read from the disk cache.
+    avatar_disk: std::collections::HashSet<String>,
     /// `WA_DESK_OPEN_FIRST`: opened the first chat once (screenshot testing).
     auto_opened: bool,
     avatar_rx: std::sync::mpsc::Receiver<(String, Option<String>)>,
@@ -133,10 +135,14 @@ pub struct WaDesk {
     seen_epoch: u64,
     /// When the chat app-state was last polled for read marks/mutes.
     last_state_sync: std::time::Instant,
+    /// When groups/status were last refreshed in full.
+    last_full_sync: std::time::Instant,
     /// Group JIDs whose metadata has been requested.
     groups_asked: std::collections::HashSet<String>,
     /// The Chats kebab menu is open.
     show_chat_menu: bool,
+    /// Which Settings section is open.
+    settings_section: usize,
     /// The open chat's actions menu.
     show_chat_actions: bool,
     /// The new-chat picker and its search.
@@ -200,6 +206,7 @@ impl WaDesk {
             cache_saved: std::time::Instant::now(),
             avatars: std::collections::HashMap::new(),
             avatar_asked: std::collections::HashSet::new(),
+            avatar_disk: std::collections::HashSet::new(),
             auto_opened: false,
             avatar_rx: native.avatars,
             avatar_img_tx,
@@ -212,8 +219,10 @@ impl WaDesk {
             focus_search: false,
             seen_epoch: 0,
             last_state_sync: std::time::Instant::now(),
+            last_full_sync: std::time::Instant::now(),
             groups_asked: std::collections::HashSet::new(),
             show_chat_menu: std::env::var("WA_DESK_MENU").is_ok(),
+            settings_section: 0,
             show_chat_actions: false,
             show_new_chat: false,
             new_chat_search: String::new(),
@@ -237,9 +246,10 @@ impl WaDesk {
         self.model = Model::demo();
         self.preview = true;
         self.show_group = false;
-        self.show_settings = false;
         self.show_status = false;
         self.show_channels = false;
+        // `WA_DESK_SETTINGS=1` renders the Settings screen for a screenshot.
+        self.show_settings = std::env::var("WA_DESK_SETTINGS").is_ok();
     }
 
     /// `--screenshot <path>`: save one settled frame and quit.
@@ -361,6 +371,8 @@ impl WaDesk {
                 if self.model.request_group(&chat) {
                     self.send(Command::GroupInfo { chat: chat.clone() });
                 }
+            } else if action == "import" {
+                self.import_chat_export(&chat);
             } else {
                 self.send(Command::ChatAction {
                     chat: chat.clone(),
@@ -411,6 +423,7 @@ impl WaDesk {
                     ("Archive chat", "archive"),
                     ("Clear chat", "clear"),
                     ("Delete chat", "delete"),
+                    ("Import chat export…", "import"),
                 ] {
                     if menu_row(ui, &palette, Icon::Document, label) {
                         chosen = Some(action.to_string());
@@ -473,6 +486,28 @@ impl WaDesk {
         let _ = palette;
         if !open {
             self.show_new_chat = false;
+        }
+    }
+
+    /// Load a WhatsApp "Export chat" file into the open chat.
+    fn import_chat_export(&mut self, chat: &str) {
+        let picked = rfd::FileDialog::new()
+            .add_filter("WhatsApp export", &["txt"])
+            .pick_file();
+        let Some(path) = picked else { return };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                let (added, removed) = self.model.import_export(chat, &text);
+                self.cache_dirty = true;
+                self.attach_note = Some((
+                    format!("Imported {added} message(s), superseded {removed}"),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(err) => {
+                self.attach_note =
+                    Some((format!("Import failed: {err}"), std::time::Instant::now()));
+            }
         }
     }
 
@@ -746,6 +781,10 @@ impl WaDesk {
             changed = true;
         }
         while let Ok((jid, bytes)) = self.avatar_img_rx.try_recv() {
+            if let Ok(bytes) = &bytes {
+                // Cache the photo so the next launch paints it instantly.
+                let _ = std::fs::write(crate::model::avatar_path(&jid), bytes);
+            }
             let texture = bytes
                 .ok()
                 .and_then(|bytes| circular_avatar(ctx, &format!("avatar-{jid}"), &bytes));
@@ -815,14 +854,24 @@ impl WaDesk {
     }
 
     /// Ask for a contact's photo once; `paint_avatar` falls back to initials.
-    fn ensure_avatar(&mut self, jid: &str) {
-        if jid.is_empty() || self.avatar_asked.contains(jid) {
+    fn ensure_avatar(&mut self, ctx: &egui::Context, jid: &str) {
+        if jid.is_empty() {
             return;
         }
-        self.avatar_asked.insert(jid.to_string());
-        self.send(Command::Avatar {
-            jid: jid.to_string(),
-        });
+        if !self.avatar_asked.contains(jid) {
+            self.avatar_asked.insert(jid.to_string());
+            self.send(Command::Avatar {
+                jid: jid.to_string(),
+            });
+        }
+        // Show the cached file instantly; the network refresh replaces it.
+        if !self.avatars.contains_key(jid)
+            && self.avatar_disk.insert(jid.to_string())
+            && let Ok(bytes) = std::fs::read(crate::model::avatar_path(jid))
+        {
+            let texture = circular_avatar(ctx, &format!("avatar-{jid}"), &bytes);
+            self.avatars.insert(jid.to_string(), texture);
+        }
     }
 
     fn avatar_for(&self, jid: &str) -> Option<&egui::TextureHandle> {
@@ -898,7 +947,7 @@ impl WaDesk {
                 });
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.add_space(10.0);
-                    self.ensure_avatar(&self.model.me_jid.clone());
+                    self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
                     let own_avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
                     paint_avatar(ui, &self.model.own_name(), 30.0, own_avatar.as_ref());
                 });
@@ -911,7 +960,7 @@ impl WaDesk {
                 let palette = self.palette.clone();
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    self.ensure_avatar(&self.model.me_jid.clone());
+                    self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
                     let own_avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
                     paint_avatar(ui, &self.model.own_name(), 34.0, own_avatar.as_ref());
                     ui.add_space(2.0);
@@ -1005,7 +1054,7 @@ impl WaDesk {
                                     chat: row.jid.clone(),
                                 });
                             }
-                            self.ensure_avatar(&row.jid);
+                            self.ensure_avatar(ui.ctx(), &row.jid);
                             let avatar = self.avatar_for(&row.jid).cloned();
                             if chat_row(
                                 ui,
@@ -1070,7 +1119,7 @@ impl WaDesk {
                     .inner_margin(egui::Margin::symmetric(14, 7))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            self.ensure_avatar(&row.jid);
+                            self.ensure_avatar(ui.ctx(), &row.jid);
                             let chat_avatar = self.avatar_for(&row.jid).cloned();
                             paint_avatar(ui, &self.model.title(&row), 38.0, chat_avatar.as_ref());
                             ui.add_space(2.0);
@@ -1419,7 +1468,7 @@ impl WaDesk {
             }
             BubbleAction::Star(id) => {
                 if let Some(message) = message {
-                    let starred = !self.model.starred.contains(&id);
+                    let starred = self.model.toggle_star(&id);
                     self.send(Command::Star {
                         chat: message.chat.clone(),
                         id: message.id.clone(),
@@ -1431,11 +1480,6 @@ impl WaDesk {
                             message.sender.clone()
                         },
                     });
-                    if starred {
-                        self.model.starred.insert(id);
-                    } else {
-                        self.model.starred.remove(&id);
-                    }
                 }
             }
         }
@@ -2410,217 +2454,395 @@ impl WaDesk {
 impl WaDesk {
     /// Settings: theme and the AI form, validated by wa-ui.
     fn settings_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Settings");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Back to chats").clicked() {
-                        self.show_settings = false;
-                    }
+        let palette = self.palette.clone();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                ui.horizontal_top(|ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(320.0);
+                        ui.add_space(10.0);
+                        self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
+                        let avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
+                        ui.horizontal(|ui| {
+                            paint_avatar(ui, &self.model.own_name(), 54.0, avatar.as_ref());
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new(self.model.own_name())
+                                        .size(17.0)
+                                        .strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(&self.model.status)
+                                        .small()
+                                        .color(palette.secondary),
+                                );
+                            });
+                        });
+                        ui.add_space(12.0);
+
+                        let sections = [
+                            (Icon::Settings, "General", "Startup and close"),
+                            (Icon::Chats, "Chats", "Theme, history, chat settings"),
+                            (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
+                            (Icon::Document, "Updates", "Version and releases"),
+                            (
+                                Icon::Groups,
+                                "Help and feedback",
+                                "Project, changelog, issues",
+                            ),
+                        ];
+                        for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
+                            let selected = self.settings_section == index;
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 54.0),
+                                egui::Sense::click(),
+                            );
+                            if selected || response.hovered() {
+                                ui.painter().rect_filled(
+                                    rect,
+                                    egui::CornerRadius::same(10),
+                                    if selected {
+                                        palette.selected
+                                    } else {
+                                        palette.hover
+                                    },
+                                );
+                            }
+                            draw_icon(
+                                ui,
+                                egui::Rect::from_min_size(
+                                    egui::pos2(rect.left() + 10.0, rect.center().y - 10.0),
+                                    egui::vec2(20.0, 20.0),
+                                ),
+                                *icon,
+                                palette.secondary,
+                            );
+                            ui.painter().text(
+                                egui::pos2(rect.left() + 42.0, rect.center().y - 8.0),
+                                egui::Align2::LEFT_CENTER,
+                                *title,
+                                egui::FontId::proportional(14.0),
+                                palette.text,
+                            );
+                            ui.painter().text(
+                                egui::pos2(rect.left() + 42.0, rect.center().y + 9.0),
+                                egui::Align2::LEFT_CENTER,
+                                *subtitle,
+                                egui::FontId::proportional(11.5),
+                                palette.secondary,
+                            );
+                            if response.clicked() {
+                                self.settings_section = index;
+                            }
+                        }
+                        ui.add_space(6.0);
+                        let (rect, response) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 48.0),
+                            egui::Sense::click(),
+                        );
+                        if response.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                egui::CornerRadius::same(10),
+                                palette.hover,
+                            );
+                        }
+                        draw_icon(
+                            ui,
+                            egui::Rect::from_min_size(
+                                egui::pos2(rect.left() + 10.0, rect.center().y - 9.0),
+                                egui::vec2(18.0, 18.0),
+                            ),
+                            Icon::Logout,
+                            palette.danger,
+                        );
+                        ui.painter().text(
+                            egui::pos2(rect.left() + 42.0, rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            "Log out",
+                            egui::FontId::proportional(14.0),
+                            palette.danger,
+                        );
+                        if response.clicked() {
+                            self.send(Command::Relink);
+                            self.settings_note =
+                                "Unlinked - scan the QR with the phone to link again.".to_string();
+                        }
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        ui.add_space(10.0);
+                        match self.settings_section {
+                            0 => self.general_detail(ui, &palette),
+                            1 => self.chats_detail(ui, &palette),
+                            2 => self.ai_detail(ui, &palette),
+                            3 => self.updates_detail(ui, &palette),
+                            _ => self.help_detail(ui, &palette),
+                        }
+                        if !self.settings_note.is_empty() {
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(&self.settings_note)
+                                    .small()
+                                    .color(palette.secondary),
+                            );
+                        }
+                    });
                 });
             });
-            ui.separator();
+    }
 
-            ui.label(egui::RichText::new("Theme").strong());
-            let system_dark = ctx.style().visuals.dark_mode;
-            ui.horizontal(|ui| {
-                for choice in ["light", "dark", "system"] {
-                    let label = wa_ui::settings::theme_label(choice);
-                    if ui
-                        .selectable_label(self.settings.theme == choice, label)
-                        .clicked()
-                    {
-                        self.settings.theme = choice.to_string();
+    /// General: start-up behaviour and version.
+    fn general_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        ui.set_max_width(560.0);
+        ui.label(egui::RichText::new("Startup and close").size(16.0).strong());
+        let mut launch = crate::autostart::enabled();
+        if ui
+            .checkbox(&mut launch, "Launch WA Desk at login")
+            .changed()
+        {
+            self.settings_note = match crate::autostart::set(launch) {
+                Ok(()) => {
+                    if launch {
+                        "WA Desk will start with Windows.".to_string()
+                    } else {
+                        "WA Desk will no longer start with Windows.".to_string()
                     }
                 }
-            });
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} · showing {}",
-                    self.settings.theme_label(),
-                    self.settings.resolved_theme(system_dark)
-                ))
-                .small()
-                .weak(),
-            );
+                Err(err) => err,
+            };
+        }
+        ui.label(
+            egui::RichText::new(
+                "Uses the per-user Run key; nothing is written outside your account.",
+            )
+            .small()
+            .color(palette.secondary),
+        );
+        ui.add_space(14.0);
+        ui.separator();
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new("About").size(16.0).strong());
+        ui.label(
+            egui::RichText::new(format!(
+                "WA Desk v{} · unofficial WhatsApp client in pure Rust",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .small()
+            .color(palette.secondary),
+        );
+    }
 
-            ui.add_space(14.0);
-            ui.separator();
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Chat history").strong());
-            ui.label(
-                egui::RichText::new(
-                    "The phone only pushes the full chat list to a newly linked device; this \
-                     asks for a batch from the linked session (eight chats at a time). For the \
-                     complete history, unlink and pair again.",
-                )
-                .small()
-                .weak(),
-            );
+    fn chats_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        ui.set_max_width(560.0);
+        ui.label(egui::RichText::new("Theme").size(16.0).strong());
+        let system_dark = ui.ctx().style().visuals.dark_mode;
+        ui.horizontal(|ui| {
+            for choice in ["light", "dark", "system"] {
+                let label = wa_ui::settings::theme_label(choice);
+                if ui
+                    .selectable_label(self.settings.theme == choice, label)
+                    .clicked()
+                {
+                    self.settings.theme = choice.to_string();
+                }
+            }
+        });
+        ui.label(
+            egui::RichText::new(format!(
+                "{} · showing {}",
+                self.settings.theme_label(),
+                self.settings.resolved_theme(system_dark)
+            ))
+            .small()
+            .color(palette.secondary),
+        );
+        ui.add_space(14.0);
+        ui.separator();
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new("Chat history").size(16.0).strong());
+        ui.label(
+            egui::RichText::new(
+                "The phone only pushes the full chat list to a newly linked device; this asks                  for a batch from the linked session (eight chats at a time).",
+            )
+            .small()
+            .color(palette.secondary),
+        );
+        ui.horizontal(|ui| {
             if ui.button("Sync chat history").clicked() {
                 self.send(Command::InitialSync);
+                self.send(Command::SyncChatState);
                 self.settings_note = "Asking the phone for history…".to_string();
             }
             if ui.button("Sync more chats").clicked() {
                 self.send(Command::SyncMore);
                 self.settings_note = "Asking for the next chats…".to_string();
             }
+            if ui.button("Sync groups").clicked() {
+                self.send(Command::SyncGroups);
+                self.settings_note = "Asking for participating groups…".to_string();
+            }
             if ui.button("Refresh statuses").clicked() {
                 self.send(Command::StatusHistory);
-                self.settings_note = "Asking the phone for recent statuses…".to_string();
-            }
-            if ui
-                .button("Unlink and pair again (imports the full list)")
-                .clicked()
-            {
-                self.send(Command::Relink);
-                self.settings_note =
-                    "Unlinked - scan the QR with the phone to import the full chat list."
-                        .to_string();
-            }
-
-            ui.add_space(14.0);
-            ui.separator();
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("Updates").strong());
-            ui.label(
-                egui::RichText::new(format!(
-                    "Installed v{} · published on GitHub releases",
-                    env!("CARGO_PKG_VERSION")
-                ))
-                .small()
-                .weak(),
-            );
-            let state = self.update.clone();
-            let busy = matches!(state, UpdateState::Checking | UpdateState::Downloading(_));
-            ui.horizontal(|ui| {
-                if !busy && ui.button("Check for updates").clicked() {
-                    self.check_updates();
-                }
-                match state {
-                    UpdateState::Idle => {}
-                    UpdateState::Checking => {
-                        ui.label(egui::RichText::new("Checking…").small().weak());
-                    }
-                    UpdateState::UpToDate => {
-                        ui.label(
-                            egui::RichText::new("You are on the newest release.")
-                                .small()
-                                .weak(),
-                        );
-                    }
-                    UpdateState::Available(release) => {
-                        let megabytes = release.size as f64 / 1_048_576.0;
-                        ui.label(egui::RichText::new(format!(
-                            "{} is available ({megabytes:.1} MB)",
-                            release.tag
-                        )));
-                        if !release.notes_url.is_empty() {
-                            ui.hyperlink_to("notes", &release.notes_url);
-                        }
-                        if ui.button("Download & install").clicked() {
-                            self.download_update(release);
-                        }
-                    }
-                    UpdateState::Downloading(release) => {
-                        ui.label(
-                            egui::RichText::new(format!("Downloading {}…", release.tag))
-                                .small()
-                                .weak(),
-                        );
-                    }
-                    UpdateState::Ready(path) => {
-                        if ui.button("Restart now").clicked() {
-                            match updates::install(&path) {
-                                Ok(()) => std::process::exit(0),
-                                Err(err) => self.update = UpdateState::Failed(err),
-                            }
-                        }
-                        ui.label(
-                            egui::RichText::new("Downloaded — restarting finishes the update.")
-                                .small()
-                                .weak(),
-                        );
-                    }
-                    UpdateState::Failed(err) => {
-                        ui.label(
-                            egui::RichText::new(err)
-                                .small()
-                                .color(egui::Color32::from_rgb(251, 80, 97)),
-                        );
-                    }
-                }
-            });
-
-            ui.add_space(14.0);
-            ui.separator();
-            ui.add_space(6.0);
-            ui.label(egui::RichText::new("AI assistant").strong());
-            ui.label(egui::RichText::new(self.settings.key_hint()).small().weak());
-            ui.checkbox(&mut self.settings.ai.enabled, "AI mode");
-            ui.checkbox(&mut self.settings.ai.require_trigger, "Require /ai trigger");
-
-            egui::Grid::new("ai-form").num_columns(2).show(ui, |ui| {
-                ui.label("Base URL");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.settings.ai.base_url).desired_width(380.0),
-                );
-                ui.end_row();
-
-                ui.label("Model");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.settings.ai.model).desired_width(380.0),
-                );
-                ui.end_row();
-
-                ui.label("Vision model");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.settings.ai.vision_model)
-                        .desired_width(380.0),
-                );
-                ui.end_row();
-
-                ui.label("System prompt");
-                ui.add(
-                    egui::TextEdit::multiline(&mut self.settings.ai.system_prompt)
-                        .desired_width(380.0)
-                        .desired_rows(3),
-                );
-                ui.end_row();
-
-                ui.label("API key");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.settings.ai.api_key)
-                        .password(true)
-                        .hint_text("leave blank to keep the stored key")
-                        .desired_width(380.0),
-                );
-                ui.end_row();
-            });
-
-            ui.add_space(8.0);
-            if ui.button("Save").clicked() {
-                let plan = self.settings.ai_plan();
-                if !plan.ok {
-                    self.settings_note = plan.error.unwrap_or_default();
-                } else {
-                    match self.settings.save(&self.settings_path) {
-                        Ok(()) => {
-                            if !self.settings.ai.api_key.is_empty() {
-                                self.settings.ai.has_key = true;
-                            }
-                            self.settings.ai.api_key.clear();
-                            self.settings_note = plan.toast;
-                        }
-                        Err(err) => self.settings_note = err,
-                    }
-                }
-            }
-            if !self.settings_note.is_empty() {
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new(&self.settings_note).small().weak());
+                self.settings_note = "Asking for recent statuses…".to_string();
             }
         });
+    }
+
+    fn ai_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        ui.set_max_width(560.0);
+        ui.label(egui::RichText::new("AI assistant").size(16.0).strong());
+        ui.label(
+            egui::RichText::new(self.settings.key_hint())
+                .small()
+                .color(palette.secondary),
+        );
+        ui.checkbox(&mut self.settings.ai.enabled, "AI mode");
+        ui.checkbox(&mut self.settings.ai.require_trigger, "Require /ai trigger");
+        egui::Grid::new("ai-form").num_columns(2).show(ui, |ui| {
+            ui.label("Base URL");
+            ui.add(egui::TextEdit::singleline(&mut self.settings.ai.base_url).desired_width(380.0));
+            ui.end_row();
+            ui.label("Model");
+            ui.add(egui::TextEdit::singleline(&mut self.settings.ai.model).desired_width(380.0));
+            ui.end_row();
+            ui.label("Vision model");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.settings.ai.vision_model).desired_width(380.0),
+            );
+            ui.end_row();
+            ui.label("System prompt");
+            ui.add(
+                egui::TextEdit::multiline(&mut self.settings.ai.system_prompt)
+                    .desired_width(380.0)
+                    .desired_rows(3),
+            );
+            ui.end_row();
+            ui.label("API key");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.settings.ai.api_key)
+                    .password(true)
+                    .hint_text("leave blank to keep the stored key")
+                    .desired_width(380.0),
+            );
+            ui.end_row();
+        });
+        ui.add_space(8.0);
+        if ui.button("Save").clicked() {
+            let plan = self.settings.ai_plan();
+            if !plan.ok {
+                self.settings_note = plan.error.unwrap_or_default();
+            } else {
+                match self.settings.save(&self.settings_path) {
+                    Ok(()) => {
+                        if !self.settings.ai.api_key.is_empty() {
+                            self.settings.ai.has_key = true;
+                        }
+                        self.settings.ai.api_key.clear();
+                        self.settings_note = plan.toast;
+                    }
+                    Err(err) => self.settings_note = err,
+                }
+            }
+        }
+    }
+
+    fn updates_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        ui.set_max_width(560.0);
+        ui.label(egui::RichText::new("Updates").size(16.0).strong());
+        ui.label(
+            egui::RichText::new(format!(
+                "Installed v{} · published on GitHub releases",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .small()
+            .color(palette.secondary),
+        );
+        let state = self.update.clone();
+        let busy = matches!(state, UpdateState::Checking | UpdateState::Downloading(_));
+        ui.horizontal(|ui| {
+            if !busy && ui.button("Check for updates").clicked() {
+                self.check_updates();
+            }
+            match state {
+                UpdateState::Idle => {}
+                UpdateState::Checking => {
+                    ui.label(egui::RichText::new("Checking…").small().weak());
+                }
+                UpdateState::UpToDate => {
+                    ui.label(
+                        egui::RichText::new("You are on the newest release.")
+                            .small()
+                            .weak(),
+                    );
+                }
+                UpdateState::Available(release) => {
+                    let megabytes = release.size as f64 / 1_048_576.0;
+                    ui.label(egui::RichText::new(format!(
+                        "{} is available ({megabytes:.1} MB)",
+                        release.tag
+                    )));
+                    if !release.notes_url.is_empty() {
+                        ui.hyperlink_to("notes", &release.notes_url);
+                    }
+                    if ui.button("Download & install").clicked() {
+                        self.download_update(release);
+                    }
+                }
+                UpdateState::Downloading(release) => {
+                    ui.label(
+                        egui::RichText::new(format!("Downloading {}…", release.tag))
+                            .small()
+                            .weak(),
+                    );
+                }
+                UpdateState::Ready(path) => {
+                    if ui.button("Restart now").clicked() {
+                        match updates::install(&path) {
+                            Ok(()) => std::process::exit(0),
+                            Err(err) => self.update = UpdateState::Failed(err),
+                        }
+                    }
+                    ui.label(
+                        egui::RichText::new("Downloaded - restarting finishes the update.")
+                            .small()
+                            .weak(),
+                    );
+                }
+                UpdateState::Failed(err) => {
+                    ui.label(egui::RichText::new(err).small().color(palette.danger));
+                }
+            }
+        });
+    }
+
+    fn help_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        ui.set_max_width(560.0);
+        ui.label(egui::RichText::new("Help and feedback").size(16.0).strong());
+        ui.label(
+            egui::RichText::new(
+                "WA Desk is an unofficial client; issues and pull requests are welcome.",
+            )
+            .small()
+            .color(palette.secondary),
+        );
+        ui.add_space(8.0);
+        ui.hyperlink_to("Source code", "https://github.com/dirtTW/wa-desk");
+        ui.hyperlink_to(
+            "Change log",
+            "https://github.com/dirtTW/wa-desk/blob/main/CHANGELOG.md",
+        );
+        ui.hyperlink_to(
+            "Report an issue",
+            "https://github.com/dirtTW/wa-desk/issues",
+        );
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new(format!("WA Desk v{}", env!("CARGO_PKG_VERSION")))
+                .small()
+                .color(palette.secondary),
+        );
     }
 }
 
@@ -2825,13 +3047,16 @@ impl eframe::App for WaDesk {
         // bottom of the list forever.
         if self.model.connection_epoch != self.seen_epoch {
             self.seen_epoch = self.model.connection_epoch;
-            if self.sync_rounds == 0 {
-                self.sync_rounds = 6;
-                self.last_sync = std::time::Instant::now();
-            }
+            // Every connection refreshes everything the phone can give us:
+            // address book + history batches, groups, statuses and chat state.
+            self.send(Command::InitialSync);
             self.send(Command::SyncChatState);
             self.send(Command::SyncGroups);
+            self.send(Command::StatusHistory);
+            self.sync_rounds = 6;
+            self.last_sync = std::time::Instant::now();
             self.last_state_sync = std::time::Instant::now();
+            self.last_full_sync = std::time::Instant::now();
         }
         // Read marks, mutes and pins live in the chat app-state collection. A
         // slow poll keeps the badges in step with the phone (the official client
@@ -2841,6 +3066,15 @@ impl eframe::App for WaDesk {
         {
             self.last_state_sync = std::time::Instant::now();
             self.send(Command::SyncChatState);
+        }
+        // Groups and statuses change slowly; refresh them every ten minutes so
+        // the list and the rings keep up without a restart.
+        if self.model.login.is_linked()
+            && self.last_full_sync.elapsed() >= std::time::Duration::from_secs(600)
+        {
+            self.last_full_sync = std::time::Instant::now();
+            self.send(Command::SyncGroups);
+            self.send(Command::StatusHistory);
         }
         if self.model.login.is_linked()
             && self.sync_rounds > 0

@@ -123,7 +123,6 @@ pub enum Command {
     },
     /// The address book, for the new-chat picker.
     Contacts,
-    /// Star or unstar one message.
     Star {
         chat: String,
         id: String,
@@ -797,6 +796,104 @@ impl Model {
         let insertion = wa_ui::emoji::insert_text(&self.composer, caret, caret, ch);
         self.composer = insertion.value;
         self.emoji_recents = wa_ui::emoji::remember_recent(&self.emoji_recents, ch);
+    }
+
+    /// Merge a WhatsApp "Export chat" text file into one chat.
+    pub fn import_export(&mut self, chat: &str, text: &str) -> (usize, usize) {
+        use wa_ui::export::{ExistingMessage, import_plan, parse};
+
+        let parsed = parse(text, false);
+        if parsed.is_empty() {
+            return (0, 0);
+        }
+        let existing: Vec<ExistingMessage> = self
+            .chats
+            .get(chat)
+            .map(|row| {
+                row.messages
+                    .iter()
+                    .map(|message| ExistingMessage {
+                        id: message.id.clone(),
+                        timestamp: message.timestamp,
+                        text: message.text.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let plan = import_plan(&parsed, &existing);
+        let removed = plan.remove_export_ids.len();
+        let me = self.own_name();
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| row.name.clone())
+            .unwrap_or_default();
+        let row = self
+            .chats
+            .entry(chat.to_string())
+            .or_insert_with(|| ChatRow {
+                jid: chat.to_string(),
+                ..Default::default()
+            });
+        if row.name.is_empty() {
+            row.name = chat_name;
+        }
+        row.messages
+            .retain(|message| !plan.remove_export_ids.contains(&message.id));
+
+        let mut added = 0;
+        for message in plan.add {
+            let from_me = message.sender.eq_ignore_ascii_case(&me)
+                || message.sender.eq_ignore_ascii_case("you");
+            row.messages.push(MessageView {
+                chat: chat.to_string(),
+                chat_name: row.name.clone(),
+                sender: if from_me {
+                    None
+                } else {
+                    Some(chat.to_string())
+                },
+                sender_name: if from_me {
+                    None
+                } else {
+                    Some(message.sender.clone())
+                },
+                sender_phone: None,
+                id: format!("export-{}-{added}", message.timestamp),
+                from_me,
+                is_group: chat.ends_with("@g.us"),
+                timestamp: message.timestamp,
+                kind: "text".to_string(),
+                text: message.text,
+                mentions: Vec::new(),
+                reply_to: None,
+                link: None,
+                document: None,
+                audio: None,
+                stats: None,
+                forwarded: false,
+                once_recovered: false,
+                status_quote: false,
+            });
+            added += 1;
+        }
+        row.messages.sort_by_key(|message| message.timestamp);
+        row.last_ts = row
+            .messages
+            .last()
+            .map(|message| message.timestamp)
+            .unwrap_or(row.last_ts);
+        (added, removed)
+    }
+
+    /// Star or unstar one message.
+    pub fn toggle_star(&mut self, id: &str) -> bool {
+        if self.starred.remove(id) {
+            false
+        } else {
+            self.starred.insert(id.to_string());
+            true
+        }
     }
 
     // ------------------------------------------------------- message actions ---
@@ -1558,6 +1655,26 @@ fn downloads_dir() -> std::path::PathBuf {
     } else {
         std::path::PathBuf::from("WA Desk")
     }
+}
+
+/// Where profile photos are cached, so the next launch shows them instantly.
+pub fn avatar_dir() -> std::path::PathBuf {
+    let base = std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("io.github.dirttw.wadesk-native")
+        .join("avatars");
+    let _ = std::fs::create_dir_all(&base);
+    base
+}
+
+/// The cache file for one contact's photo.
+pub fn avatar_path(jid: &str) -> std::path::PathBuf {
+    let safe: String = jid
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    avatar_dir().join(format!("{safe}.img"))
 }
 
 /// Headless verification: feed the model the same events the phone would send
