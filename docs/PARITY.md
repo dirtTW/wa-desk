@@ -31,7 +31,8 @@ colours) and the official desktop screenshots the maintainer sends. **✅** = do
 | Voice notes: record (mic in an empty composer), play, waveform, seek | recording captured at 16 kHz through cpal, encoded to Opus and muxed into Ogg (`src/voicenote.rs`), posted as `ptt` with a 64-bar waveform via `Session::send_voice_note`; playback, waveform and seek were already there | ✅ (`target/our_mic_crop.png`) |
 | Documents card | yes | ✅ |
 | Reply, react, forward, star, edit, delete | yes | ✅ |
-| Polls and contact cards: compose, send, render | **send** works: the attach menu opens a *Create poll* dialog (question, three option rows, "Allow multiple answers") and a *Share a contact* dialog (name, number) → `Command::SendPoll`/`SendContact` → `Session::send_poll` (the client's `polls().create`) / `Session::send_contact` (`contactMessage` + vCard 3.0); **render** draws the question + option rows with radio dots and the initials-disc contact card (`target/our_poll.png`, `target/our_poll_dialog.png`, `target/our_contact_dialog.png`). Receiving them (mapping `pollCreationMessage`/`contactMessage` onto `MessageView.poll`/`.contact`) is the last missing half | 🟡 send ✅ render ✅ receive ❌ |
+| Polls and contact cards: compose, send, receive, render | **send**: attach menu → *Create poll* / *Share a contact* dialogs → `SendPoll`/`SendContact` → `polls().create` / `contactMessage` + vCard. **receive**: `media_kind` maps `pollCreationMessage` / `contactMessage` / `contactsArrayMessage`, `poll_view`/`contact_view` build the views (options, `selectable_options_count`, number parsed out of the vCard) and the bubbles draw the question + option rows or the initials disc card | ✅ (`target/our_poll.png`, `target/our_poll_dialog.png`, `target/our_contact_dialog.png`) |
+
 | View-once | partially (rail eye reveals recovered ones) | 🟡 |
 | Disappearing messages | indicator shown | 🟡 settings toggle not wired |
 

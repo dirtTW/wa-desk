@@ -507,8 +507,8 @@ pub(crate) fn dispatch(
                         once_recovered: false,
                         gif: is_gif(body),
                         status_quote: quotes_status(body),
-                        contact: None,
-                        poll: None,
+                        contact: contact_view(body),
+                        poll: poll_view(body),
                     }));
                 }
                 tracing::debug!(
@@ -1045,8 +1045,8 @@ pub(crate) fn dispatch(
                     once_recovered: false,
                     gif: is_gif(&inbound.message),
                     status_quote: quotes_status(&inbound.message),
-                    contact: None,
-                    poll: None,
+                    contact: contact_view(&inbound.message),
+                    poll: poll_view(&inbound.message),
                 }));
             }
         }

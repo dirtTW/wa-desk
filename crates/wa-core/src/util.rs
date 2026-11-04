@@ -323,7 +323,13 @@ pub(crate) fn is_gif(message: &wa::Message) -> bool {
 
 pub(crate) fn media_kind(message: &wa::Message) -> Option<&'static str> {
     let base = message.get_base_message();
-    if base.image_message.as_option().is_some() {
+    if base.poll_creation_message.as_option().is_some() {
+        Some("poll")
+    } else if base.contact_message.as_option().is_some()
+        || base.contacts_array_message.as_option().is_some()
+    {
+        Some("contact")
+    } else if base.image_message.as_option().is_some() {
         Some("image")
     } else if base.video_message.as_option().is_some() {
         Some("video")
@@ -340,6 +346,90 @@ pub(crate) fn media_kind(message: &wa::Message) -> Option<&'static str> {
             TemplateMedia::Document(_) => "document",
         })
     }
+}
+
+/// A received poll: its question, the option names and whether the creator
+/// allows more than one pick (`selectable_options_count`).
+pub(crate) fn poll_view(message: &wa::Message) -> Option<PollView> {
+    let base = message.get_base_message();
+    let poll = base.poll_creation_message.as_option()?;
+    let question = poll
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Poll")
+        .to_owned();
+    let options: Vec<String> = poll
+        .options
+        .iter()
+        .filter_map(|option| option.option_name.clone())
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    if options.is_empty() {
+        return None;
+    }
+    Some(PollView {
+        question,
+        options,
+        multiple: poll.selectable_options_count.unwrap_or(1) > 1,
+    })
+}
+
+/// A received contact card. `contactsArrayMessage` carries several; the first
+/// one names the bubble and the rest are listed after it.
+pub(crate) fn contact_view(message: &wa::Message) -> Option<ContactCardView> {
+    let base = message.get_base_message();
+    if let Some(contact) = base.contact_message.as_option() {
+        let name = contact
+            .display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Contact")
+            .to_owned();
+        return Some(ContactCardView {
+            name,
+            phone: contact.vcard.as_deref().and_then(phone_from_vcard),
+        });
+    }
+    let array = base.contacts_array_message.as_option()?;
+    let first = array.contacts.first()?;
+    let name = first
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Contact")
+        .to_owned();
+    Some(ContactCardView {
+        name,
+        phone: first.vcard.as_deref().and_then(phone_from_vcard),
+    })
+}
+
+/// The international number out of a vCard: `waid=628…` or a `TEL` line.
+fn phone_from_vcard(vcard: &str) -> Option<String> {
+    for line in vcard.lines() {
+        let line = line.trim();
+        let digits = if let Some(index) = line.find("waid=") {
+            let rest = &line[index + 5..];
+            let end = rest
+                .find(|ch: char| !ch.is_ascii_digit())
+                .unwrap_or(rest.len());
+            rest[..end].to_string()
+        } else if line.to_ascii_uppercase().starts_with("TEL") {
+            let value = line.rsplit(':').next().unwrap_or("");
+            value.chars().filter(char::is_ascii_digit).collect()
+        } else {
+            continue;
+        };
+        if digits.len() >= 7 {
+            return Some(digits);
+        }
+    }
+    None
 }
 
 /// File card metadata for a document message: name, MIME, size, pages and the
@@ -905,4 +995,37 @@ pub(crate) fn now_ms() -> i64 {
 pub(crate) fn is_sender_poison(error: &impl std::fmt::Debug) -> bool {
     let detail = format!("{error:?}");
     detail.contains("sender poisoned") || detail.contains("Poisoned")
+}
+
+#[cfg(test)]
+mod contact_tests {
+    use super::*;
+
+    #[test]
+    fn the_number_comes_out_of_the_vcard() {
+        let card = "BEGIN:VCARD\nVERSION:3.0\nFN:Ada\nTEL;type=CELL;waid=628111000111:+628111000111\nEND:VCARD";
+        assert_eq!(phone_from_vcard(card).as_deref(), Some("628111000111"));
+        let plain = "BEGIN:VCARD\nFN:Bob\nTEL;type=CELL:+62 812-3456-7890\nEND:VCARD";
+        assert_eq!(phone_from_vcard(plain).as_deref(), Some("6281234567890"));
+        assert_eq!(phone_from_vcard("nothing here"), None);
+    }
+
+    #[test]
+    fn a_contact_message_becomes_a_card() {
+        let base = wa::Message {
+            contact_message: MessageField::some(wa::message::ContactMessage {
+                display_name: Some("Ada Lovelace".to_string()),
+                vcard: Some(
+                    "BEGIN:VCARD\nVERSION:3.0\nFN:Ada Lovelace\nTEL;type=CELL;waid=628111000111:+628111000111\nEND:VCARD"
+                        .to_string(),
+                ),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let card = contact_view(&base).expect("a card");
+        assert_eq!(card.name, "Ada Lovelace");
+        assert_eq!(card.phone.as_deref(), Some("628111000111"));
+        assert_eq!(media_kind(&base), Some("contact"));
+    }
 }

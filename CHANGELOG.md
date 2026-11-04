@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.21] - 2026-11-05
+
+- **Received polls and contact cards render.** The last half of the rc.17/18 work: `util::media_kind`
+  now recognises `pollCreationMessage`, `contactMessage` and `contactsArrayMessage`, and the new
+  `poll_view` / `contact_view` build the data the bubbles already draw - the question plus every
+  option (`selectable_options_count > 1` marks a multi-select poll), and the display name with the
+  number parsed out of the vCard (`waid=…` first, then a `TEL` line). Both the live and the history
+  paths in `events.rs` fill `MessageView.poll` / `.contact` from them.
+- Tests: `wa-core::contact_tests::{the_number_comes_out_of_the_vcard, a_contact_message_becomes_a_card}`
+  (the second also asserts `media_kind == "contact"`).
+- `docs/PARITY.md` flips the row to ✅ *compose, send, receive, render*.
+- Tests: 116 native + 41 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.20] - 2026-11-05
 
 - **Flicker when scrolling the chat list: the scrollbar width.** The sidebar's `ScrollArea` used the
