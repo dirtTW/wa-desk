@@ -189,6 +189,24 @@ device until you remove it from the phone).
   sequence headlessly (gate, chats, media, status, channels, settings, group
   info) and prints what the window would show, so the UI is verified in CI
   without a display.
+
+### Search, pickers and the media viewer (v144)
+
+- **In-chat search** lives in the header: `wa_ui::search::matched_indices` decides which
+  bubbles match, `count_label` writes the `2/5` counter and `hit_index` wraps the stepper.
+  The window paints the query's ranges on a yellow band inside the matched bubble with a
+  `LayoutJob` (char-aligned lowercase matching, so Unicode does not shift offsets) and
+  outlines the bubble; Esc closes the bar and the state resets when another chat opens.
+- **Emoji picker** reads the same catalogue as the old shell (`wa_ui::emoji::groups` /
+  `search`), keeps recents through `remember_recent`, and inserts with `insert_text` so the
+  composer and the stored key cannot disagree about where a glyph landed.
+- **Sticker picker** lists the account's favourites (fetched once through
+  `Command::FavoriteStickers`, sent with `send_favorite_sticker`) above the stickers already
+  cached from chats (`forward_sticker`). A sticker bubble paints without a bubble, 128px wide.
+- **Media viewer** pages the open chat's photos and videos (`Model::media_items`), with a
+  filmstrip, arrow keys, Esc, and Save copying the cached file into `Downloads\WA Desk` in
+  Rust - the window never opens a second process.
+
 ### Official-client parity pass (v140)
 
 - Clock format is globally `8:44 pm` — lowercase 12-hour with colon, forced
@@ -471,9 +489,7 @@ device until you remove it from the phone).
 
 ## Roadmap (native app)
 
-1. Stickers and the emoji picker in the window
-2. In-chat search and the media viewer
-3. Message actions: reply, react, edit, delete, forward
-4. Notifications, tray and autostart
-5. AI auto-reply loop (port it out of the removed shell)
-6. Voice/video calls on a native audio/video path
+1. Message actions: reply, react, edit, delete, forward
+2. Notifications, tray and autostart
+3. AI auto-reply loop (port it out of the removed shell)
+4. Voice/video calls on a native audio/video path

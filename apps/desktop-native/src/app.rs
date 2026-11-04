@@ -21,6 +21,8 @@ pub struct NativeApp {
     pub media: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
     /// Group metadata replies, (chat, info or error).
     pub group: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
+    /// Favourite-sticker replies.
+    pub favorites: std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
 }
 
 impl NativeApp {
@@ -30,6 +32,7 @@ impl NativeApp {
         runtime: tokio::runtime::Handle,
         media: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
         group: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
+        favorites: std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
     ) -> Self {
         Self {
             events,
@@ -37,6 +40,7 @@ impl NativeApp {
             runtime,
             media,
             group,
+            favorites,
         }
     }
 }
@@ -68,6 +72,14 @@ pub struct WaDesk {
     show_group: bool,
     /// Decoded media textures, keyed by message id.
     textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    /// Decoded sticker textures, keyed by sticker id or favourite id.
+    sticker_textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    /// Favourite-sticker replies.
+    favorites_rx: std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
+    /// The search hit the list was last scrolled to.
+    scrolled_hit: i64,
+    /// A short status line for the viewer (saved path, failures).
+    note: String,
 }
 
 impl WaDesk {
@@ -89,6 +101,10 @@ impl WaDesk {
             group_rx: native.group,
             show_group: false,
             textures: std::collections::HashMap::new(),
+            sticker_textures: std::collections::HashMap::new(),
+            favorites_rx: native.favorites,
+            scrolled_hit: -1,
+            note: String::new(),
         }
     }
 
@@ -104,6 +120,13 @@ impl WaDesk {
                 Err(err) => self.model.group_failed(&err),
             }
             let _ = chat;
+            changed = true;
+        }
+        while let Ok(reply) = self.favorites_rx.try_recv() {
+            match reply {
+                Ok(favorites) => self.model.favorites_loaded(favorites),
+                Err(err) => self.model.favorites_failed(&err),
+            }
             changed = true;
         }
         while let Ok((id, reply)) = self.media_rx.try_recv() {
@@ -235,14 +258,57 @@ impl WaDesk {
                         }
                     }
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Search").clicked() {
+                        self.model.search_open = !self.model.search_open;
+                        if !self.model.search_open {
+                            self.model.chat_search.clear();
+                            self.model.search_hit = -1;
+                        }
+                    }
+                });
             });
+
+            // In-chat search: the counter, the stepper, Esc to close.
+            if self.model.search_open {
+                ui.horizontal(|ui| {
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut self.model.chat_search)
+                            .hint_text("Search this chat")
+                            .desired_width(220.0),
+                    );
+                    if edit.changed() {
+                        self.model.search_refresh();
+                        self.scrolled_hit = -1;
+                    }
+                    ui.label(
+                        egui::RichText::new(self.model.search_label())
+                            .small()
+                            .weak(),
+                    );
+                    if ui.button("▲").clicked() {
+                        self.model.search_step(false);
+                        self.scrolled_hit = -1;
+                    }
+                    if ui.button("▼").clicked() {
+                        self.model.search_step(true);
+                        self.scrolled_hit = -1;
+                    }
+                    if ui.button("✕").clicked() {
+                        self.model.search_open = false;
+                        self.model.chat_search.clear();
+                        self.model.search_hit = -1;
+                    }
+                });
+            }
             ui.separator();
 
-            // Ask for photos that are not on disk yet (one request each).
+            // Ask for photos and stickers that are not on disk yet (one
+            // request each). The same sticker files feed the picker.
             let wanted: Vec<String> = row
                 .messages
                 .iter()
-                .filter(|message| message.kind == "image")
+                .filter(|message| matches!(message.kind.as_str(), "image" | "sticker"))
                 .map(|message| message.id.clone())
                 .collect();
             for id in wanted {
@@ -251,19 +317,65 @@ impl WaDesk {
                 }
             }
 
-            let height = ui.available_height() - 54.0;
+            // What the search marks, and which hit to bring into view.
+            let hits: Vec<usize> = if self.model.search_open {
+                self.model.search_matches()
+            } else {
+                Vec::new()
+            };
+            let current = self.model.search_current();
+            let query = self.model.chat_search.clone();
+            let focus = current.filter(|_| self.scrolled_hit != self.model.search_hit);
+
+            let height = ui.available_height() - 40.0;
+            let mut clicked: Option<String> = None;
             egui::ScrollArea::vertical()
-                .stick_to_bottom(true)
+                .stick_to_bottom(focus.is_none())
                 .max_height(height.max(120.0))
                 .show(ui, |ui| {
                     let ctx = ui.ctx().clone();
-                    for message in &row.messages {
-                        bubble(ui, &self.model, message, &mut self.textures, &ctx);
+                    for (index, message) in row.messages.iter().enumerate() {
+                        let is_hit = hits.contains(&index);
+                        if bubble(
+                            ui,
+                            &self.model,
+                            message,
+                            &mut self.textures,
+                            &ctx,
+                            if is_hit { Some(query.as_str()) } else { None },
+                            focus == Some(index),
+                        ) {
+                            clicked = Some(message.id.clone());
+                        }
                     }
                 });
+            if let Some(id) = clicked {
+                self.model.open_viewer(&id);
+            }
+            if focus.is_some() {
+                self.scrolled_hit = self.model.search_hit;
+            }
+
+            // Esc leaves the search bar, like WhatsApp Web.
+            if self.model.search_open && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.model.search_open = false;
+                self.model.chat_search.clear();
+                self.model.search_hit = -1;
+            }
 
             ui.separator();
             ui.horizontal(|ui| {
+                if ui.button("Emoji").clicked() {
+                    self.model.emoji_open = !self.model.emoji_open;
+                    self.model.stickers_open = false;
+                }
+                if ui.button("Sticker").clicked() {
+                    self.model.stickers_open = !self.model.stickers_open;
+                    self.model.emoji_open = false;
+                    if self.model.favorites.is_empty() && self.model.favorites_error.is_none() {
+                        self.send(Command::FavoriteStickers);
+                    }
+                }
                 let send_width = 64.0;
                 let edit = ui.add_sized(
                     [ui.available_width() - send_width, 30.0],
@@ -305,18 +417,24 @@ impl WaDesk {
     }
 }
 
+/// Paint one message. Returns true when its media was clicked, which opens the
+/// viewer. `search` marks a hit (and highlights the query), `scroll` brings the
+/// bubble into view.
 fn bubble(
     ui: &mut egui::Ui,
     model: &Model,
     message: &MessageView,
     textures: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
     ctx: &egui::Context,
-) {
+    search: Option<&str>,
+    scroll: bool,
+) -> bool {
     let align = if message.from_me {
         egui::Align::Max
     } else {
         egui::Align::Min
     };
+    let mut clicked = false;
     ui.with_layout(egui::Layout::top_down(align), |ui| {
         let mut header = String::new();
         if let Some(name) = message.sender_name.as_ref().filter(|_| !message.from_me) {
@@ -326,24 +444,43 @@ fn bubble(
         header.push_str(&model.bubble_stamp(message));
         ui.label(egui::RichText::new(header).small().weak());
 
-        // A photo paints its bytes once wa-core has the file; anything else
-        // falls back to the caption or the kind's word from wa-ui.
-        if message.kind == "image" {
-            if !textures.contains_key(&message.id) {
-                textures.insert(message.id.clone(), decode(ctx, model, message));
+        // A sticker paints on its own, without a bubble.
+        if message.kind == "sticker"
+            && let Some(texture) =
+                texture_at(ctx, textures, &message.id, model.media_path(&message.id))
+        {
+            let size = texture.size_vec2();
+            let scale = (128.0 / size.x).min(1.0);
+            let response =
+                ui.add(egui::Image::new((texture.id(), size * scale)).sense(egui::Sense::click()));
+            if scroll {
+                response.scroll_to_me(Some(egui::Align::Center));
             }
-            if let Some(Some(texture)) = textures.get(&message.id) {
-                let size = texture.size_vec2();
-                let scale = (240.0 / size.x).min(1.0);
-                ui.image((texture.id(), size * scale));
-                if !message.text.trim().is_empty() {
-                    ui.label(
-                        egui::RichText::new(&message.text).color(egui::Color32::from_gray(235)),
-                    );
-                }
-                ui.add_space(3.0);
-                return;
+            clicked = response.clicked();
+            ui.add_space(3.0);
+            return;
+        }
+
+        // A photo paints its bytes once wa-core has the file; a video shows the
+        // same texture as its poster. Anything else falls back to the caption or
+        // the kind's word from wa-ui.
+        if matches!(message.kind.as_str(), "image" | "video")
+            && let Some(texture) =
+                texture_at(ctx, textures, &message.id, model.media_path(&message.id))
+        {
+            let size = texture.size_vec2();
+            let scale = (240.0 / size.x).min(1.0);
+            let response =
+                ui.add(egui::Image::new((texture.id(), size * scale)).sense(egui::Sense::click()));
+            if scroll {
+                response.scroll_to_me(Some(egui::Align::Center));
             }
+            clicked = response.clicked();
+            if !message.text.trim().is_empty() {
+                ui.label(egui::RichText::new(&message.text).color(egui::Color32::from_gray(235)));
+            }
+            ui.add_space(3.0);
+            return;
         }
 
         let body = model.bubble_body(message);
@@ -352,15 +489,108 @@ fn bubble(
         } else {
             egui::Color32::from_rgb(36, 38, 38)
         };
-        egui::Frame::new()
+        let mut frame = egui::Frame::new()
             .fill(fill)
             .inner_margin(egui::Margin::symmetric(8, 5))
-            .corner_radius(egui::CornerRadius::same(8))
+            .corner_radius(egui::CornerRadius::same(8));
+        if search.is_some() {
+            frame = frame.stroke(egui::Stroke::new(
+                1.5_f32,
+                egui::Color32::from_rgb(240, 200, 60),
+            ));
+        }
+        let response = frame
             .show(ui, |ui| {
-                ui.label(egui::RichText::new(body).color(egui::Color32::from_gray(240)));
-            });
+                let color = egui::Color32::from_gray(240);
+                match search {
+                    Some(needle) => {
+                        ui.label(highlight_job(&body, needle, color));
+                    }
+                    None => {
+                        ui.label(egui::RichText::new(body).color(color));
+                    }
+                }
+            })
+            .response;
+        if scroll {
+            response.scroll_to_me(Some(egui::Align::Center));
+        }
         ui.add_space(3.0);
     });
+    clicked
+}
+
+/// Decode a media file into a texture, once. Absent until the file exists —
+/// and absent when it is not a readable image.
+fn texture_at(
+    ctx: &egui::Context,
+    cache: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    key: &str,
+    path: Option<String>,
+) -> Option<egui::TextureHandle> {
+    if let Some(texture) = cache.get(key) {
+        return texture.clone();
+    }
+    let bytes = std::fs::read(path?).ok()?;
+    let image = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+    let texture = ctx.load_texture(key.to_string(), color, egui::TextureOptions::LINEAR);
+    cache.insert(key.to_string(), Some(texture.clone()));
+    Some(texture)
+}
+
+/// A laid-out label with every occurrence of the query on a yellow band.
+fn highlight_job(text: &str, needle: &str, color: egui::Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let plain = egui::TextFormat {
+        color,
+        ..Default::default()
+    };
+    let marked = egui::TextFormat {
+        color: egui::Color32::from_rgb(24, 24, 24),
+        background: egui::Color32::from_rgb(240, 200, 60),
+        ..Default::default()
+    };
+    let needle: Vec<char> = needle.trim().to_lowercase().chars().collect();
+    let chars: Vec<char> = text.chars().collect();
+    if needle.is_empty() || chars.is_empty() {
+        job.append(text, 0.0, plain);
+        return job;
+    }
+    // Lowercase one char at a time so indices stay aligned with `chars`.
+    let lowered: Vec<char> = chars
+        .iter()
+        .map(|c| c.to_lowercase().next().unwrap_or(*c))
+        .collect();
+    let mut index = 0;
+    let mut start = 0;
+    while index + needle.len() <= lowered.len() {
+        if lowered[index..index + needle.len()] == needle[..] {
+            if start < index {
+                job.append(
+                    &chars[start..index].iter().collect::<String>(),
+                    0.0,
+                    plain.clone(),
+                );
+            }
+            job.append(
+                &chars[index..index + needle.len()]
+                    .iter()
+                    .collect::<String>(),
+                0.0,
+                marked.clone(),
+            );
+            index += needle.len();
+            start = index;
+        } else {
+            index += 1;
+        }
+    }
+    if start < chars.len() {
+        job.append(&chars[start..].iter().collect::<String>(), 0.0, plain);
+    }
+    job
 }
 
 impl WaDesk {
@@ -947,30 +1177,300 @@ impl eframe::App for WaDesk {
                 self.status_panel(ctx);
             } else {
                 self.conversation(ctx);
+                self.emoji_window(ctx);
+                self.stickers_window(ctx);
+            }
+            if self.model.media_viewer.is_some() {
+                self.media_overlay(ctx);
             }
         }
         let _ = &self.runtime;
     }
 }
 
-/// Decode a cached media file into a texture: absent while downloading, and
-/// absent when the file is not a readable image.
-fn decode(
-    ctx: &egui::Context,
-    model: &Model,
-    message: &MessageView,
-) -> Option<egui::TextureHandle> {
-    let path = match model.media.get(&message.id) {
-        Some(crate::model::MediaState::Path(path)) => path,
-        _ => return None,
-    };
-    let bytes = std::fs::read(path).ok()?;
-    let image = image::load_from_memory(&bytes).ok()?.to_rgba8();
-    let size = [image.width() as usize, image.height() as usize];
-    let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
-    Some(ctx.load_texture(
-        format!("media-{}", message.id),
-        color,
-        egui::TextureOptions::LINEAR,
-    ))
+impl WaDesk {
+    /// The emoji picker: search, recents, and a wrapped grid that inserts into
+    /// the composer.
+    fn emoji_window(&mut self, ctx: &egui::Context) {
+        if !self.model.emoji_open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("Emoji")
+            .open(&mut open)
+            .default_pos([420.0, 160.0])
+            .default_width(320.0)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.model.emoji_query)
+                        .hint_text("Search emoji")
+                        .desired_width(f32::INFINITY),
+                );
+                let items = self.model.emoji_items();
+                egui::ScrollArea::vertical()
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for item in items {
+                                if ui
+                                    .add(egui::Button::new(egui::RichText::new(&item).size(19.0)))
+                                    .clicked()
+                                {
+                                    self.model.insert_emoji(&item);
+                                }
+                            }
+                        });
+                    });
+            });
+        if !open {
+            self.model.emoji_open = false;
+        }
+    }
+
+    /// The sticker picker: the account's favourites, then the stickers the
+    /// session already downloaded from the chats. Clicking sends one.
+    fn stickers_window(&mut self, ctx: &egui::Context) {
+        if !self.model.stickers_open {
+            return;
+        }
+        let mut open = true;
+        let chat = self.model.active.clone().unwrap_or_default();
+        let favorites = self.model.favorites.clone();
+        let error = self.model.favorites_error.clone();
+        let recent = self.model.sticker_collection();
+        egui::Window::new("Stickers")
+            .open(&mut open)
+            .default_pos([420.0, 180.0])
+            .default_width(340.0)
+            .show(ctx, |ui| {
+                if chat.is_empty() {
+                    ui.label(egui::RichText::new("Open a chat to send a sticker").weak());
+                    return;
+                }
+                if let Some(err) = error {
+                    ui.label(
+                        egui::RichText::new(format!("Favourites: {err}"))
+                            .small()
+                            .weak(),
+                    );
+                }
+                if !favorites.is_empty() {
+                    ui.label(egui::RichText::new("Favourites").small().strong());
+                    ui.horizontal_wrapped(|ui| {
+                        for favorite in &favorites {
+                            let key = format!("fav:{}", favorite.id);
+                            if let Some(texture) = texture_at(
+                                ctx,
+                                &mut self.sticker_textures,
+                                &key,
+                                Some(favorite.path.clone()),
+                            ) {
+                                let size = texture.size_vec2();
+                                let scale = (64.0 / size.x).min(1.0);
+                                if ui
+                                    .add(
+                                        egui::Image::new((texture.id(), size * scale))
+                                            .sense(egui::Sense::click()),
+                                    )
+                                    .clicked()
+                                {
+                                    self.send(Command::SendFavoriteSticker {
+                                        chat: chat.clone(),
+                                        id: favorite.id.clone(),
+                                    });
+                                    self.model.stickers_open = false;
+                                }
+                            }
+                        }
+                    });
+                    ui.separator();
+                }
+                ui.label(egui::RichText::new("Recent").small().strong());
+                if recent.is_empty() {
+                    ui.label(
+                        egui::RichText::new("Send or receive a sticker and it shows up here")
+                            .small()
+                            .weak(),
+                    );
+                    return;
+                }
+                ui.horizontal_wrapped(|ui| {
+                    for (id, path) in recent {
+                        let key = format!("msg:{id}");
+                        if let Some(texture) =
+                            texture_at(ctx, &mut self.sticker_textures, &key, Some(path))
+                        {
+                            let size = texture.size_vec2();
+                            let scale = (64.0 / size.x).min(1.0);
+                            if ui
+                                .add(
+                                    egui::Image::new((texture.id(), size * scale))
+                                        .sense(egui::Sense::click()),
+                                )
+                                .clicked()
+                            {
+                                self.send(Command::ForwardSticker {
+                                    chat: chat.clone(),
+                                    message_id: id.clone(),
+                                });
+                                self.model.stickers_open = false;
+                            }
+                        }
+                    }
+                });
+            });
+        if !open {
+            self.model.stickers_open = false;
+        }
+    }
+
+    /// The media viewer: a full-window stage, the filmstrip, prev/next, Esc to
+    /// close, arrow keys to step, and Save into `Downloads\WA Desk`.
+    fn media_overlay(&mut self, ctx: &egui::Context) {
+        let Some(item) = self.model.viewer_item() else {
+            self.model.close_viewer();
+            return;
+        };
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.model.close_viewer();
+            return;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+            self.model.step_viewer(true);
+            return;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+            self.model.step_viewer(false);
+            return;
+        }
+        if self.model.request_media(&item.id) {
+            self.send(Command::FetchMedia {
+                id: item.id.clone(),
+            });
+        }
+
+        let items = self.model.media_items();
+        let index = self.model.media_viewer.unwrap_or(0);
+        let counter = format!("{} / {}", index + 1, items.len());
+        let chat_name = self
+            .model
+            .chats
+            .get(&item.chat)
+            .map(|row| self.model.title(row))
+            .unwrap_or_default();
+        let stamp = self.model.bubble_stamp(&item);
+        let texture = texture_at(
+            ctx,
+            &mut self.textures,
+            &item.id,
+            self.model.media_path(&item.id),
+        );
+        let thumbs: Vec<(String, Option<egui::TextureHandle>)> = items
+            .iter()
+            .map(|entry| {
+                let texture = texture_at(
+                    ctx,
+                    &mut self.textures,
+                    &entry.id,
+                    self.model.media_path(&entry.id),
+                );
+                (entry.id.clone(), texture)
+            })
+            .collect();
+
+        let screen = ctx.screen_rect();
+        egui::Area::new(egui::Id::new("media-viewer"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(screen.min)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(11, 20, 26))
+                    .inner_margin(egui::Margin::same(12))
+                    .show(ui, |ui| {
+                        ui.set_min_size(screen.size() - egui::vec2(24.0, 24.0));
+                        ui.horizontal(|ui| {
+                            let white = egui::Color32::from_gray(240);
+                            ui.label(egui::RichText::new(&chat_name).strong().color(white));
+                            ui.label(egui::RichText::new(&stamp).small().weak());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("✕").clicked() {
+                                        self.model.close_viewer();
+                                    }
+                                    if ui.button("Save").clicked() {
+                                        self.note = match self.model.save_media(&item.id) {
+                                            Ok(path) => format!("Saved to {path}"),
+                                            Err(err) => err,
+                                        };
+                                    }
+                                    ui.label(egui::RichText::new(&counter).small().weak());
+                                },
+                            );
+                        });
+
+                        let stage_height = (ui.available_height() - 110.0).max(160.0);
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(ui.available_width(), stage_height),
+                            egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                            |ui| match &texture {
+                                Some(texture) => {
+                                    let size = texture.size_vec2();
+                                    let scale = (ui.available_width() / size.x)
+                                        .min(ui.available_height() / size.y)
+                                        .min(1.0);
+                                    ui.image((texture.id(), size * scale));
+                                }
+                                None => {
+                                    ui.label(
+                                        egui::RichText::new("Loading…")
+                                            .color(egui::Color32::from_gray(200)),
+                                    );
+                                }
+                            },
+                        );
+
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                if !item.text.trim().is_empty() {
+                                    ui.label(
+                                        egui::RichText::new(&item.text)
+                                            .color(egui::Color32::from_gray(220)),
+                                    );
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.button("◀").clicked() {
+                                        self.model.step_viewer(false);
+                                    }
+                                    if ui.button("▶").clicked() {
+                                        self.model.step_viewer(true);
+                                    }
+                                    if !self.note.is_empty() {
+                                        ui.label(egui::RichText::new(&self.note).small().weak());
+                                    }
+                                });
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    for (id, thumb) in thumbs.iter().rev() {
+                                        let Some(thumb) = thumb else { continue };
+                                        let size = thumb.size_vec2();
+                                        let scale = (44.0 / size.x).min(1.0);
+                                        let response = ui.add(
+                                            egui::Image::new((thumb.id(), size * scale))
+                                                .sense(egui::Sense::click()),
+                                        );
+                                        if response.clicked() {
+                                            self.model.open_viewer(id);
+                                        }
+                                    }
+                                },
+                            );
+                        });
+                    });
+            });
+    }
 }

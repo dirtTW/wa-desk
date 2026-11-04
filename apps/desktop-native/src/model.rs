@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use wa_types::{GroupInfoView, MessageView, StatusUpdate, UiEvent};
+use wa_types::{FavoriteStickerView, GroupInfoView, MessageView, StatusUpdate, UiEvent};
 use wa_ui::status::{
     StatusEntryView, StatusRequest, StatusUpdateView, ViewerChromeInput, next_position,
     progress_ratio, viewer_chrome, viewer_groups,
@@ -43,6 +43,18 @@ pub enum Command {
     /// Download (or find) one message's media.
     FetchMedia {
         id: String,
+    },
+    /// Ask the session for the account's favourite stickers.
+    FavoriteStickers,
+    /// Send a favourite sticker by its app-state id (`fav-…`).
+    SendFavoriteSticker {
+        chat: String,
+        id: String,
+    },
+    /// Send a sticker the session already has, by message id.
+    ForwardSticker {
+        chat: String,
+        message_id: String,
     },
 }
 
@@ -118,6 +130,20 @@ pub struct Model {
     pub search: String,
     pub composer: String,
     pub now: i64,
+    /// In-chat search: the header bar, its query and the hit being shown.
+    pub search_open: bool,
+    pub chat_search: String,
+    pub search_hit: i64,
+    /// The emoji picker: whether it is open, its query and the recents.
+    pub emoji_open: bool,
+    pub emoji_query: String,
+    pub emoji_recents: Vec<String>,
+    /// The sticker picker and the account's favourite stickers.
+    pub stickers_open: bool,
+    pub favorites: Vec<FavoriteStickerView>,
+    pub favorites_error: Option<String>,
+    /// The media viewer's position among the open chat's photos and videos.
+    pub media_viewer: Option<usize>,
 }
 
 impl Model {
@@ -331,6 +357,200 @@ impl Model {
             .unwrap_or_default();
         posts.sort_by_key(|message| message.timestamp);
         posts
+    }
+
+    // ------------------------------------------------------------ in-chat search ---
+
+    /// The indices of the open chat's messages that match the in-chat query.
+    pub fn search_matches(&self) -> Vec<usize> {
+        let Some(row) = self.active_row() else {
+            return Vec::new();
+        };
+        let texts: Vec<String> = row
+            .messages
+            .iter()
+            .map(|message| message.text.clone())
+            .collect();
+        wa_ui::search::matched_indices(&texts, &self.chat_search)
+    }
+
+    /// Restart the search from the first hit (the query changed).
+    pub fn search_refresh(&mut self) {
+        let total = self.search_matches().len();
+        self.search_hit = wa_ui::search::keep_hit(total, 0);
+    }
+
+    /// Step to the next (or previous) hit; the counter wraps.
+    pub fn search_step(&mut self, forward: bool) {
+        let total = self.search_matches().len();
+        if total == 0 {
+            self.search_hit = -1;
+            return;
+        }
+        let delta = if forward { 1 } else { -1 };
+        self.search_hit = wa_ui::search::hit_index(total, self.search_hit.saturating_add(delta));
+    }
+
+    /// The `2/5` counter beside the search box.
+    pub fn search_label(&self) -> String {
+        let total = self.search_matches().len();
+        wa_ui::search::count_label(self.search_hit, total, &self.chat_search).text
+    }
+
+    /// Which message the search bar points at, as an index into the chat.
+    pub fn search_current(&self) -> Option<usize> {
+        if self.search_hit < 0 {
+            return None;
+        }
+        let matches = self.search_matches();
+        let index = wa_ui::search::hit_index(matches.len(), self.search_hit);
+        if index < 0 {
+            return None;
+        }
+        matches.get(index as usize).copied()
+    }
+
+    // ------------------------------------------------------------------ emoji ---
+
+    /// Emoji for the picker: recents first when the query is empty (the
+    /// catalogue otherwise), or the query's matches.
+    pub fn emoji_items(&self) -> Vec<String> {
+        let query = self.emoji_query.trim();
+        if query.is_empty() {
+            let mut chars: Vec<String> = self.emoji_recents.clone();
+            for group in wa_ui::emoji::groups() {
+                for item in group.items {
+                    if !chars.contains(&item.char) {
+                        chars.push(item.char);
+                    }
+                    if chars.len() >= 160 {
+                        return chars;
+                    }
+                }
+            }
+            return chars;
+        }
+        wa_ui::emoji::search(query, 160)
+            .into_iter()
+            .map(|item| item.char)
+            .collect()
+    }
+
+    /// Put an emoji at the end of the composer and remember it.
+    pub fn insert_emoji(&mut self, ch: &str) {
+        let caret = self.composer.chars().count();
+        let insertion = wa_ui::emoji::insert_text(&self.composer, caret, caret, ch);
+        self.composer = insertion.value;
+        self.emoji_recents = wa_ui::emoji::remember_recent(&self.emoji_recents, ch);
+    }
+
+    // ---------------------------------------------------------------- stickers ---
+
+    /// Stickers already downloaded from the chats, newest first: (id, file).
+    pub fn sticker_collection(&self) -> Vec<(String, String)> {
+        let mut rows: Vec<(i64, String, String)> = self
+            .chats
+            .values()
+            .flat_map(|row| row.messages.iter())
+            .filter(|message| message.kind == "sticker")
+            .filter_map(|message| match self.media.get(&message.id) {
+                Some(MediaState::Path(path)) => {
+                    Some((message.timestamp, message.id.clone(), path.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(row.0));
+        rows.into_iter().map(|(_, id, path)| (id, path)).collect()
+    }
+
+    pub fn favorites_loaded(&mut self, favorites: Vec<FavoriteStickerView>) {
+        self.favorites = favorites;
+        self.favorites_error = None;
+    }
+
+    pub fn favorites_failed(&mut self, reason: &str) {
+        self.favorites = Vec::new();
+        self.favorites_error = Some(reason.to_string());
+    }
+
+    // ----------------------------------------------------------- media viewer ---
+
+    /// The open chat's photos and videos, in order: what the viewer pages.
+    pub fn media_items(&self) -> Vec<MessageView> {
+        let Some(row) = self.active_row() else {
+            return Vec::new();
+        };
+        row.messages
+            .iter()
+            .filter(|message| matches!(message.kind.as_str(), "image" | "video"))
+            .cloned()
+            .collect()
+    }
+
+    /// Open the viewer on one message; false when it is not viewable media.
+    pub fn open_viewer(&mut self, id: &str) -> bool {
+        let Some(index) = self.media_items().iter().position(|item| item.id == id) else {
+            return false;
+        };
+        self.media_viewer = Some(index);
+        true
+    }
+
+    /// Step the viewer; past either end it closes, like Esc.
+    pub fn step_viewer(&mut self, forward: bool) {
+        let total = self.media_items().len();
+        let Some(index) = self.media_viewer else {
+            return;
+        };
+        if total == 0 {
+            self.media_viewer = None;
+            return;
+        }
+        let next = if forward {
+            index as i64 + 1
+        } else {
+            index as i64 - 1
+        };
+        if next < 0 || next >= total as i64 {
+            self.media_viewer = None;
+            return;
+        }
+        self.media_viewer = Some(next as usize);
+    }
+
+    pub fn close_viewer(&mut self) {
+        self.media_viewer = None;
+    }
+
+    /// The item the viewer is showing.
+    pub fn viewer_item(&self) -> Option<MessageView> {
+        let index = self.media_viewer?;
+        self.media_items().get(index).cloned()
+    }
+
+    /// Where a message's media landed on disk, once it has downloaded.
+    pub fn media_path(&self, id: &str) -> Option<String> {
+        match self.media.get(id) {
+            Some(MediaState::Path(path)) => Some(path.clone()),
+            _ => None,
+        }
+    }
+
+    /// Copy a message's cached media into `Downloads\WA Desk`.
+    pub fn save_media(&self, id: &str) -> Result<String, String> {
+        let path = self
+            .media_path(id)
+            .ok_or_else(|| "that media is not downloaded yet".to_string())?;
+        let source = std::path::Path::new(&path);
+        let name = source
+            .file_name()
+            .ok_or_else(|| "the cached file has no name".to_string())?;
+        let dir = downloads_dir();
+        std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+        let target = dir.join(name);
+        std::fs::copy(source, &target).map_err(|err| err.to_string())?;
+        Ok(target.to_string_lossy().into_owned())
     }
 
     fn upsert(&mut self, message: MessageView) {
@@ -573,12 +793,17 @@ impl Model {
         format!("[{}]", message.kind)
     }
 
-    /// Open a chat: it becomes active and its badge clears.
+    /// Open a chat: it becomes active and its badge clears. The in-chat search
+    /// belongs to the chat it was started in, so it resets.
     pub fn open_chat(&mut self, jid: &str) {
         self.active = Some(jid.to_string());
         if let Some(row) = self.chats.get_mut(jid) {
             row.unread = 0;
         }
+        self.search_open = false;
+        self.chat_search.clear();
+        self.search_hit = -1;
+        self.media_viewer = None;
     }
 
     pub fn active_row(&self) -> Option<&ChatRow> {
@@ -659,6 +884,20 @@ pub fn media_dir() -> String {
     let dir = base.join("io.github.dirttw.wadesk-native").join("media");
     let _ = std::fs::create_dir_all(&dir);
     dir.to_string_lossy().into_owned()
+}
+
+/// Where the media viewer's save button copies files, like WhatsApp Web's
+/// `Downloads\WA Desk`.
+fn downloads_dir() -> std::path::PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    let dir = std::path::PathBuf::from(home).join("Downloads");
+    if dir.is_dir() {
+        dir.join("WA Desk")
+    } else {
+        std::path::PathBuf::from("WA Desk")
+    }
 }
 
 /// Headless verification: feed the model the same events the phone would send
@@ -951,6 +1190,55 @@ pub fn selftest() -> Result<String, String> {
     if members[1].0 != "Budi" {
         return Err("a known chat name should label the member".to_string());
     }
+
+    // In-chat search: the open chat matches "again" once, and stepping wraps.
+    model.open_chat("1@s.whatsapp.net");
+    model.search_open = true;
+    model.chat_search = "again".into();
+    model.search_refresh();
+    if model.search_label() != "1/1" || model.search_current().is_none() {
+        return Err(format!(
+            "search should hit once, got {:?}",
+            model.search_label()
+        ));
+    }
+    model.search_step(true);
+    if model.search_current().is_none() {
+        return Err("a single hit must keep pointing at itself".to_string());
+    }
+
+    // Emoji: an insert lands in the composer and leads the recents.
+    model.composer.clear();
+    model.insert_emoji("🙂");
+    if model.composer != "🙂" || model.emoji_items().first().map(String::as_str) != Some("🙂") {
+        return Err(format!("emoji insert wrong: {:?}", model.composer));
+    }
+
+    // Stickers: the downloaded one is offered, and sending is a command.
+    if !model.sticker_collection().is_empty() {
+        return Err("no sticker is downloaded yet".to_string());
+    }
+    model.media_ready("s1", "C:/media/s1.webp");
+
+    // Media viewer: the photo opens, pages, and closes at the end.
+    let items = model.media_items();
+    if items.len() != 1 {
+        return Err(format!(
+            "one photo expected in the viewer, got {}",
+            items.len()
+        ));
+    }
+    if !model.open_viewer(&photo.id) {
+        return Err("the photo should open in the viewer".to_string());
+    }
+    if model.viewer_item().map(|item| item.id) != Some(photo.id.clone()) {
+        return Err("the viewer should show the opened photo".to_string());
+    }
+    model.step_viewer(true);
+    if model.media_viewer.is_some() {
+        return Err("stepping past the last photo closes the viewer".to_string());
+    }
+
     Ok(serde_json::json!({
         "chats": model.visible_chats().len(),
         "first": first,
@@ -963,6 +1251,10 @@ pub fn selftest() -> Result<String, String> {
         "channels": model.channel_rows().len(),
         "theme": prefs.resolved_theme(true),
         "group_members": model.group_members().len(),
+        "search": model.search_label(),
+        "emoji": model.emoji_items().len(),
+        "viewer_items": model.media_items().len(),
+        "stickers": model.sticker_collection().len(),
     })
     .to_string())
 }
@@ -1111,6 +1403,128 @@ mod tests {
             model.chats["1@s.whatsapp.net"].unread, 1,
             "delivered keeps it"
         );
+    }
+
+    #[test]
+    fn search_finds_and_steps_through_hits() {
+        let mut model = Model::new();
+        model.active = Some("1@s.whatsapp.net".into());
+        for (id, text, ts) in [
+            ("m1", "hello there", 1),
+            ("m2", "nothing here", 2),
+            ("m3", "say HELLO again", 3),
+        ] {
+            model.apply(&UiEvent::Message(view(
+                "1@s.whatsapp.net",
+                "Ada",
+                id,
+                text,
+                ts,
+                false,
+            )));
+        }
+        model.chat_search = "hello".into();
+        model.search_refresh();
+        assert_eq!(model.search_matches(), vec![0, 2]);
+        assert_eq!(model.search_label(), "1/2");
+        assert_eq!(model.search_current(), Some(0));
+        model.search_step(true);
+        assert_eq!(model.search_current(), Some(2));
+        assert_eq!(model.search_label(), "2/2");
+        model.search_step(true);
+        assert_eq!(model.search_current(), Some(0), "the counter wraps");
+        model.search_step(false);
+        assert_eq!(model.search_current(), Some(2), "and wraps backwards");
+
+        // A query with no hits disables the counter, like WhatsApp.
+        model.chat_search = "zzz".into();
+        model.search_refresh();
+        assert_eq!(model.search_label(), "0/0");
+        assert_eq!(model.search_current(), None);
+    }
+
+    #[test]
+    fn emoji_land_in_the_composer_and_are_remembered() {
+        let mut model = Model::new();
+        model.composer = "hi ".into();
+        assert!(model.emoji_items().len() >= 100, "the catalogue is offered");
+        model.insert_emoji("🙂");
+        model.insert_emoji("👍");
+        assert_eq!(model.composer, "hi 🙂👍");
+        assert_eq!(
+            model.emoji_recents,
+            vec!["👍", "🙂"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+        // Recents lead the empty-query grid.
+        assert_eq!(model.emoji_items()[0], "👍");
+
+        // A query searches the catalogue.
+        model.emoji_query = "grin".into();
+        let matches = model.emoji_items();
+        assert!(!matches.is_empty(), "searching 'grin' finds faces");
+        assert!(matches.len() <= 160);
+    }
+
+    #[test]
+    fn the_viewer_pages_through_photos() {
+        let mut model = Model::new();
+        model.active = Some("1@s.whatsapp.net".into());
+        let mut photo = view("1@s.whatsapp.net", "Ada", "p1", "", 1, false);
+        photo.kind = "image".into();
+        model.apply(&UiEvent::Message(photo));
+        let mut clip = view("1@s.whatsapp.net", "Ada", "v1", "clip", 2, false);
+        clip.kind = "video".into();
+        model.apply(&UiEvent::Message(clip));
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "t1",
+            "not media",
+            3,
+            false,
+        )));
+
+        assert_eq!(model.media_items().len(), 2, "text is skipped");
+        assert!(model.open_viewer("v1"), "a video opens too");
+        assert_eq!(model.viewer_item().map(|item| item.id), Some("v1".into()));
+        model.step_viewer(true);
+        assert!(model.media_viewer.is_none(), "past the end closes");
+        assert!(!model.open_viewer("t1"), "text is not viewable");
+
+        // Saving needs the bytes; without them it says so.
+        assert!(model.save_media("p1").is_err());
+        model.media_ready("p1", "C:/media/p1.jpg");
+        assert!(model.media_path("p1").is_some());
+    }
+
+    #[test]
+    fn the_sticker_collection_lists_downloaded_stickers() {
+        let mut model = Model::new();
+        model.active = Some("1@s.whatsapp.net".into());
+        let mut sticker = view("1@s.whatsapp.net", "Ada", "s1", "", 5, false);
+        sticker.kind = "sticker".into();
+        model.apply(&UiEvent::Message(sticker));
+        assert!(model.sticker_collection().is_empty(), "not downloaded yet");
+        model.media_ready("s1", "C:/media/s1.webp");
+        let collection = model.sticker_collection();
+        assert_eq!(collection.len(), 1);
+        assert_eq!(collection[0].0, "s1");
+        assert_eq!(collection[0].1, "C:/media/s1.webp");
+
+        // Favourites come from the session and can fail loud.
+        model.favorites_loaded(vec![wa_types::FavoriteStickerView {
+            id: "fav-1".into(),
+            path: "C:/media/fav-1.webp".into(),
+            width: 512,
+            height: 512,
+        }]);
+        assert_eq!(model.favorites.len(), 1);
+        model.favorites_failed("no app-state yet");
+        assert!(model.favorites.is_empty());
+        assert_eq!(model.favorites_error.as_deref(), Some("no app-state yet"));
     }
 
     #[test]

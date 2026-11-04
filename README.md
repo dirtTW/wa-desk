@@ -45,8 +45,15 @@ The native window (`wa-desk-native`) covers:
   clear when another device reads the chat
 - **Conversation**: text, send and receive, typing indicator, own/other bubbles, sender + time
   headers, reading a history replay
-- **Media**: photos decoded into the window (one download per message), placeholders for
-  video / audio / document / sticker
+- **In-chat search**: the header's search bar with a match counter, previous/next stepping,
+  yellow highlighting inside the bubble and on the matched bubble, Esc to close
+- **Media**: photos decoded into the window (one download per message), stickers painted
+  without a bubble, placeholders for video / audio / document
+- **Media viewer**: full-window stage, filmstrip, prev/next and arrow keys, Esc to close, and
+  Save copies the file to `Downloads\WA Desk`
+- **Emoji picker**: the full catalogue with search and recents, inserting into the composer
+- **Sticker picker**: the account's favourites from app state plus the stickers already
+  cached from chats; clicking one sends it
 - **Status / stories**: poster rail with unseen/seen rings, story viewer with per-frame progress,
   background colours, prev/next and auto-advance
 - **Channels**: followed newsletters with their follower counts and read-only posts
@@ -60,9 +67,9 @@ the MSI/NSIS bundling and the 13-file JavaScript front end — several thousand 
 and the whole HTML/CSS tree. `Cargo.lock` now has zero `tauri`, `wry`, `webview2` and
 `webkit2gtk` entries; the only new dependencies are `eframe`, `egui`, `resvg` (QR) and
 `image` (photo decoding).
-Planned next, in rough order: stickers and emoji picker, in-chat search, message actions
-(reply / react / edit / delete), the media viewer, calls, notifications + tray, and the AI
-auto-reply loop (it used to live in the removed WebView shell).
+Planned next, in rough order: message actions (reply / react / edit / delete / forward),
+notifications + tray + autostart, the AI auto-reply loop (it used to live in the removed
+WebView shell), and calls on a native audio/video path.
 
 ## How it is put together
 
@@ -81,9 +88,9 @@ The UI is verified without a display:
 
 ```bash
 cargo run -p wa-desktop-native -- --selftest
-# {"channels":1,"chats":3,"first":"Team","group_members":2,"linked":true,
-#  "photo_body":"Photo","preview":"ok","stamp":"9:40 am","status":"Connected",
-#  "status_groups":2,"theme":"light"}
+# {"channels":1,"chats":3,"emoji":160,"first":"Team","group_members":2,"linked":true,
+#  "photo_body":"Photo","preview":"ok","search":"1/1","stamp":"9:40 am",
+#  "status":"Connected","status_groups":2,"stickers":0,"theme":"light","viewer_items":1}
 ```
 
 `--selftest` folds a scripted event sequence through the same model the window uses — pairing

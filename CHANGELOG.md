@@ -4,6 +4,27 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.59] — 2026-11-04
+
+- **In-chat search in the native window.** The conversation header's `Search` button opens a
+  bar with the `2/5` counter, `▲`/`▼` stepping and `✕`/`Esc` to close. Matching comes from
+  `wa_ui::search` (`matched_indices`, `count_label`, `hit_index`); the window paints every
+  occurrence on a yellow band inside the bubble and outlines the hit, then scrolls it into
+  view. The search resets when another chat opens.
+- **Emoji and sticker pickers.** The composer now carries `Emoji` and `Sticker` buttons.
+  The emoji panel searches the same 2,300-glyph catalogue the old shell used, keeps recents
+  and inserts through `wa_ui::emoji::insert_text`. The sticker panel lists the account's
+  favourites (fetched with `fetch_favorite_stickers`, sent with `send_favorite_sticker`)
+  above the stickers already cached from chats (sent with `forward_sticker`). Sticker
+  bubbles now paint their image without a bubble, 128px wide.
+- **Media viewer.** Clicking a photo or video opens a full-window stage with a filmstrip,
+  `◀`/`▶`, arrow keys and Esc; `Save` copies the cached file into `Downloads\WA Desk`
+  in Rust. Photos and stickers are downloaded on demand (one request per message).
+- 16 native tests (four new: search stepping/wrapping, emoji insert + recents, viewer paging,
+  sticker collection); clippy `-D warnings` clean across the workspace;
+  selftest prints `{"channels":1,"chats":3,"emoji":160,...,"search":"1/1",...,"stickers":0,
+  ...,"viewer_items":1}`.
+
 ## [0.2.0-rc.58] — 2026-11-04
 
 - **Documentation now matches the code: no Tauri, no WebView, no unused libraries.**

@@ -47,6 +47,8 @@ fn main() {
     let (media_tx, media_rx) = std::sync::mpsc::channel::<(String, Result<String, String>)>();
     let (group_tx, group_rx) =
         std::sync::mpsc::channel::<(String, Result<wa_types::GroupInfoView, String>)>();
+    let (fav_tx, fav_rx) =
+        std::sync::mpsc::channel::<Result<Vec<wa_types::FavoriteStickerView>, String>>();
 
     let store = model::store_path();
     let media = model::media_dir();
@@ -98,6 +100,20 @@ fn main() {
                     let reply = session.group_info(&chat).await;
                     let _ = group_tx.send((chat, reply));
                 }
+                model::Command::FavoriteStickers => {
+                    let reply = session.fetch_favorite_stickers().await;
+                    let _ = fav_tx.send(reply);
+                }
+                model::Command::SendFavoriteSticker { chat, id } => {
+                    if let Err(err) = session.send_favorite_sticker(&chat, &id).await {
+                        tracing::warn!(%err, "favourite sticker send failed");
+                    }
+                }
+                model::Command::ForwardSticker { chat, message_id } => {
+                    if let Err(err) = session.forward_sticker(&chat, &message_id).await {
+                        tracing::warn!(%err, "sticker forward failed");
+                    }
+                }
                 model::Command::Restart => {
                     // The session reconnects itself; a reconnect is what asks
                     // WhatsApp for a fresh QR.
@@ -117,7 +133,7 @@ fn main() {
         ..Default::default()
     };
 
-    let app = app::NativeApp::new(event_rx, command_tx, handle, media_rx, group_rx);
+    let app = app::NativeApp::new(event_rx, command_tx, handle, media_rx, group_rx, fav_rx);
     if let Err(err) = eframe::run_native(
         "WA Desk",
         options,
