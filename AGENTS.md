@@ -500,6 +500,10 @@ device until you remove it from the phone).
 - **Echo suppression.** The call playout publishes an RMS (udio::call_level, 400 ms stale
   window) and mic.rs ducks the captured frames with echo::EchoGuard (-12 dB while the peer is
   loud, ~300 ms release). Half-duplex, not a WebRTC-style adaptive filter.
+- **GIFs animate inline.** `gif.rs` decodes the clip once with `video::prepare` into a
+  process-wide registry (cleared when the chat changes) and steps it with the pure `frame_index`;
+  the bubble paints frames through the shared texture cache and the window repaints while one is
+  visible.
 - **Delivery ticks.** `Model::ticks` records `sent`/`delivered`/`read` per message id (from
   `UiEvent::Sent`/`Receipt`); the bubble paints one grey `check`, grey `done_all` or the blue
   `done_all` (`palette.read`).

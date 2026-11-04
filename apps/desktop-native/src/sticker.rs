@@ -58,6 +58,14 @@ pub fn make_sticker(source: &Path) -> Result<Vec<u8>, String> {
 mod tests {
     use super::*;
 
+    /// Is a usable ffmpeg on this machine? CI images have none, so the tests
+    /// that need it skip instead of failing.
+    fn ffmpeg_works() -> bool {
+        crate::video::ffmpeg()
+            .and_then(|ffmpeg| Command::new(ffmpeg).arg("-version").output().ok())
+            .is_some_and(|output| output.status.success())
+    }
+
     /// A test picture: ffmpeg's colour source, so no fixture is needed.
     fn sample(dir: &std::path::Path) -> Option<std::path::PathBuf> {
         let ffmpeg = crate::video::ffmpeg()?;
@@ -82,7 +90,7 @@ mod tests {
 
     #[test]
     fn a_picture_becomes_a_square_webp_sticker() {
-        if crate::video::ffmpeg().is_none() {
+        if !ffmpeg_works() {
             eprintln!("skipping: no ffmpeg");
             return;
         }
@@ -112,7 +120,7 @@ mod tests {
     #[test]
     fn the_sticker_keeps_alpha() {
         // The encoder writes RGBA WebP; `image` decodes it with alpha intact.
-        if crate::video::ffmpeg().is_none() {
+        if !ffmpeg_works() {
             eprintln!("skipping: no ffmpeg");
             return;
         }

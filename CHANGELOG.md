@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.90] - 2026-11-04
+
+- **GIFs animate in the bubble.** A GIF is a muted looping video, and the bubble now plays it
+  like the official client: `gif.rs` keeps a process-wide registry of decoded clips (prepared
+  with `video::prepare`), steps them with the pure `frame_index` (looping, tested), and paints
+  the frame through the existing texture cache; the poster is used until the decode lands, and
+  the window keeps repainting while a GIF is on screen. Opening another chat clears the clips.
+  Screenshot: `target/gif_bubble.png` (a 3 s clip playing at 00:00:01.8 in the bubble).
+- **Fixed the sticker test that failed rc.88 on CI**: `the_sticker_keeps_alpha` guarded with
+  `video::ffmpeg().is_none()`, but that helper always returns a path (PATH fallback), so the test
+  ran without ffmpeg and panicked with "could not start ffmpeg". Both tests now probe
+  `ffmpeg -version` for real and skip when the tool is missing.
+- Tests: 82 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.89] - 2026-11-04
 
 - **Call echo suppression.** The peer's playout level is published by `audio.rs`

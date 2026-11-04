@@ -328,7 +328,12 @@ impl WaDesk {
                         .filter(|path| {
                             path.extension()
                                 .and_then(|ext| ext.to_str())
-                                .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+                                .is_some_and(|ext| {
+                                    // PNG posters or real clips (the bubble animates those).
+                                    ["png", "mp4", "webm", "gif"]
+                                        .iter()
+                                        .any(|kind| ext.eq_ignore_ascii_case(kind))
+                                })
                         })
                         .collect()
                 })
@@ -1939,6 +1944,7 @@ impl WaDesk {
                                 let jid = row.jid.clone();
                                 let empty = row.messages.is_empty();
                                 self.audio.stop();
+                                crate::gif::clear();
                                 self.model.open_chat(&jid);
                                 self.send(Command::MarkRead { chat: jid.clone() });
                                 if empty {
@@ -2497,8 +2503,15 @@ fn bubble(
         // same texture as its poster. Anything else falls back to the caption or
         // the kind's word from wa-ui.
         if matches!(message.kind.as_str(), "image" | "video")
-            && let Some(texture) =
-                texture_at(ctx, textures, &message.id, model.media_path(&message.id))
+            && let Some(texture) = message
+                .gif
+                .then(|| {
+                    model
+                        .media_path(&message.id)
+                        .and_then(|path| crate::gif::frame(ctx, textures, &message.id, &path))
+                })
+                .flatten()
+                .or_else(|| texture_at(ctx, textures, &message.id, model.media_path(&message.id)))
         {
             let size = texture.size_vec2();
             let scale = (240.0 / size.x).min(1.0);
@@ -2990,7 +3003,7 @@ fn pills_row(ui: &mut egui::Ui, model: &Model, message: &MessageView) {
 
 /// Decode a media file into a texture, once. Absent until the file exists —
 /// and absent when it is not a readable image.
-fn texture_at(
+pub(crate) fn texture_at(
     ctx: &egui::Context,
     cache: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
     key: &str,
@@ -4972,7 +4985,11 @@ impl eframe::App for WaDesk {
         // The session runs on other threads and pushes into a channel; without a
         // timer egui would only repaint on mouse/keyboard input, so the chat list
         // (and new messages) could sit unseen until the window was touched.
-        if self.audio.state().playing || self.video_playing {
+        let gif_on_screen = self
+            .model
+            .active_row()
+            .is_some_and(|row| row.messages.iter().any(|message| message.gif));
+        if self.audio.state().playing || self.video_playing || gif_on_screen {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));

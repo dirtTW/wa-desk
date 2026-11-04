@@ -22,6 +22,7 @@ mod camera;
 mod clipboard;
 mod echo;
 mod emoji_glyph;
+mod gif;
 mod icon;
 mod icons;
 mod login;
