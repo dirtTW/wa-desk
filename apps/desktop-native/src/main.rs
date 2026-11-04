@@ -18,6 +18,7 @@ mod ai;
 mod app;
 mod audio;
 mod autostart;
+mod bubbles;
 mod callvideo;
 mod camera;
 mod clipboard;

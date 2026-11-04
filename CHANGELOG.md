@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.25] - 2026-11-05
+
+- **`app.rs` split, third module: `src/bubbles.rs`.** The message menu (`context_menu`), the reaction
+  chips that straddle a bubble (`pills_row`) and the day chip moved out (173 lines, `pub(crate)`);
+  `BubbleAction` is imported from the model and `Icon`/`menu_row` from `app.rs`.
+- **Status viewer and call overlay captured and recorded.** Two new comparison shots for the
+  surfaces that had no capture: `target/our_status_viewer.png` (`WA_DESK_STATUS_VIEWER=1` - segment
+  progress bar, "Ada · 5:52 am", close control, body centred on the dark stage) and
+  `target/our_call_overlay.png` (`WA_DESK_CALL=connected` - initials disc, name,
+  "Connected · 00:46", mute disc, red hang-up disc). Both rows are now in `docs/PARITY.md` with
+  their hook.
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.24] - 2026-11-05
 
 - **`app.rs` split, second module: `src/rich_text.rs`.** The bubble's text engine moved out - the
