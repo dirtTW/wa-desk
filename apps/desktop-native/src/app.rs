@@ -87,11 +87,20 @@ pub struct WaDesk {
     update_rx: std::sync::mpsc::Receiver<UpdateMsg>,
     /// The automatic check has already run once.
     update_checked: bool,
+    /// The resolved WhatsApp palette for this frame.
+    palette: crate::theme::Palette,
+    /// The OS dark-mode preference, captured before we install our own visuals.
+    system_dark: bool,
+    /// `--screenshot <path>`: save one frame and quit (used to verify the UI).
+    screenshot: Option<(std::path::PathBuf, u32)>,
 }
 
 impl WaDesk {
     pub fn new(_cc: &eframe::CreationContext<'_>, native: NativeApp) -> Self {
         let (update_tx, update_rx) = std::sync::mpsc::channel();
+        let system_dark = _cc.egui_ctx.style().visuals.dark_mode;
+        let settings = NativeSettings::load(&settings_file());
+        let palette = crate::theme::palette(&settings.theme, system_dark);
         Self {
             model: Model::new(),
             events: native.events,
@@ -101,7 +110,7 @@ impl WaDesk {
             show_status: false,
             show_channels: false,
             show_settings: false,
-            settings: NativeSettings::load(&settings_file()),
+            settings,
             settings_path: settings_file(),
             settings_note: String::new(),
             qr: None,
@@ -117,7 +126,51 @@ impl WaDesk {
             update_tx: update_tx.clone(),
             update_rx,
             update_checked: false,
+            palette,
+            system_dark,
+            screenshot: None,
         }
+    }
+
+    /// Fill the model with sample chats so the UI can be inspected without a
+    /// session (`--preview`, used for screenshots).
+    pub fn preview_mode(&mut self) {
+        self.model = Model::demo();
+        self.show_group = false;
+        self.show_settings = false;
+        self.show_status = false;
+        self.show_channels = false;
+    }
+
+    /// `--screenshot <path>`: save one settled frame and quit.
+    pub fn set_screenshot(&mut self, path: std::path::PathBuf) {
+        self.screenshot = Some((path, 0));
+    }
+
+    fn screenshot_tick(&mut self, ctx: &egui::Context) {
+        let Some((path, frame)) = self.screenshot.as_mut() else {
+            return;
+        };
+        *frame += 1;
+        if *frame == 10 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        }
+        let events = ctx.input(|input| input.events.clone());
+        for event in events {
+            if let egui::Event::Screenshot { image, .. } = event {
+                let size = [image.width() as u32, image.height() as u32];
+                let rgba: Vec<u8> = image
+                    .pixels
+                    .iter()
+                    .flat_map(|pixel| pixel.to_array())
+                    .collect();
+                if let Some(buffer) = image::RgbaImage::from_raw(size[0], size[1], rgba) {
+                    let _ = buffer.save(&*path);
+                }
+                std::process::exit(0);
+            }
+        }
+        ctx.request_repaint();
     }
 
     /// Check the release list on a worker thread; the window never blocks.
@@ -192,18 +245,15 @@ impl WaDesk {
             .resizable(true)
             .default_width(300.0)
             .show(ctx, |ui| {
-                ui.add_space(6.0);
+                let palette = self.palette.clone();
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.heading("Chats");
+                    paint_avatar(ui, &self.model.own_name(), 34.0);
+                    ui.add_space(2.0);
+                    ui.label(egui::RichText::new("Chats").size(19.0).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if matches!(
-                            self.update,
-                            UpdateState::Available(_) | UpdateState::Ready(_)
-                        ) && ui
-                            .button(
-                                egui::RichText::new("⬆ Update")
-                                    .color(egui::Color32::from_rgb(37, 211, 102)),
-                            )
+                        if icon_button(ui, Icon::Settings, &palette)
+                            .on_hover_text("Settings")
                             .clicked()
                         {
                             self.show_settings = true;
@@ -211,76 +261,66 @@ impl WaDesk {
                             self.show_status = false;
                             self.model.close_status();
                         }
-                        if ui.button("Status").clicked() {
-                            self.show_status = !self.show_status;
+                        if icon_button(ui, Icon::Status, &palette)
+                            .on_hover_text("Status")
+                            .clicked()
+                        {
+                            self.show_status = true;
                             self.show_channels = false;
+                            self.show_settings = false;
                             self.model.close_status();
                         }
-                        if ui.button("Channels").clicked() {
-                            self.show_channels = !self.show_channels;
+                        if icon_button(ui, Icon::Channels, &palette)
+                            .on_hover_text("Channels")
+                            .clicked()
+                        {
+                            self.show_channels = true;
                             self.show_status = false;
                             self.show_settings = false;
                             self.model.close_status();
                         }
-                        if ui.button("Settings").clicked() {
-                            self.show_settings = !self.show_settings;
-                            self.show_channels = false;
-                            self.show_status = false;
-                            self.model.close_status();
+                        if matches!(
+                            self.update,
+                            UpdateState::Available(_) | UpdateState::Ready(_)
+                        ) {
+                            ui.label(egui::RichText::new("⬆").color(palette.accent).size(16.0))
+                                .on_hover_text("An update is ready - see Settings → Updates");
                         }
-                        ui.label(egui::RichText::new(&self.model.status).small().weak());
                     });
                 });
-                ui.add_space(4.0);
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.model.search)
-                        .hint_text("Search")
-                        .desired_width(f32::INFINITY),
+                ui.add_space(8.0);
+                // The rounded search field.
+                egui::Frame::new()
+                    .fill(palette.rail)
+                    .corner_radius(egui::CornerRadius::same(9))
+                    .inner_margin(egui::Margin::symmetric(10, 4))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.model.search)
+                                .hint_text("Search or start a new chat")
+                                .frame(false)
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(&self.model.status)
+                        .size(11.5)
+                        .color(palette.secondary),
                 );
-                ui.separator();
+                ui.add_space(2.0);
 
                 let rows: Vec<ChatRow> = self.model.visible_chats().into_iter().cloned().collect();
-
-                let previews: Vec<(String, String, String, i64)> = rows
-                    .iter()
-                    .map(|row| {
-                        (
-                            self.model.title(row),
-                            self.model.row_stamp(row),
-                            self.model.row_preview(row),
-                            row.unread,
-                        )
-                    })
-                    .collect();
 
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        for (row, (title, stamp, preview, unread)) in rows.iter().zip(previews) {
+                        for row in &rows {
                             let selected = self.model.active.as_deref() == Some(row.jid.as_str());
-                            let text = format!(
-                                "{}{}\n{}{}",
-                                if selected { "▶ " } else { "" },
-                                title,
-                                preview,
-                                if stamp.is_empty() {
-                                    String::new()
-                                } else {
-                                    format!("   · {stamp}")
-                                }
-                            );
-                            let label = if unread > 0 {
-                                format!("{text}   ({unread})")
-                            } else {
-                                text
-                            };
-                            if ui
-                                .add_sized(
-                                    [ui.available_width(), 46.0],
-                                    egui::Button::new(label).selected(selected),
-                                )
-                                .clicked()
-                            {
+                            let title = self.model.title(row);
+                            let preview = self.model.row_preview(row);
+                            let stamp = self.model.row_stamp(row);
+                            if chat_row(ui, &palette, row, &title, &preview, &stamp, selected) {
                                 let jid = row.jid.clone();
                                 self.model.open_chat(&jid);
                                 self.send(Command::MarkRead { chat: jid.clone() });
@@ -291,213 +331,285 @@ impl WaDesk {
     }
 
     fn conversation(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let Some(jid) = self.model.active.clone() else {
-                ui.centered_and_justified(|ui| {
-                    ui.label(egui::RichText::new("Pick a chat").weak());
-                });
-                return;
-            };
-            let Some(row) = self.model.chats.get(&jid).cloned() else {
-                return;
-            };
+        let palette = self.palette.clone();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.wallpaper))
+            .show(ctx, |ui| {
+                let Some(jid) = self.model.active.clone() else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(egui::RichText::new("Pick a chat").color(palette.secondary));
+                    });
+                    return;
+                };
+                let Some(row) = self.model.chats.get(&jid).cloned() else {
+                    return;
+                };
 
-            ui.horizontal(|ui| {
-                ui.heading(self.model.title(&row));
-                if row.jid.ends_with("@g.us") {
-                    ui.label(egui::RichText::new("group").small().weak());
-                    if ui.button("Group info").clicked() {
-                        self.show_group = true;
-                        if self.model.request_group(&row.jid) {
-                            self.send(Command::GroupInfo {
-                                chat: row.jid.clone(),
+                // The chat header: avatar, name, presence, and the two icons the
+                // official client keeps (search and the kebab).
+                egui::Frame::new()
+                    .fill(palette.panel)
+                    .inner_margin(egui::Margin::symmetric(14, 7))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            paint_avatar(ui, &self.model.title(&row), 38.0);
+                            ui.add_space(2.0);
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new(self.model.title(&row))
+                                        .size(15.5)
+                                        .strong(),
+                                );
+                                let subtitle = if row.jid.ends_with("@g.us") {
+                                    "Group"
+                                } else {
+                                    "online"
+                                };
+                                ui.label(
+                                    egui::RichText::new(subtitle)
+                                        .size(11.5)
+                                        .color(palette.secondary),
+                                );
                             });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if icon_button(ui, Icon::Search, &palette)
+                                        .on_hover_text("Search")
+                                        .clicked()
+                                    {
+                                        self.model.search_open = !self.model.search_open;
+                                        if !self.model.search_open {
+                                            self.model.chat_search.clear();
+                                            self.model.search_hit = -1;
+                                        }
+                                    }
+                                    if row.jid.ends_with("@g.us")
+                                        && icon_button(ui, Icon::Menu, &palette)
+                                            .on_hover_text("Group info")
+                                            .clicked()
+                                    {
+                                        self.show_group = true;
+                                        if self.model.request_group(&row.jid) {
+                                            self.send(Command::GroupInfo {
+                                                chat: row.jid.clone(),
+                                            });
+                                        }
+                                    }
+                                },
+                            );
+                        });
+                    });
+
+                // In-chat search: the counter, the stepper, Esc to close.
+                if self.model.search_open {
+                    ui.horizontal(|ui| {
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(&mut self.model.chat_search)
+                                .hint_text("Search this chat")
+                                .desired_width(220.0),
+                        );
+                        if edit.changed() {
+                            self.model.search_refresh();
+                            self.scrolled_hit = -1;
                         }
-                    }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Search").clicked() {
-                        self.model.search_open = !self.model.search_open;
-                        if !self.model.search_open {
+                        ui.label(
+                            egui::RichText::new(self.model.search_label())
+                                .small()
+                                .color(self.palette.read),
+                        );
+                        if ui.button("▲").clicked() {
+                            self.model.search_step(false);
+                            self.scrolled_hit = -1;
+                        }
+                        if ui.button("▼").clicked() {
+                            self.model.search_step(true);
+                            self.scrolled_hit = -1;
+                        }
+                        if ui.button("✕").clicked() {
+                            self.model.search_open = false;
                             self.model.chat_search.clear();
                             self.model.search_hit = -1;
                         }
-                    }
-                });
-            });
-
-            // In-chat search: the counter, the stepper, Esc to close.
-            if self.model.search_open {
-                ui.horizontal(|ui| {
-                    let edit = ui.add(
-                        egui::TextEdit::singleline(&mut self.model.chat_search)
-                            .hint_text("Search this chat")
-                            .desired_width(220.0),
-                    );
-                    if edit.changed() {
-                        self.model.search_refresh();
-                        self.scrolled_hit = -1;
-                    }
-                    ui.label(
-                        egui::RichText::new(self.model.search_label())
-                            .small()
-                            .weak(),
-                    );
-                    if ui.button("▲").clicked() {
-                        self.model.search_step(false);
-                        self.scrolled_hit = -1;
-                    }
-                    if ui.button("▼").clicked() {
-                        self.model.search_step(true);
-                        self.scrolled_hit = -1;
-                    }
-                    if ui.button("✕").clicked() {
-                        self.model.search_open = false;
-                        self.model.chat_search.clear();
-                        self.model.search_hit = -1;
-                    }
-                });
-            }
-            ui.separator();
-
-            // Ask for photos and stickers that are not on disk yet (one
-            // request each). The same sticker files feed the picker.
-            let wanted: Vec<String> = row
-                .messages
-                .iter()
-                .filter(|message| matches!(message.kind.as_str(), "image" | "sticker"))
-                .map(|message| message.id.clone())
-                .collect();
-            for id in wanted {
-                if self.model.request_media(&id) {
-                    self.send(Command::FetchMedia { id });
+                    });
                 }
-            }
+                ui.separator();
 
-            // What the search marks, and which hit to bring into view.
-            let hits: Vec<usize> = if self.model.search_open {
-                self.model.search_matches()
-            } else {
-                Vec::new()
-            };
-            let current = self.model.search_current();
-            let query = self.model.chat_search.clone();
-            let focus = current.filter(|_| self.scrolled_hit != self.model.search_hit);
+                // Ask for photos and stickers that are not on disk yet (one
+                // request each). The same sticker files feed the picker.
+                let wanted: Vec<String> = row
+                    .messages
+                    .iter()
+                    .filter(|message| matches!(message.kind.as_str(), "image" | "sticker"))
+                    .map(|message| message.id.clone())
+                    .collect();
+                for id in wanted {
+                    if self.model.request_media(&id) {
+                        self.send(Command::FetchMedia { id });
+                    }
+                }
 
-            let height = ui.available_height() - 40.0;
-            let mut chosen: Option<BubbleAction> = None;
-            egui::ScrollArea::vertical()
-                .stick_to_bottom(focus.is_none())
-                .max_height(height.max(120.0))
-                .show(ui, |ui| {
-                    let ctx = ui.ctx().clone();
-                    for (index, message) in row.messages.iter().enumerate() {
-                        let is_hit = hits.contains(&index);
-                        if let Some(action) = bubble(
-                            ui,
-                            &self.model,
-                            message,
-                            &mut self.textures,
-                            &ctx,
-                            if is_hit { Some(query.as_str()) } else { None },
-                            focus == Some(index),
-                        ) {
-                            chosen = Some(action);
+                // What the search marks, and which hit to bring into view.
+                let hits: Vec<usize> = if self.model.search_open {
+                    self.model.search_matches()
+                } else {
+                    Vec::new()
+                };
+                let current = self.model.search_current();
+                let query = self.model.chat_search.clone();
+                let focus = current.filter(|_| self.scrolled_hit != self.model.search_hit);
+
+                let height = ui.available_height() - 64.0;
+                // WhatsApp anchors a short conversation to the composer; the
+                // previous frame's content height tells us how much to pad.
+                let content_height: f32 = ctx.data(|data| {
+                    data.get_temp(egui::Id::new("chat-content-height"))
+                        .unwrap_or(0.0)
+                });
+                let spare = (height - content_height).max(0.0);
+                let mut chosen: Option<BubbleAction> = None;
+                egui::ScrollArea::vertical()
+                    .stick_to_bottom(focus.is_none())
+                    .max_height(height.max(120.0))
+                    .show(ui, |ui| {
+                        let ctx = ui.ctx().clone();
+                        if spare > 0.0 {
+                            ui.add_space(spare);
                         }
-                    }
-                });
-            if let Some(action) = chosen {
-                self.run_action(&row, action);
-            }
-            if focus.is_some() {
-                self.scrolled_hit = self.model.search_hit;
-            }
-
-            // Esc leaves the search bar, like WhatsApp Web.
-            if self.model.search_open && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.model.search_open = false;
-                self.model.chat_search.clear();
-                self.model.search_hit = -1;
-            }
-
-            ui.separator();
-
-            // The reply / edit card above the composer.
-            self.composer_banner(ui);
-
-            ui.horizontal(|ui| {
-                if ui.button("Emoji").clicked() {
-                    self.model.emoji_open = !self.model.emoji_open;
-                    self.model.stickers_open = false;
-                }
-                if ui.button("Sticker").clicked() {
-                    self.model.stickers_open = !self.model.stickers_open;
-                    self.model.emoji_open = false;
-                    if self.model.favorites.is_empty() && self.model.favorites_error.is_none() {
-                        self.send(Command::FavoriteStickers);
-                    }
-                }
-                let send_width = 64.0;
-                let edit = ui.add_sized(
-                    [ui.available_width() - send_width, 30.0],
-                    egui::TextEdit::singleline(&mut self.model.composer)
-                        .hint_text("Type a message"),
-                );
-                if edit.changed() {
-                    let typing = !self.model.composer.trim().is_empty();
-                    if typing != self.typing_sent {
-                        self.typing_sent = typing;
-                        self.send(Command::Typing {
-                            chat: jid.clone(),
-                            typing,
-                        });
-                    }
-                }
-                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if ui
-                    .add_sized(
-                        [send_width, 30.0],
-                        egui::Button::new(self.model.send_label()),
-                    )
-                    .clicked()
-                    || enter
-                {
-                    let text = self.model.composer.trim().to_string();
-                    if !text.is_empty() {
-                        if let Some(editing) = self.model.editing.take() {
-                            self.send(Command::EditMessage {
-                                chat: jid.clone(),
-                                id: editing.id,
-                                text,
-                            });
-                        } else if let Some(reply) = self.model.reply_to.take() {
-                            let quoted = if reply.text.trim().is_empty() {
-                                None
-                            } else {
-                                Some(reply.text.clone())
-                            };
-                            self.send(Command::SendReply {
-                                chat: jid.clone(),
-                                text,
-                                reply_id: reply.id,
-                                quoted,
-                            });
-                        } else {
-                            self.send(Command::SendText {
-                                chat: jid.clone(),
-                                text,
-                            });
+                        for (index, message) in row.messages.iter().enumerate() {
+                            let is_hit = hits.contains(&index);
+                            if let Some(action) = bubble(
+                                ui,
+                                &palette,
+                                &self.model,
+                                message,
+                                &mut self.textures,
+                                &ctx,
+                                if is_hit { Some(query.as_str()) } else { None },
+                                focus == Some(index),
+                            ) {
+                                chosen = Some(action);
+                            }
                         }
-                        self.model.composer.clear();
-                        self.send(Command::Typing {
-                            chat: jid.clone(),
-                            typing: false,
+                        ctx.data_mut(|data| {
+                            data.insert_temp(
+                                egui::Id::new("chat-content-height"),
+                                (ui.min_rect().height() - spare).max(0.0),
+                            );
                         });
-                        self.typing_sent = false;
-                    }
+                    });
+                if let Some(action) = chosen {
+                    self.run_action(&row, action);
                 }
+                if focus.is_some() {
+                    self.scrolled_hit = self.model.search_hit;
+                }
+
+                // Esc leaves the search bar, like WhatsApp Web.
+                if self.model.search_open && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.model.search_open = false;
+                    self.model.chat_search.clear();
+                    self.model.search_hit = -1;
+                }
+
+                ui.separator();
+
+                // The reply / edit card above the composer.
+                self.composer_banner(ui);
+
+                egui::Frame::new()
+                    .fill(palette.panel)
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if icon_button(ui, Icon::Emoji, &palette)
+                                .on_hover_text("Emoji")
+                                .clicked()
+                            {
+                                self.model.emoji_open = !self.model.emoji_open;
+                                self.model.stickers_open = false;
+                            }
+                            if icon_button(ui, Icon::Sticker, &palette)
+                                .on_hover_text("Stickers")
+                                .clicked()
+                            {
+                                self.model.stickers_open = !self.model.stickers_open;
+                                self.model.emoji_open = false;
+                                if self.model.favorites.is_empty()
+                                    && self.model.favorites_error.is_none()
+                                {
+                                    self.send(Command::FavoriteStickers);
+                                }
+                            }
+                            let send_width = 44.0;
+                            let input_width = ui.available_width() - send_width;
+                            let edit = egui::Frame::new()
+                                .fill(palette.elevated)
+                                .corner_radius(egui::CornerRadius::same(18))
+                                .inner_margin(egui::Margin::symmetric(10, 3))
+                                .show(ui, |ui| {
+                                    ui.add_sized(
+                                        [(input_width - 20.0).max(80.0), 28.0],
+                                        egui::TextEdit::singleline(&mut self.model.composer)
+                                            .frame(false)
+                                            .hint_text("Type a message"),
+                                    )
+                                })
+                                .inner;
+                            if edit.changed() {
+                                let typing = !self.model.composer.trim().is_empty();
+                                if typing != self.typing_sent {
+                                    self.typing_sent = typing;
+                                    self.send(Command::Typing {
+                                        chat: jid.clone(),
+                                        typing,
+                                    });
+                                }
+                            }
+                            let enter =
+                                edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if icon_button(ui, Icon::Send, &palette)
+                                .on_hover_text(self.model.send_label())
+                                .clicked()
+                                || enter
+                            {
+                                let text = self.model.composer.trim().to_string();
+                                if !text.is_empty() {
+                                    if let Some(editing) = self.model.editing.take() {
+                                        self.send(Command::EditMessage {
+                                            chat: jid.clone(),
+                                            id: editing.id,
+                                            text,
+                                        });
+                                    } else if let Some(reply) = self.model.reply_to.take() {
+                                        let quoted = if reply.text.trim().is_empty() {
+                                            None
+                                        } else {
+                                            Some(reply.text.clone())
+                                        };
+                                        self.send(Command::SendReply {
+                                            chat: jid.clone(),
+                                            text,
+                                            reply_id: reply.id,
+                                            quoted,
+                                        });
+                                    } else {
+                                        self.send(Command::SendText {
+                                            chat: jid.clone(),
+                                            text,
+                                        });
+                                    }
+                                    self.model.composer.clear();
+                                    self.send(Command::Typing {
+                                        chat: jid.clone(),
+                                        typing: false,
+                                    });
+                                    self.typing_sent = false;
+                                }
+                            }
+                        });
+                    });
             });
-        });
     }
 
     /// Run what a bubble's context menu asked for.
@@ -610,8 +722,10 @@ impl WaDesk {
 /// Paint one message. Returns the action its context menu chose, or a viewer
 /// request when its media was clicked. `search` marks a hit (and highlights the
 /// query), `scroll` brings the bubble into view.
+#[allow(clippy::too_many_arguments)]
 fn bubble(
     ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
     model: &Model,
     message: &MessageView,
     textures: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
@@ -625,14 +739,10 @@ fn bubble(
         egui::Align::Min
     };
     let mut action: Option<BubbleAction> = None;
+    let max_width = (ui.available_width() * 0.66).max(160.0);
+
     ui.with_layout(egui::Layout::top_down(align), |ui| {
-        let mut header = String::new();
-        if let Some(name) = message.sender_name.as_ref().filter(|_| !message.from_me) {
-            header.push_str(name);
-            header.push_str(" · ");
-        }
-        header.push_str(&model.bubble_stamp(message));
-        ui.label(egui::RichText::new(header).small().weak());
+        ui.set_max_width(max_width);
 
         // A sticker paints on its own, without a bubble.
         if message.kind == "sticker"
@@ -649,9 +759,14 @@ fn bubble(
             if response.clicked() {
                 action = Some(BubbleAction::OpenMedia(message.id.clone()));
             }
-            context_menu(&response, model, message, &mut action);
+            context_menu(&response, palette, model, message, &mut action);
+            ui.label(
+                egui::RichText::new(model.bubble_stamp(message))
+                    .size(11.0)
+                    .color(palette.secondary),
+            );
             pills_row(ui, model, message);
-            ui.add_space(3.0);
+            ui.add_space(4.0);
             return;
         }
 
@@ -672,57 +787,108 @@ fn bubble(
             if response.clicked() {
                 action = Some(BubbleAction::OpenMedia(message.id.clone()));
             }
-            context_menu(&response, model, message, &mut action);
+            context_menu(&response, palette, model, message, &mut action);
             if !message.text.trim().is_empty() {
-                ui.label(egui::RichText::new(&message.text).color(egui::Color32::from_gray(235)));
+                ui.label(
+                    egui::RichText::new(&message.text)
+                        .size(14.0)
+                        .color(palette.text),
+                );
             }
+            ui.label(
+                egui::RichText::new(model.bubble_stamp(message))
+                    .size(11.0)
+                    .color(palette.secondary),
+            );
             pills_row(ui, model, message);
-            ui.add_space(3.0);
+            ui.add_space(4.0);
             return;
         }
 
         let body = model.bubble_body(message);
         let fill = if message.from_me {
-            egui::Color32::from_rgb(20, 77, 55)
+            palette.bubble_out
         } else {
-            egui::Color32::from_rgb(36, 38, 38)
+            palette.bubble_in
         };
-        let mut frame = egui::Frame::new()
-            .fill(fill)
-            .inner_margin(egui::Margin::symmetric(8, 5))
-            .corner_radius(egui::CornerRadius::same(8));
-        if search.is_some() {
-            frame = frame.stroke(egui::Stroke::new(
-                1.5_f32,
-                egui::Color32::from_rgb(240, 200, 60),
-            ));
-        }
-        let response = frame
-            .show(ui, |ui| {
-                let color = egui::Color32::from_gray(240);
-                match search {
-                    Some(needle) => {
-                        ui.label(highlight_job(&body, needle, color));
-                    }
-                    None => {
-                        ui.label(egui::RichText::new(body).color(color));
-                    }
-                }
-            })
-            .response;
-        if scroll {
-            response.scroll_to_me(Some(egui::Align::Center));
-        }
-        // A frame only senses hover, so give its rect a click sense of its own
-        // before asking for the context menu.
-        let hit = ui.interact(
-            response.rect,
-            response.id.with("msg-menu"),
-            egui::Sense::click(),
+        // WhatsApp's tail: the corner on the sender's side is square-ish.
+        let radius = egui::CornerRadius {
+            nw: 8,
+            ne: 8,
+            sw: if message.from_me { 8 } else { 2 },
+            se: if message.from_me { 2 } else { 8 },
+        };
+        let padding = 9.0;
+        let max_text = max_width - padding * 2.0;
+        // Measure the body so the bubble hugs the text (a plain `Frame` lets a
+        // right-aligned child stretch it to the full width and height).
+        let text_job = match search {
+            Some(needle) => {
+                let mut job = highlight_job(&body, needle, palette.text);
+                job.wrap.max_width = max_text;
+                job
+            }
+            None => egui::text::LayoutJob::simple(
+                body.clone(),
+                egui::FontId::proportional(14.0),
+                palette.text,
+                max_text,
+            ),
+        };
+        let text = ui.painter().layout_job(text_job);
+        let time = ui.painter().layout_no_wrap(
+            model.bubble_stamp(message),
+            egui::FontId::proportional(11.0),
+            palette.secondary,
         );
-        context_menu(&hit, model, message, &mut action);
+        let sender = message
+            .sender_name
+            .clone()
+            .filter(|_| message.is_group && !message.from_me);
+        let sender_galley = sender.as_ref().map(|name| {
+            ui.painter().layout_no_wrap(
+                name.clone(),
+                egui::FontId::proportional(12.5),
+                sender_color(name, palette),
+            )
+        });
+        let width = (text.size().x.max(time.size().x + 34.0) + padding * 2.0).min(max_width);
+        let mut height = text.size().y + time.size().y + 8.0;
+        if let Some(galley) = &sender_galley {
+            height += galley.size().y + 1.0;
+        }
+        let (rect, hit) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+        let painter = ui.painter();
+        painter.rect_filled(rect, radius, fill);
+        if search.is_some() {
+            painter.rect_stroke(
+                rect,
+                radius,
+                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(240, 200, 60)),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let mut y = rect.top() + 5.0;
+        if let Some(galley) = sender_galley {
+            let inner = galley.size().y;
+            painter.galley(egui::pos2(rect.left() + padding, y), galley, palette.text);
+            y += inner + 1.0;
+        }
+        painter.galley(egui::pos2(rect.left() + padding, y), text, palette.text);
+        painter.galley(
+            egui::pos2(
+                rect.right() - padding - time.size().x,
+                rect.bottom() - 4.0 - time.size().y,
+            ),
+            time,
+            palette.secondary,
+        );
+        if scroll {
+            hit.scroll_to_me(Some(egui::Align::Center));
+        }
+        context_menu(&hit, palette, model, message, &mut action);
         pills_row(ui, model, message);
-        ui.add_space(3.0);
+        ui.add_space(4.0);
     });
     action
 }
@@ -731,15 +897,25 @@ fn bubble(
 /// allows for this message.
 fn context_menu(
     response: &egui::Response,
+    palette: &crate::theme::Palette,
     model: &Model,
     message: &MessageView,
     action: &mut Option<BubbleAction>,
 ) {
     response.context_menu(|ui| {
+        ui.set_min_width(212.0);
+        ui.add_space(2.0);
+        // The quick reaction bar.
         ui.horizontal(|ui| {
+            ui.add_space(2.0);
             for emoji in ["👍", "❤️", "😂", "😮", "😢", "🙏"] {
-                if ui
-                    .add(egui::Button::new(egui::RichText::new(emoji).size(18.0)).frame(false))
+                let reaction = ui.add(
+                    egui::Button::new(egui::RichText::new(emoji).size(19.0))
+                        .frame(false)
+                        .min_size(egui::vec2(29.0, 29.0)),
+                );
+                if reaction
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                 {
                     *action = Some(BubbleAction::React(message.id.clone(), emoji.to_string()));
@@ -747,30 +923,60 @@ fn context_menu(
                 }
             }
         });
-        ui.separator();
+        ui.add_space(2.0);
         let menu = model.message_menu(message);
-        if menu.reply && ui.button("Reply").clicked() {
+        if menu.reply && menu_row(ui, palette, Icon::Reply, "Reply") {
             *action = Some(BubbleAction::Reply(message.id.clone()));
             ui.close();
         }
-        if menu.copy && ui.button("Copy").clicked() {
+        if menu.copy && menu_row(ui, palette, Icon::Copy, "Copy") {
             ui.ctx().copy_text(message.text.clone());
             ui.close();
         }
-        if menu.forward && ui.button("Forward").clicked() {
+        if menu.forward && menu_row(ui, palette, Icon::Forward, "Forward") {
             *action = Some(BubbleAction::Forward(message.id.clone()));
             ui.close();
         }
-        if menu.edit && ui.button("Edit").clicked() {
+        if menu.edit && menu_row(ui, palette, Icon::Edit, "Edit") {
             *action = Some(BubbleAction::Edit(message.id.clone()));
             ui.close();
         }
-        ui.separator();
-        if ui.button("Delete").clicked() {
+        ui.add_space(2.0);
+        if menu_row(ui, palette, Icon::Delete, "Delete") {
             *action = Some(BubbleAction::Delete(message.id.clone()));
             ui.close();
         }
+        ui.add_space(2.0);
     });
+}
+
+/// One row of the message menu: icon, label, and a rounded hover highlight.
+fn menu_row(ui: &mut egui::Ui, palette: &crate::theme::Palette, icon: Icon, label: &str) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(6), palette.hover);
+    }
+    draw_icon(
+        ui,
+        egui::Rect::from_min_size(
+            egui::pos2(rect.left() + 9.0, rect.center().y - 9.0),
+            egui::vec2(18.0, 18.0),
+        ),
+        icon,
+        palette.secondary,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 35.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(14.0),
+        palette.text,
+    );
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
 }
 
 /// The reaction pills under a message, ours in blue like WhatsApp.
@@ -887,7 +1093,7 @@ impl WaDesk {
                         } else {
                             ui.label(
                                 egui::RichText::new("could not draw the QR code")
-                                    .color(egui::Color32::RED),
+                                    .color(self.palette.danger),
                             );
                         }
                     }
@@ -1459,7 +1665,7 @@ impl WaDesk {
             });
             ui.separator();
             if let Some(err) = self.model.group_error.clone() {
-                ui.label(egui::RichText::new(err).color(egui::Color32::RED));
+                ui.label(egui::RichText::new(err).color(self.palette.danger));
                 return;
             }
             let Some(info) = self.model.group.clone() else {
@@ -1505,6 +1711,8 @@ impl WaDesk {
 
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.palette = crate::theme::palette(&self.settings.theme, self.system_dark);
+        crate::theme::apply(ctx, &self.palette);
         self.model.now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
@@ -1540,6 +1748,7 @@ impl eframe::App for WaDesk {
             }
         }
         let _ = &self.runtime;
+        self.screenshot_tick(ctx);
     }
 }
 
@@ -1927,4 +2136,214 @@ impl WaDesk {
                     });
             });
     }
+}
+
+/// Shorten a single line to `max` characters with an ellipsis.
+fn clip(text: &str, max: usize) -> String {
+    let mut out: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        out.push('…');
+    }
+    out
+}
+
+/// The icons the window draws itself. Emoji glyphs are not in egui's bundled
+/// fonts (they render as boxes), so every icon is a few strokes instead.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Icon {
+    Search,
+    Menu,
+    Status,
+    Channels,
+    Settings,
+    Emoji,
+    Sticker,
+    Send,
+    Reply,
+    Forward,
+    Copy,
+    Edit,
+    Delete,
+}
+
+fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(16), palette.hover);
+    }
+    let color = if response.hovered() {
+        palette.text
+    } else {
+        palette.secondary
+    };
+    draw_icon(ui, rect.shrink(6.0), icon, color);
+    response
+}
+
+/// Paint one Material Symbol inside `rect`; the texture is cached per colour.
+fn draw_icon(ui: &egui::Ui, rect: egui::Rect, icon: Icon, color: egui::Color32) {
+    let size = rect.width().round().max(8.0) as u32;
+    if let Some(texture) = crate::icons::texture(ui.ctx(), icon.name(), size, color) {
+        ui.painter().image(
+            texture.id(),
+            rect,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    }
+}
+
+impl Icon {
+    /// The Material Symbols name for this icon.
+    fn name(self) -> &'static str {
+        match self {
+            Icon::Search => "search",
+            Icon::Menu => "more_vert",
+            Icon::Status => "donut_large",
+            Icon::Channels => "campaign",
+            Icon::Settings => "settings",
+            Icon::Emoji => "mood",
+            Icon::Sticker => "sticker",
+            Icon::Send => "send",
+            Icon::Reply => "reply",
+            Icon::Forward => "shortcut",
+            Icon::Copy => "content_copy",
+            Icon::Edit => "edit",
+            Icon::Delete => "delete",
+        }
+    }
+}
+
+/// A round initials avatar, like WhatsApp's default profile photo.
+fn paint_avatar(ui: &mut egui::Ui, name: &str, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.circle_filled(rect.center(), size * 0.5, avatar_color(name));
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        initials(name),
+        egui::FontId::proportional(size * 0.38),
+        egui::Color32::WHITE,
+    );
+}
+
+fn initials(name: &str) -> String {
+    let mut letters = name
+        .split_whitespace()
+        .filter_map(|word| word.chars().next());
+    match (letters.next(), letters.next()) {
+        (Some(first), Some(second)) => format!("{first}{second}").to_uppercase(),
+        (Some(first), None) => first.to_uppercase().to_string(),
+        _ => "?".to_string(),
+    }
+}
+
+/// The default-avatar palette WhatsApp uses for people without a photo.
+fn avatar_color(name: &str) -> egui::Color32 {
+    const COLORS: [u32; 8] = [
+        0x8E9BA6, 0xB5766B, 0x7C8FA8, 0x9A7EA8, 0xA48A5B, 0x5F8A76, 0xA8708A, 0x5C7E8A,
+    ];
+    hex_color(COLORS[hash(name) % COLORS.len()])
+}
+
+/// Group sender names are coloured per sender, like the official client.
+fn sender_color(name: &str, palette: &crate::theme::Palette) -> egui::Color32 {
+    const COLORS: [u32; 8] = [
+        0x53BDEB, 0x21C063, 0xF5A524, 0xE17E7E, 0xB39DDB, 0x7FD1C1, 0xEBA36A, 0x9FC7E8,
+    ];
+    let color = hex_color(COLORS[hash(name) % COLORS.len()]);
+    if palette.dark {
+        color
+    } else {
+        // Darken for the light theme so the names stay readable on white.
+        egui::Color32::from_rgb(color.r() * 3 / 4, color.g() * 3 / 4, color.b() * 4 / 5)
+    }
+}
+
+fn hex_color(value: u32) -> egui::Color32 {
+    egui::Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
+}
+
+fn hash(text: &str) -> usize {
+    text.bytes().fold(0u32, |acc, byte| {
+        acc.wrapping_mul(31).wrapping_add(byte as u32)
+    }) as usize
+}
+
+/// One chat row: avatar, name, preview, clock and the unread pill.
+fn chat_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    row: &ChatRow,
+    title: &str,
+    preview: &str,
+    stamp: &str,
+    selected: bool,
+) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 66.0), egui::Sense::click());
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, 0.0, palette.selected);
+    } else if response.hovered() {
+        painter.rect_filled(rect, 0.0, palette.hover);
+    }
+
+    let center = egui::pos2(rect.left() + 36.0, rect.center().y);
+    painter.circle_filled(center, 22.0, avatar_color(title));
+    painter.text(
+        center,
+        egui::Align2::CENTER_CENTER,
+        initials(title),
+        egui::FontId::proportional(15.0),
+        egui::Color32::WHITE,
+    );
+
+    let left = rect.left() + 68.0;
+    let right = rect.right() - 12.0;
+    painter.text(
+        egui::pos2(left, rect.top() + 19.0),
+        egui::Align2::LEFT_CENTER,
+        clip(title, 24),
+        egui::FontId::proportional(15.0),
+        palette.text,
+    );
+    if !stamp.is_empty() {
+        let color = if row.unread > 0 {
+            palette.accent
+        } else {
+            palette.secondary
+        };
+        painter.text(
+            egui::pos2(right, rect.top() + 19.0),
+            egui::Align2::RIGHT_CENTER,
+            stamp,
+            egui::FontId::proportional(11.5),
+            color,
+        );
+    }
+    painter.text(
+        egui::pos2(left, rect.top() + 41.0),
+        egui::Align2::LEFT_CENTER,
+        clip(preview, 36),
+        egui::FontId::proportional(13.0),
+        palette.secondary,
+    );
+    if row.unread > 0 {
+        let pill = egui::Rect::from_center_size(
+            egui::pos2(right - 4.0, rect.bottom() - 16.0),
+            egui::vec2(20.0, 18.0),
+        );
+        painter.rect_filled(pill, 9.0, palette.unread);
+        painter.text(
+            pill.center(),
+            egui::Align2::CENTER_CENTER,
+            row.unread.to_string(),
+            egui::FontId::proportional(11.0),
+            egui::Color32::WHITE,
+        );
+    }
+    response.clicked()
 }

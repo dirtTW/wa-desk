@@ -10,9 +10,11 @@
 //! expectation fails. That is how the UI is verified in CI without a display.
 
 mod app;
+mod icons;
 mod login;
 mod model;
 mod settings;
+mod theme;
 mod updates;
 
 use std::sync::Arc;
@@ -81,6 +83,15 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_millis(1500));
     }
 
+    // `--preview` renders the UI with sample data and no session (used for
+    // screenshots); `--screenshot <path>` saves one settled frame and quits.
+    let preview = std::env::args().any(|arg| arg == "--preview");
+    let screenshot = std::env::args()
+        .collect::<Vec<String>>()
+        .windows(2)
+        .find(|pair| pair[0] == "--screenshot")
+        .map(|pair| std::path::PathBuf::from(&pair[1]));
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -101,15 +112,19 @@ fn main() {
     let handle = runtime.handle().clone();
     let session_slot: Arc<std::sync::Mutex<Option<Arc<wa_core::Session>>>> =
         Arc::new(std::sync::Mutex::new(None));
-    let slot = session_slot.clone();
-    handle.spawn(async move {
-        match wa_core::Session::start(&store, media.into(), event_tx).await {
-            Ok(session) => {
-                *slot.lock().expect("session slot") = Some(session);
+    if preview {
+        drop(event_tx);
+    } else {
+        let slot = session_slot.clone();
+        handle.spawn(async move {
+            match wa_core::Session::start(&store, media.into(), event_tx).await {
+                Ok(session) => {
+                    *slot.lock().expect("session slot") = Some(session);
+                }
+                Err(err) => tracing::error!(%err, "session start failed"),
             }
-            Err(err) => tracing::error!(%err, "session start failed"),
-        }
-    });
+        });
+    }
 
     // Commands from the UI thread are executed on the runtime.
     let slot = session_slot.clone();
@@ -233,10 +248,20 @@ fn main() {
     };
 
     let app = app::NativeApp::new(event_rx, command_tx, handle, media_rx, group_rx, fav_rx);
+    let screenshot_path = screenshot.clone();
     if let Err(err) = eframe::run_native(
         "WA Desk",
         options,
-        Box::new(move |cc| Ok(Box::new(app::WaDesk::new(cc, app)))),
+        Box::new(move |cc| {
+            let mut window = app::WaDesk::new(cc, app);
+            if preview {
+                window.preview_mode();
+            }
+            if let Some(path) = screenshot_path.clone() {
+                window.set_screenshot(path);
+            }
+            Ok(Box::new(window))
+        }),
     ) {
         eprintln!("could not open the window: {err}");
         std::process::exit(1);

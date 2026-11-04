@@ -4,7 +4,36 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.64] — 2026-11-04
+## [0.2.0-rc.65] — 2026-11-04
+
+- **The window now looks like WhatsApp, not like default egui.** The theme was stored but never
+  applied; `theme.rs` now installs the official `--WDS-*` palette (dark surface `#161717`, rail
+  `#1D1F1F`, elevated `#242626`, outgoing `#144D37`, accent `#21C063`; light panel `#FFFFFF`,
+  rail `#F7F5F3`, wallpaper `#F5F1EB`, outgoing `#D9FDD3`) together with WhatsApp's type scale,
+  rounded popups and shadows. Light / Dark / System actually switches now.
+  - **Sidebar**: own avatar, "Chats" header with vector icons, rounded search field, and rows
+    with a 44px initials avatar, name, preview, clock and the green unread pill; the open chat
+    gets the selected-row tint.
+  - **Conversation**: a header with the chat avatar and presence line, the wallpaper behind the
+    messages, bubbles measured from a `LayoutJob` so they hug the text with WhatsApp's tail
+    (one square corner), sender names coloured per sender in groups, the clock inside the
+    bubble, and a short chat anchored to the composer.
+  - **Composer**: rounded pill input with emoji / sticker / send buttons.
+  - **Message menu**: the rounded card with the six quick reactions on top, then Reply / Copy /
+    Forward / Edit / Delete rows with drawn icons and a hover highlight - the same shape as the
+    removed JS menu, in Rust.
+- **Icons are the real Material Symbols.** The set in `wa_ui::icons_data` (search, more_vert,
+  donut_large, campaign, settings, mood, sticker, send, reply, shortcut, content_copy, edit,
+  delete) is rasterised once per size and colour with `resvg` and cached on the egui context
+  (`icons.rs`); a test asserts the icons paint visible pixels. Nothing is drawn from font
+  glyphs, so they render identically on every machine.
+- **`--preview` and `--screenshot <path>`**: a session-free sample chat renders the window and
+  saves one settled frame with `ViewportCommand::Screenshot`, so the UI is verified visually
+  without a linked account (the screenshots used for this release came from it).
+- 28 native tests (theme resolution and the official token values are asserted); clippy
+  `-D warnings` clean.
+
+
 
 - **CI: the serial `check` job is now two parallel jobs.** `lint` (fmt, clippy, `cargo audit`) and
   `test` (`cargo test --workspace`, native selftest) ran back to back and were the critical path

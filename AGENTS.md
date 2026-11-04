@@ -210,6 +210,30 @@ device until you remove it from the phone).
   filmstrip, arrow keys, Esc, and Save copying the cached file into `Downloads\WA Desk` in
   Rust - the window never opens a second process.
 
+### The native look (v146)
+
+- `apps/desktop-native/src/theme.rs` holds the official `--WDS-*` tokens as a `Palette`
+  (panel / rail / wallpaper / elevated / hover / selected / text / secondary / accent /
+  bubble in-out / link / read / danger) and `apply()` installs them as egui `Visuals` plus the
+  WhatsApp type scale, menu rounding and shadow. The theme choice is applied every frame, so
+  Light / Dark / System really switches the window.
+- **Bubbles are measured, not framed.** A `Frame` let a right-aligned time label stretch the
+  bubble to the full width and height (the first bubble filled the screen); the window now
+  lays the body out with a `LayoutJob`, allocates exactly that size, and paints the rounded
+  rect, sender name, body and clock itself. The tail is one square corner (`CornerRadius`).
+- **Short chats sit at the bottom.** The scroll content is padded by the previous frame's
+  measured height (`ctx.data`), so a chat with three messages hugs the composer.
+- **Icons come from the Material Symbols set** (`wa_ui::icons_data`, the same table the old
+  shell used). egui cannot draw SVG paths, so `icons.rs` rasterises each one with `resvg` at
+  the requested size and tint, caches the texture on the context keyed by name/size/colour, and
+  `draw_icon` paints it; `material_icons_rasterise_into_visible_pixels` guards the pipeline.
+  Never font glyphs - egui's bundled fonts lack most emoji and render boxes.
+- **The menu** is the WhatsApp card: quick reactions on top, then icon + label rows with a
+  rounded hover highlight; the rows still come from `wa_ui::menus::message_menu`.
+- **Visual verification without a session**: `--preview` loads `Model::demo()` and
+  `--screenshot <path>` saves one settled frame with `ViewportCommand::Screenshot` and exits.
+  That is how the release screenshots were produced.
+
 ### Message actions (v145)
 
 - Right-click is the whole entry point: `bubble()` returns a `BubbleAction` and the

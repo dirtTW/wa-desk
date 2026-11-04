@@ -177,6 +177,8 @@ pub struct Model {
     /// The phone number typed into the pairing-code form.
     pub pair_phone: String,
     pub me_jid: String,
+    /// The account's own display name, from the pairing event.
+    pub me_name: String,
     pub search: String,
     pub composer: String,
     pub now: i64,
@@ -215,6 +217,89 @@ impl Model {
         }
     }
 
+    /// Sample data for `--preview`: a group and two chats, so the window can be
+    /// inspected (and screenshotted) without a linked session.
+    pub fn demo() -> Self {
+        let mut model = Model::new();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(1_770_000_000_000);
+        model.now = now;
+        model.login = LoginState::Linked;
+        model.status = "Connected".to_string();
+        model.me_name = "You".to_string();
+        model.me_jid = "0@s.whatsapp.net".to_string();
+
+        let mut group = |sender: &str, name: &str, id: &str, text: &str, ts: i64, own: bool| {
+            let mut message = view("1203@g.us", "Team", id, text, ts, own);
+            if !own {
+                message.sender = Some(sender.to_string());
+                message.sender_name = Some(name.to_string());
+            }
+            model.apply(&UiEvent::Message(message));
+        };
+        group(
+            "1@s.whatsapp.net",
+            "Ada",
+            "d1",
+            "morning! the deploy is green",
+            now - 9 * 60_000,
+            false,
+        );
+        group(
+            "0@s.whatsapp.net",
+            "You",
+            "d2",
+            "nice, shipping the docs now",
+            now - 8 * 60_000,
+            true,
+        );
+        group(
+            "2@s.whatsapp.net",
+            "Budi",
+            "d3",
+            "can someone review the PR?",
+            now - 6 * 60_000,
+            false,
+        );
+        group(
+            "0@s.whatsapp.net",
+            "You",
+            "d4",
+            "on it 👀",
+            now - 5 * 60_000,
+            true,
+        );
+
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "a1",
+            "hey, are we still on for tonight?",
+            now - 3 * 60_000,
+            false,
+        )));
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "a2",
+            "i can push it to 8",
+            now - 2 * 60_000,
+            false,
+        )));
+        model.apply(&UiEvent::Message(view(
+            "2@s.whatsapp.net",
+            "Budi",
+            "b1",
+            "see you at 8",
+            now - 90_000,
+            true,
+        )));
+        model.active = Some("1203@g.us".to_string());
+        model
+    }
+
     pub fn apply(&mut self, event: &UiEvent) {
         match event {
             UiEvent::Qr { svg, .. } => self.login = fold(&self.login, &LoginEvent::Qr(svg.clone())),
@@ -224,6 +309,7 @@ impl Model {
             }
             UiEvent::Paired { name, .. } => {
                 self.login = fold(&self.login, &LoginEvent::Paired);
+                self.me_name = name.clone();
                 self.status = format!("Linked as {name}");
             }
             UiEvent::Connected => {
@@ -1075,6 +1161,15 @@ impl Model {
     /// The bubble's own timestamp.
     pub fn bubble_stamp(&self, message: &MessageView) -> String {
         stamp_of(message.timestamp, self.now)
+    }
+
+    /// The account's own display name, for the sidebar avatar.
+    pub fn own_name(&self) -> String {
+        if self.me_name.trim().is_empty() {
+            "You".to_string()
+        } else {
+            self.me_name.clone()
+        }
     }
 
     /// The chat title, unread badge included in the sidebar painting.

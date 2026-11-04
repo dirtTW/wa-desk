@@ -66,6 +66,9 @@ The native window (`wa-desk-native`) covers:
   in Settings → Updates, and downloads + swaps the platform binary on restart
 - **Settings**: theme (Light / Dark / System) and the AI form, validated by the same rules the
   rest of the app uses
+- **The official look**: WhatsApp's `--WDS-*` palette, avatars, unread pills, bubbles with their
+  tail and inline clock, wallpaper, rounded composer and the message menu - all drawn with
+  `egui`/`Painter`, no images and no JavaScript
 
 **What is no longer in the tree** (removed in `v0.2.0-rc.57`): the Tauri shell, its
 WebView (`wry`, `webview2-com`, `webkit2gtk`), `tauri-plugin-{notification,autostart,updater}`,
@@ -137,6 +140,8 @@ Linux ships the plain `wa-desk-native` binary.
 ```bash
 cargo run -p wa-desktop-native
 cargo run -p wa-desktop-native -- --selftest    # headless UI check
+# render a sample chat with no linked account and save a PNG
+cargo run -p wa-desktop-native -- --preview --screenshot preview.png
 ```
 
 First launch shows a QR code. On your phone open
