@@ -125,6 +125,8 @@ pub struct WaDesk {
     last_sync: std::time::Instant,
     /// The "new chat" FAB asked the search box to take focus.
     focus_search: bool,
+    /// The connection epoch the backfill already started for.
+    seen_epoch: u64,
 }
 
 impl WaDesk {
@@ -182,6 +184,7 @@ impl WaDesk {
             sync_rounds: 6,
             last_sync: std::time::Instant::now(),
             focus_search: false,
+            seen_epoch: 0,
         }
     }
 
@@ -1950,8 +1953,9 @@ impl WaDesk {
             ui.label(egui::RichText::new("Chat history").strong());
             ui.label(
                 egui::RichText::new(
-                    "The phone only pushes history to a newly linked device; this asks for a \
-                     batch from the linked session (eight chats at a time).",
+                    "The phone only pushes the full chat list to a newly linked device; this \
+                     asks for a batch from the linked session (eight chats at a time). For the \
+                     complete history, unlink and pair again.",
                 )
                 .small()
                 .weak(),
@@ -2260,8 +2264,18 @@ impl eframe::App for WaDesk {
             self.model.needs_history = false;
             self.send(Command::InitialSync);
             // Keep pulling batches so the recent chats surface, like the phone.
-            self.sync_rounds = 6;
+            self.sync_rounds = 12;
             self.last_sync = std::time::Instant::now();
+        }
+        // A fresh connection (not just the first) resumes the backfill: rows
+        // without history have no timestamp and would otherwise sit at the
+        // bottom of the list forever.
+        if self.model.connection_epoch != self.seen_epoch {
+            self.seen_epoch = self.model.connection_epoch;
+            if self.sync_rounds == 0 {
+                self.sync_rounds = 6;
+                self.last_sync = std::time::Instant::now();
+            }
         }
         if self.model.login.is_linked()
             && self.sync_rounds > 0

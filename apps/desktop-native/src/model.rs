@@ -244,6 +244,8 @@ pub struct Model {
     /// Set once on connect when there is nothing to show, so the app asks the
     /// session for the address book and a batch of history.
     pub needs_history: bool,
+    /// Incremented on every `Connected`, so the window can start a new backfill.
+    pub connection_epoch: u64,
 }
 
 impl Model {
@@ -396,6 +398,7 @@ impl Model {
             UiEvent::Connected => {
                 self.login = fold(&self.login, &LoginEvent::Connected);
                 self.status = "Connected".to_string();
+                self.connection_epoch += 1;
                 // WhatsApp only pushes history to a newly linked device, so a
                 // restart with an empty cache needs an explicit ask.
                 if self.chats.is_empty() {
@@ -806,7 +809,11 @@ impl Model {
             .filter(|row| !row.jid.ends_with("@newsletter"))
             .filter(|row| needle.is_empty() || row.name.to_lowercase().contains(&needle))
             .collect();
-        rows.sort_by_key(|row| std::cmp::Reverse(row.last_ts));
+        rows.sort_by(|a, b| {
+            b.last_ts
+                .cmp(&a.last_ts)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
         rows
     }
 
@@ -1019,7 +1026,11 @@ impl Model {
                     || row.jid.to_lowercase().contains(&needle)
             })
             .collect();
-        rows.sort_by_key(|row| std::cmp::Reverse(row.last_ts));
+        rows.sort_by(|a, b| {
+            b.last_ts
+                .cmp(&a.last_ts)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
         rows
     }
 

@@ -4,7 +4,17 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.68] — 2026-11-04
+## [0.2.0-rc.69] — 2026-11-04
+
+- **Chat list order matches the phone.** Rows sort by their last message time, newest first, and
+  ties fall back to the name so contacts without history are stable instead of appearing in
+  arbitrary JID order. The background backfill now resumes on **every** connection (six
+  batches, eight chats each) instead of only when the cache is empty, so rows that started
+  without a timestamp move up as their history arrives.
+- Settings → Chat history states the limitation plainly: WhatsApp only pushes the complete chat
+  list to a newly linked device, so chats older than the backfill still need a relink.
+
+
 
 - **The chat list layout now matches the official client**: a 58 px navigation rail with unread
   and unseen-status badges and your own photo at the bottom, a "Chats" header with the kebab and
