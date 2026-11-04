@@ -169,6 +169,8 @@ pub enum BubbleAction {
     Delete(String),
     Forward(String),
     Star(String),
+    /// Start or stop the voice note's playback.
+    PlayAudio(String),
 }
 
 /// A followed channel and its (read-only) posts.
@@ -391,6 +393,16 @@ impl Model {
         });
         drop(group);
         model.apply(&UiEvent::Message(document));
+        let mut note = view("1203@g.us", "Team", "d7", "", now - 2 * 60_000, false);
+        note.kind = "audio".to_string();
+        note.sender = Some("1@s.whatsapp.net".to_string());
+        note.sender_name = Some("Ada".to_string());
+        note.audio = Some(wa_types::AudioView {
+            seconds: 12,
+            ptt: true,
+            waveform: (0..40).map(|index| ((index * 7) % 80 + 30) as u8).collect(),
+        });
+        model.apply(&UiEvent::Message(note));
         model.apply(&UiEvent::Message(view(
             "1203@g.us",
             "Team",

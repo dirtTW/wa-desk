@@ -34,6 +34,8 @@ account. Issues and pull requests are welcome.
   the Communities filter. **Read badges sync both ways** with the phone.
 - **Conversation**: text, typing indicator, tails, sender colours, inline clocks; in-chat search
   with match counter and highlight; **documents as the official card**; photos and stickers.
+- **Voice notes and audio**: official-style player bubble (play/pause, waveform, elapsed/total)
+  with OGG/Opus decoded through libopus, so phone recordings play in the window
 - **Media viewer**: filmstrip, arrow keys, Esc, and Save copies to `Downloads\WA Desk`.
 - **Emoji and stickers**: full catalogue with search/recents, favourites and cached stickers.
 - **Message actions**: reply, react, copy, forward, edit, delete (for me / everyone) and

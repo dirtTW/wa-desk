@@ -143,6 +143,8 @@ pub struct WaDesk {
     show_chat_menu: bool,
     /// Which Settings section is open.
     settings_section: usize,
+    /// The audio player, kept alive for the window's lifetime.
+    audio: crate::audio::Audio,
     /// The open chat's actions menu.
     show_chat_actions: bool,
     /// The new-chat picker and its search.
@@ -228,6 +230,7 @@ impl WaDesk {
             new_chat_search: String::new(),
             contacts: Vec::new(),
             contacts_rx: native.contacts,
+            audio: crate::audio::Audio::new(),
             show_starred: false,
             show_new_group: false,
             new_group_subject: String::new(),
@@ -1068,6 +1071,7 @@ impl WaDesk {
                             ) {
                                 let jid = row.jid.clone();
                                 let empty = row.messages.is_empty();
+                                self.audio.stop();
                                 self.model.open_chat(&jid);
                                 self.send(Command::MarkRead { chat: jid.clone() });
                                 if empty {
@@ -1211,7 +1215,9 @@ impl WaDesk {
                     .messages
                     .iter()
                     .rev()
-                    .filter(|message| matches!(message.kind.as_str(), "image" | "sticker"))
+                    .filter(|message| {
+                        matches!(message.kind.as_str(), "image" | "sticker" | "audio")
+                    })
                     .take(24)
                     .map(|message| message.id.clone())
                     .collect();
@@ -1240,6 +1246,7 @@ impl WaDesk {
                 });
                 let spare = (height - content_height).max(0.0);
                 let mut chosen: Option<BubbleAction> = None;
+                let playback = self.audio.state();
                 egui::ScrollArea::vertical()
                     .stick_to_bottom(focus.is_none())
                     .max_height(height.max(120.0))
@@ -1259,6 +1266,7 @@ impl WaDesk {
                                 &ctx,
                                 if is_hit { Some(query.as_str()) } else { None },
                                 focus == Some(index),
+                                &playback,
                             ) {
                                 chosen = Some(action);
                             }
@@ -1421,6 +1429,7 @@ impl WaDesk {
             | BubbleAction::Edit(id)
             | BubbleAction::Delete(id)
             | BubbleAction::Star(id)
+            | BubbleAction::PlayAudio(id)
             | BubbleAction::Forward(id) => id.clone(),
             BubbleAction::React(id, _) => id.clone(),
         };
@@ -1464,6 +1473,24 @@ impl WaDesk {
             BubbleAction::Forward(_) => {
                 if let Some(message) = message {
                     self.model.start_forward(&message);
+                }
+            }
+            BubbleAction::PlayAudio(id) => {
+                if let Some(message) = row.messages.iter().find(|item| item.id == id).cloned() {
+                    if let Some(path) = self.model.media_path(&id) {
+                        let duration = message
+                            .audio
+                            .as_ref()
+                            .map(|audio| audio.seconds as f32)
+                            .unwrap_or(0.0);
+                        self.audio.toggle(&id, &path, duration);
+                    } else if self.model.request_media(&id) {
+                        self.send(Command::FetchMedia { id: id.clone() });
+                        self.attach_note = Some((
+                            "Loading the voice note…".to_string(),
+                            std::time::Instant::now(),
+                        ));
+                    }
                 }
             }
             BubbleAction::Star(id) => {
@@ -1550,6 +1577,7 @@ fn bubble(
     ctx: &egui::Context,
     search: Option<&str>,
     scroll: bool,
+    playback: &crate::audio::PlaybackState,
 ) -> Option<BubbleAction> {
     let align = if message.from_me {
         egui::Align::Max
@@ -1731,6 +1759,108 @@ fn bubble(
             }
             context_menu(&hit, palette, model, message, &mut action);
             pills_row(ui, model, message);
+            ui.add_space(4.0);
+            return;
+        }
+
+        // A voice note: the official player bubble (play/pause, waveform,
+        // elapsed/duration). Playback lives in `audio.rs`.
+        if message.kind == "audio"
+            && let Some(audio) = message.audio.as_ref()
+        {
+            let width = max_width.min(300.0);
+            let height = 58.0;
+            let (rect, hit) =
+                ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            let radius = egui::CornerRadius {
+                nw: 8,
+                ne: 8,
+                sw: if message.from_me { 8 } else { 2 },
+                se: if message.from_me { 2 } else { 8 },
+            };
+            let painter = ui.painter();
+            painter.rect_filled(rect, radius, fill);
+            let mine = playback.id.as_deref() == Some(message.id.as_str());
+            let playing = mine && playback.playing;
+            let elapsed = if mine { playback.elapsed } else { 0.0 };
+            let duration = audio.seconds as f32;
+            let ratio = if duration > 0.0 {
+                (elapsed / duration).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            // Play / pause disc.
+            let disc = egui::Rect::from_center_size(
+                egui::pos2(rect.left() + 30.0, rect.center().y),
+                egui::vec2(34.0, 34.0),
+            );
+            painter.circle_filled(disc.center(), 17.0, palette.accent);
+            draw_icon(
+                ui,
+                disc.shrink(9.0),
+                if playing { Icon::Pause } else { Icon::Play },
+                egui::Color32::from_rgb(11, 20, 26),
+            );
+            // Waveform bars (fallback shape when the sender sent none).
+            let bars: Vec<u8> = if audio.waveform.is_empty() {
+                (0..40)
+                    .map(|index| {
+                        let seed = message.id.bytes().fold(0u32, |acc, byte| {
+                            acc.wrapping_mul(31).wrapping_add(byte as u32)
+                        });
+                        (((seed >> (index % 8)) & 0x1F) as u8 + 40).min(180)
+                    })
+                    .collect()
+            } else {
+                audio.waveform.clone()
+            };
+            let wave_left = rect.left() + 54.0;
+            let wave_right = rect.right() - 10.0;
+            let slot = (wave_right - wave_left) / bars.len().max(1) as f32;
+            let middle = rect.center().y - 3.0;
+            for (index, level) in bars.iter().enumerate() {
+                let x = wave_left + slot * index as f32 + slot * 0.25;
+                let amplitude = 3.0 + (*level as f32 / 255.0) * 16.0;
+                let played = (index as f32 / bars.len().max(1) as f32) <= ratio;
+                painter.line_segment(
+                    [
+                        egui::pos2(x, middle - amplitude),
+                        egui::pos2(x, middle + amplitude),
+                    ],
+                    egui::Stroke::new(
+                        (slot * 0.5).clamp(1.0, 2.5),
+                        if played {
+                            palette.accent
+                        } else {
+                            palette.secondary
+                        },
+                    ),
+                );
+            }
+            let label = if mine && elapsed > 0.5 {
+                format!("{:.0}s / {}", elapsed, stamp_seconds(duration))
+            } else {
+                stamp_seconds(duration)
+            };
+            painter.text(
+                egui::pos2(rect.right() - 10.0, rect.bottom() - 8.0),
+                egui::Align2::RIGHT_BOTTOM,
+                label,
+                egui::FontId::proportional(10.5),
+                palette.secondary,
+            );
+            if hit.clicked() {
+                action = Some(BubbleAction::PlayAudio(message.id.clone()));
+            }
+            context_menu(&hit, palette, model, message, &mut action);
+            if scroll {
+                hit.scroll_to_me(Some(egui::Align::Center));
+            }
             ui.add_space(4.0);
             return;
         }
@@ -2360,6 +2490,12 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// `m:ss` for a clip length.
+fn stamp_seconds(seconds: f32) -> String {
+    let total = seconds.max(0.0) as i64;
+    format!("{}:{:02}", total / 60, total % 60)
 }
 
 impl WaDesk {
@@ -3087,7 +3223,11 @@ impl eframe::App for WaDesk {
         // The session runs on other threads and pushes into a channel; without a
         // timer egui would only repaint on mouse/keyboard input, so the chat list
         // (and new messages) could sit unseen until the window was touched.
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        if self.audio.state().playing {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 }
 
@@ -3548,6 +3688,8 @@ enum Icon {
     Add,
     Groups,
     Logout,
+    Play,
+    Pause,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -3604,6 +3746,8 @@ impl Icon {
             Icon::Add => "add",
             Icon::Groups => "groups",
             Icon::Logout => "logout",
+            Icon::Play => "play_arrow",
+            Icon::Pause => "pause",
         }
     }
 }

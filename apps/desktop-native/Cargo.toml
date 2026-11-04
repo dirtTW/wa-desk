@@ -17,6 +17,9 @@ serde_json = { workspace = true }
 ureq = "3"
 base64 = { workspace = true }
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+rodio = "0.20"
+ogg = "0.9"
+audiopus = "0.2"
 resvg = "0.45"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 tracing = { workspace = true }

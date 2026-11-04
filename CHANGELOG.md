@@ -4,7 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.76] — 2026-11-04
+## [0.2.0-rc.77] — 2026-11-04
+
+- **Voice notes and audio messages play** (JS-only after the migration). Audio bubbles are the
+  official player: a green play/pause disc, the sender's waveform (a shaped fallback when none
+  was sent), the elapsed/total time, and a click fetches the file on demand. WhatsApp voice
+  notes are OGG/Opus, which the usual decoders cannot read, so `audio.rs` demuxes the OGG pages
+  and decodes with libopus (`audiopus`), then feeds a `rodio` sink; MP3/WAV/Vorbis go through
+  rodio's own decoders. The UI repaints at 10 fps while something is playing, and opening another
+  chat stops the sound.
+- Audio messages now join photos and stickers in the on-demand media fetch, so the bubble can
+  play as soon as the file lands.
+
+
 
 - **Profile photos are cached on disk** (`%APPDATA%\io.github.dirttw.wadesk-native\avatars\`). The
   window paints the cached file immediately and refreshes it from the CDN in the background, so
