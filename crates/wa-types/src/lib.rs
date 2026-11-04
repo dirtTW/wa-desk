@@ -355,6 +355,10 @@ pub struct MessageView {
     /// instead of a plain reply quote.
     #[serde(default, skip_serializing_if = "is_false")]
     pub status_quote: bool,
+    /// A video the sender marked as a GIF (`videoMessage.gifPlayback`): the
+    /// official client loops it without player controls.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub gif: bool,
 }
 
 pub(crate) fn is_false(value: &bool) -> bool {

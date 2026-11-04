@@ -46,6 +46,11 @@ pub enum Command {
     },
     /// End the call we are in.
     CallHangup,
+    /// Forward one message into the same chat (the GIF picker).
+    ForwardMessage {
+        chat: String,
+        id: String,
+    },
     /// Mute or unmute our microphone.
     CallMute {
         muted: bool,
@@ -382,6 +387,23 @@ impl Model {
 
     /// Sample data for `--preview`: a group and two chats, so the window can be
     /// inspected (and screenshotted) without a linked session.
+    /// Preview helper: add a GIF message whose poster lives at `path`.
+    pub fn demo_gif(&mut self, chat: &str, id: &str, path: &str) {
+        let name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let mut message = view(chat, &name, id, "", self.now - 60_000, false);
+        message.kind = "video".to_string();
+        message.gif = true;
+        message.sender = Some("1@s.whatsapp.net".to_string());
+        message.sender_name = Some("Ada".to_string());
+        self.apply(&UiEvent::Message(message));
+        self.media
+            .insert(id.to_string(), MediaState::Path(path.to_string()));
+    }
+
     pub fn demo() -> Self {
         let mut model = Model::new();
         let now = std::time::SystemTime::now()
@@ -846,6 +868,30 @@ impl Model {
 
     /// The delivery marker for one of our own messages: `sent`, `delivered` or
     /// `read`. Unknown ids count as sent (the stanza was accepted).
+    /// GIFs (videos the sender marked as GIFs) from the open chat, newest
+    /// first: the picker's GIF tab sends one of these again.
+    pub fn gif_items(&self) -> Vec<(String, String)> {
+        let Some(chat) = self.active.as_deref() else {
+            return Vec::new();
+        };
+        let Some(row) = self.chats.get(chat) else {
+            return Vec::new();
+        };
+        row.messages
+            .iter()
+            .rev()
+            .filter(|message| message.kind == "video" && message.gif)
+            .map(|message| {
+                let path = match self.media.get(&message.id) {
+                    Some(MediaState::Path(path)) => path.clone(),
+                    _ => String::new(),
+                };
+                (message.id.clone(), path)
+            })
+            .take(24)
+            .collect()
+    }
+
     pub fn tick_status(&self, message: &MessageView) -> &str {
         self.ticks
             .get(&message.id)
@@ -1038,6 +1084,7 @@ impl Model {
                 stats: None,
                 forwarded: false,
                 once_recovered: false,
+                gif: false,
                 status_quote: false,
             });
             added += 1;
@@ -2300,6 +2347,7 @@ fn view(chat: &str, name: &str, id: &str, text: &str, ts: i64, from_me: bool) ->
         stats: None,
         forwarded: false,
         once_recovered: false,
+        gif: false,
         status_quote: false,
     }
 }
@@ -2358,6 +2406,25 @@ mod tests {
             status: "read".into(),
         });
         assert_eq!(model.tick_status(&own), "read");
+    }
+
+    #[test]
+    fn the_gif_tab_lists_gif_messages_newest_first() {
+        let mut model = Model::new();
+        model.active = Some("1@s.whatsapp.net".into());
+        let mut first = view("1@s.whatsapp.net", "Ada", "g1", "", 100, false);
+        first.kind = "video".into();
+        first.gif = true;
+        model.apply(&UiEvent::Message(first));
+        let mut plain = view("1@s.whatsapp.net", "Ada", "v1", "", 200, false);
+        plain.kind = "video".into();
+        model.apply(&UiEvent::Message(plain));
+        let mut second = view("1@s.whatsapp.net", "Ada", "g2", "", 300, false);
+        second.kind = "video".into();
+        second.gif = true;
+        model.apply(&UiEvent::Message(second));
+        let gifs: Vec<String> = model.gif_items().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(gifs, vec!["g2".to_string(), "g1".to_string()]);
     }
 
     #[test]

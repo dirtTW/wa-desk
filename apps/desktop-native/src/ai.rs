@@ -710,6 +710,7 @@ mod tests {
             stats: None,
             forwarded: false,
             once_recovered: false,
+            gif: false,
             status_quote: false,
         };
         assert!(is_mentioned(&view, "6281234@s.whatsapp.net"));
@@ -780,6 +781,7 @@ mod tests {
             stats: None,
             forwarded: false,
             once_recovered: false,
+            gif: false,
             status_quote: false,
         };
         runtime.observe(&wa_types::UiEvent::Message(view.clone()), &tx);

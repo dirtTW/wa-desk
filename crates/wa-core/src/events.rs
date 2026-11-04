@@ -505,6 +505,7 @@ pub(crate) fn dispatch(
                         stats: None,
                         forwarded: is_forwarded(body),
                         once_recovered: false,
+                        gif: is_gif(body),
                         status_quote: quotes_status(body),
                     }));
                 }
@@ -641,6 +642,7 @@ pub(crate) fn dispatch(
                 stats: None,
                 forwarded: false,
                 once_recovered: false,
+                gif: false,
                 status_quote: false,
             }));
         }
@@ -977,6 +979,7 @@ pub(crate) fn dispatch(
                         stats: None,
                         forwarded: false,
                         once_recovered: true,
+                        gif: false,
                         status_quote: false,
                     };
                     remember_message(
@@ -1023,6 +1026,7 @@ pub(crate) fn dispatch(
                     stats: None,
                     forwarded: is_forwarded(&inbound.message),
                     once_recovered: false,
+                    gif: is_gif(&inbound.message),
                     status_quote: quotes_status(&inbound.message),
                 }));
             }

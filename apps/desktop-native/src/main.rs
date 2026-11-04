@@ -411,6 +411,11 @@ fn main() {
                         tracing::warn!(%err, "call reject failed");
                     }
                 }
+                model::Command::ForwardMessage { chat, id } => {
+                    if let Err(err) = session.forward_message(&[chat], &id).await {
+                        tracing::warn!(%err, "forward failed");
+                    }
+                }
                 model::Command::CallHangup => {
                     if let Err(err) = session.hangup_call().await {
                         tracing::warn!(%err, "call hangup failed");

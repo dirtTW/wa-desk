@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.87] - 2026-11-04
+
+- **The GIF tab works** (it used to say "not supported yet"). WhatsApp GIFs are videos with
+  `videoMessage.gifPlayback`, which the client ignored: `wa-types::MessageView` now carries
+  `gif`, `wa-core::util::is_gif` fills it for live messages and history, and the picker's GIF tab
+  lists the **GIFs in this chat** (newest first, poster thumbnails) - tapping one forwards it into
+  the chat through a new `Command::ForwardMessage` -> `Session::forward_message`, so the picker
+  really sends something.
+- Test: `model::tests::the_gif_tab_lists_gif_messages_newest_first` (only GIF videos, newest
+  first). Screenshot: `target/gif_tab.png`.
+- Screenshot hook: `WA_DESK_GIFS=<dir>` seeds GIF messages from PNG posters and opens the tab.
+- **Sticker packs are still not fetched** - `stickerPack` app-state needs protocol work, so that
+  tab keeps saying so rather than pretending.
+- Tests: 73 native, clippy clean, selftest green.
+
 ## [0.2.0-rc.86] - 2026-11-04
 
 - **Outgoing call video works**: the webcam is captured, encoded and sent, so a video call is now

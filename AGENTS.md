@@ -490,6 +490,10 @@ device until you remove it from the phone).
   `call_overlay` paints it full-sheet with the name/timer top-left and controls at the bottom.
   Note: ffmpeg buffers ~32 KB of input before decoding starts, so video appears about a second
   into a call.
+- **GIFs.** wa_types::MessageView.gif comes from ideoMessage.gifPlayback
+  (wa_core::util::is_gif); the emoji picker's GIF tab lists Model::gif_items() (the open
+  chat's GIFs, newest first) and forwards the chosen one with Command::ForwardMessage ->
+  Session::forward_message. Sticker packs still need the stickerPack app-state work.
 - **Delivery ticks.** `Model::ticks` records `sent`/`delivered`/`read` per message id (from
   `UiEvent::Sent`/`Receipt`); the bubble paints one grey `check`, grey `done_all` or the blue
   `done_all` (`palette.read`).

@@ -410,6 +410,7 @@ pub(crate) fn decode_channel_page(
             stats: channel_stats(node),
             forwarded: is_forwarded(base),
             once_recovered: false,
+            gif: false,
             status_quote: false,
         };
         let media = (kind != "text").then(|| Arc::new(body.clone()));

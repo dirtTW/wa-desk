@@ -311,6 +311,16 @@ pub(crate) fn status_background(message: &wa::Message) -> Option<String> {
     ))
 }
 
+/// A video the sender marked as a GIF (ideoMessage.gifPlayback).
+pub(crate) fn is_gif(message: &wa::Message) -> bool {
+    message
+        .get_base_message()
+        .video_message
+        .as_option()
+        .and_then(|video| video.gif_playback)
+        .unwrap_or(false)
+}
+
 pub(crate) fn media_kind(message: &wa::Message) -> Option<&'static str> {
     let base = message.get_base_message();
     if base.image_message.as_option().is_some() {

@@ -318,6 +318,33 @@ impl WaDesk {
         {
             self.settings_section = index.min(4);
         }
+        // `WA_DESK_GIFS=<dir>` seeds GIF messages and opens the GIF tab.
+        if let Ok(dir) = std::env::var("WA_DESK_GIFS") {
+            let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .filter(|path| {
+                            path.extension()
+                                .and_then(|ext| ext.to_str())
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            paths.sort();
+            for (index, path) in paths.iter().enumerate() {
+                self.model.demo_gif(
+                    "1203@g.us",
+                    &format!("gif-demo-{index}"),
+                    &path.to_string_lossy(),
+                );
+            }
+            self.model.active = Some("1203@g.us".to_string());
+            self.model.emoji_open = true;
+            self.emoji_gif = true;
+        }
         // `WA_DESK_EMOJI=1` opens the emoji picker for a screenshot.
         // `WA_DESK_STICKERS=<dir>` loads PNGs as favourites and opens the sticker
         // panel, so the official layout can be checked without a session.
@@ -3326,6 +3353,7 @@ fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
         stats: None,
         forwarded: false,
         once_recovered: false,
+        gif: false,
         status_quote: false,
     }
 }
@@ -4974,6 +5002,7 @@ impl WaDesk {
         let palette = self.palette.clone();
         let groups = wa_ui::emoji::groups();
         let mut clicked: Option<String> = None;
+        let mut gif_send: Option<String> = None;
         let mut close = false;
         let mut stickers = false;
 
@@ -5046,15 +5075,78 @@ impl WaDesk {
                                 ui.set_width(ui.available_width());
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                                 if self.emoji_gif {
-                                    ui.add_space(10.0);
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "GIF search is not part of this build yet - the \
-                                             sticker tab has the account's stickers.",
-                                        )
-                                        .size(12.5)
-                                        .color(palette.secondary),
-                                    );
+                                    // GIFs of this chat, newest first: WhatsApp's
+                                    // picker sends a recent one again.
+                                    let gifs = self.model.gif_items();
+                                    if gifs.is_empty() {
+                                        ui.add_space(10.0);
+                                        ui.label(
+                                            egui::RichText::new(
+                                                "No GIFs in this chat yet - a GIF someone \
+                                                 sends shows up here.",
+                                            )
+                                            .size(12.5)
+                                            .color(palette.secondary),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new("GIFs in this chat")
+                                                .size(11.5)
+                                                .strong()
+                                                .color(palette.secondary),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.horizontal_wrapped(|ui| {
+                                            ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                                            for (id, path) in &gifs {
+                                                let (rect, response) = ui.allocate_exact_size(
+                                                    egui::vec2(108.0, 108.0),
+                                                    egui::Sense::click(),
+                                                );
+                                                if response.hovered() {
+                                                    ui.painter().rect_filled(
+                                                        rect,
+                                                        egui::CornerRadius::same(10),
+                                                        palette.hover,
+                                                    );
+                                                }
+                                                let key = format!("gif:{id}");
+                                                if let Some(texture) = texture_at(
+                                                    ui.ctx(),
+                                                    &mut self.textures,
+                                                    &key,
+                                                    (!path.is_empty()).then(|| path.clone()),
+                                                ) {
+                                                    let size = texture.size_vec2();
+                                                    let scale = (100.0 / size.x.max(1.0))
+                                                        .min(100.0 / size.y.max(1.0));
+                                                    ui.painter().image(
+                                                        texture.id(),
+                                                        egui::Rect::from_center_size(
+                                                            rect.center(),
+                                                            size * scale,
+                                                        ),
+                                                        egui::Rect::from_min_max(
+                                                            egui::pos2(0.0, 0.0),
+                                                            egui::pos2(1.0, 1.0),
+                                                        ),
+                                                        egui::Color32::WHITE,
+                                                    );
+                                                } else {
+                                                    ui.painter().text(
+                                                        rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        "GIF",
+                                                        egui::FontId::proportional(14.0),
+                                                        palette.secondary,
+                                                    );
+                                                }
+                                                if response.clicked() {
+                                                    gif_send = Some(id.clone());
+                                                }
+                                            }
+                                        });
+                                    }
                                 } else if !query.is_empty() {
                                     let items = wa_ui::emoji::search(&query, 160);
                                     let chars: Vec<String> =
@@ -5147,6 +5239,12 @@ impl WaDesk {
 
         if let Some(emoji) = clicked {
             self.model.insert_emoji(&emoji);
+        }
+        if let Some(id) = gif_send
+            && let Some(chat) = self.model.active.clone()
+        {
+            self.send(Command::ForwardMessage { chat, id });
+            self.model.emoji_open = false;
         }
         if stickers {
             self.model.emoji_open = false;
