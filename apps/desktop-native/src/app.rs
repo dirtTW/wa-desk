@@ -130,6 +130,8 @@ pub struct WaDesk {
     attach_note: Option<(String, std::time::Instant)>,
     /// True in `--preview`: never write the demo chats to the real cache.
     preview: bool,
+    /// When the last `memory:` line was written (diagnostics only).
+    last_memory_log: std::time::Instant,
     /// Screenshot support: start the demo video as soon as it is decoded.
     preview_autoplay: bool,
     /// Progressive history sync: batches left and when the last one went out.
@@ -254,6 +256,7 @@ impl WaDesk {
             palette,
             system_dark,
             screenshot: None,
+            last_memory_log: std::time::Instant::now(),
             cache_path,
             cache_dirty: false,
             cache_saved: std::time::Instant::now(),
@@ -1829,11 +1832,15 @@ impl WaDesk {
                     }
                 });
                 ui.add_space(2.0);
-                ui.label(
-                    egui::RichText::new(&self.model.status)
-                        .size(11.5)
-                        .color(palette.secondary),
-                );
+                // The link line only shows when it is not simply "Connected":
+                // the official list has no status row there.
+                if !self.model.status.eq_ignore_ascii_case("connected") {
+                    ui.label(
+                        egui::RichText::new(&self.model.status)
+                            .size(11.5)
+                            .color(palette.secondary),
+                    );
+                }
                 ui.add_space(2.0);
 
                 let rows: Vec<ChatRow> = self.model.visible_chats().into_iter().cloned().collect();
@@ -1891,6 +1898,8 @@ impl WaDesk {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.wallpaper))
             .show(ctx, |ui| {
+                // The doodle wallpaper sits behind everything in the panel.
+                paint_wallpaper(ui, &palette, ui.max_rect());
                 let Some(jid) = self.model.active.clone() else {
                     ui.vertical_centered(|ui| {
                         ui.add_space(70.0);
@@ -2537,8 +2546,8 @@ fn bubble_content(
                     .size(11.0)
                     .color(palette.secondary),
             );
-            pills_row(ui, palette, model, message);
-            ui.add_space(if tail { 8.0 } else { 2.0 });
+            pills_row(ui, palette, model, message, rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
             return;
         }
         // A sticker: still WebP or animated (WhatsApp's animated stickers are
@@ -2570,8 +2579,8 @@ fn bubble_content(
                     .size(11.0)
                     .color(palette.secondary),
             );
-            pills_row(ui, palette, model, message);
-            ui.add_space(if tail { 8.0 } else { 2.0 });
+            pills_row(ui, palette, model, message, response.rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
             return;
         }
 
@@ -2581,10 +2590,10 @@ fn bubble_content(
         if matches!(message.kind.as_str(), "image" | "video")
             && model.media_path(&message.id).is_none()
         {
-            let width = max_width.min(240.0);
+            let width = max_width.min(260.0);
             let failed = model.media_error(&message.id);
             let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(width, 140.0), egui::Sense::click());
+                ui.allocate_exact_size(egui::vec2(width, width * 0.62), egui::Sense::click());
             let fill = if message.from_me {
                 palette.bubble_out
             } else {
@@ -2592,7 +2601,20 @@ fn bubble_content(
             };
             ui.painter()
                 .rect_filled(rect, egui::CornerRadius::same(8), fill);
-            draw_icon(ui, rect.shrink(52.0), Icon::Document, palette.secondary);
+            // A play disc for a video, a picture glyph for a photo.
+            let disc = egui::Rect::from_center_size(rect.center(), egui::vec2(46.0, 46.0));
+            ui.painter()
+                .circle_filled(disc.center(), 23.0, egui::Color32::from_black_alpha(90));
+            draw_icon(
+                ui,
+                disc.shrink(12.0),
+                if message.kind == "video" {
+                    Icon::Play
+                } else {
+                    Icon::Document
+                },
+                egui::Color32::from_gray(235),
+            );
             let kind_label = if message.kind == "video" {
                 "video"
             } else {
@@ -2625,8 +2647,8 @@ fn bubble_content(
                     .size(11.0)
                     .color(palette.secondary),
             );
-            pills_row(ui, palette, model, message);
-            ui.add_space(if tail { 8.0 } else { 2.0 });
+            pills_row(ui, palette, model, message, rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
             return;
         }
         if matches!(message.kind.as_str(), "image" | "video")
@@ -2751,8 +2773,8 @@ fn bubble_content(
                 action = Some(BubbleAction::OpenMedia(message.id.clone()));
             }
             context_menu(&response, palette, model, message, &mut action);
-            pills_row(ui, palette, model, message);
-            ui.add_space(if tail { 8.0 } else { 2.0 });
+            pills_row(ui, palette, model, message, rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
             return;
         }
 
@@ -2863,7 +2885,7 @@ fn bubble_content(
                 hit.scroll_to_me(Some(egui::Align::Center));
             }
             context_menu(&hit, palette, model, message, &mut action);
-            pills_row(ui, palette, model, message);
+            pills_row(ui, palette, model, message, rect);
             ui.add_space(4.0);
             return;
         }
@@ -3069,7 +3091,9 @@ fn bubble_content(
             .as_ref()
             .map(|galley| galley.size().y + 1.0)
             .unwrap_or(0.0);
-        let height = body_size.y + time.size().y + 8.0 + quote_height + name_height;
+        // Two extra pixels: an emoji body is a square cell and used to touch
+        // the clock line.
+        let height = body_size.y + time.size().y + 10.0 + quote_height + name_height;
         let (rect, hit) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
         let painter = ui.painter();
         painter.rect_filled(rect, radius, fill);
@@ -3184,7 +3208,7 @@ fn bubble_content(
             hit.scroll_to_me(Some(egui::Align::Center));
         }
         context_menu(&hit, palette, model, message, &mut action);
-        pills_row(ui, palette, model, message);
+        pills_row(ui, palette, model, message, rect);
         ui.add_space(4.0);
     });
     action
@@ -3286,12 +3310,19 @@ fn pills_row(
     palette: &crate::theme::Palette,
     model: &Model,
     message: &MessageView,
+    bubble: egui::Rect,
 ) {
     let pills = model.reactions_for(&message.id);
     if pills.is_empty() {
         return;
     }
-    ui.horizontal(|ui| {
+    // Left-to-right, so our own reactions under a right-aligned bubble still
+    // start at the bubble's left edge like the official client.
+    // Left-to-right, so our own reactions under a right-aligned bubble still
+    // start at the bubble's edge, not at the message column's.
+    let shift = (bubble.left() + 8.0 - ui.cursor().left()).max(0.0);
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+        ui.add_space(shift);
         ui.spacing_mut().item_spacing.x = 4.0;
         for (emoji, count, mine) in pills {
             let label = (count > 1).then(|| count.to_string());
@@ -3313,9 +3344,17 @@ fn pills_row(
                     0.0
                 }
                 + 8.0;
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::hover());
+            let (slot, _) = ui.allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::hover());
+            // Straddle the bubble's bottom edge, like the official chip.
+            let rect = slot.translate(egui::vec2(0.0, -12.0));
             ui.painter()
                 .rect_filled(rect, egui::CornerRadius::same(11), palette.elevated);
+            ui.painter().rect_stroke(
+                rect,
+                egui::CornerRadius::same(11),
+                egui::Stroke::new(1.0_f32, palette.border),
+                egui::StrokeKind::Inside,
+            );
             let glyph = emoji.chars().next().unwrap_or('?');
             if let Some(texture) = crate::emoji_glyph::texture_shared(ui.ctx(), glyph, 14) {
                 let size = texture.size_vec2();
@@ -3410,15 +3449,24 @@ pub(crate) fn prune_textures(
     used.sort_unstable();
     // Everything painted this frame stays; the rest goes oldest first.
     let mut live = used.len();
-    for (stamp, key) in used {
+    let kept: Vec<(u64, String)> = used;
+    for (stamp, key) in &kept {
         if live <= cap {
             break;
         }
-        if stamp == now {
+        if *stamp == now {
             continue;
         }
-        cache.remove(&key);
+        cache.remove(key);
         live -= 1;
+    }
+    // A single frame that painted more than `cap` textures is still capped:
+    // those extra ones simply re-decode next frame.
+    for (_, key) in &kept {
+        if cache.len() <= cap {
+            break;
+        }
+        cache.remove(key);
     }
 }
 
@@ -4171,24 +4219,15 @@ const SYMBOL_FONTS: &[&str] = &[
 /// Chinese (simplified *and* traditional), Japanese, then Korean. Before this,
 /// non-Latin text drew as empty boxes.
 fn install_fonts(ctx: &egui::Context) {
-    let groups: [(&str, &[&str]); 5] = [
+    // The colour-emoji face is *not* in this chain: bubbles and the picker
+    // rasterise emoji with `emoji_glyph` (swash), which reads the same file
+    // directly. Keeping a second 12 MB copy here only cost memory.
+    let groups: [(&str, &[&str]); 4] = [
         // Symbols and mathematical letters *before* the emoji face: a chat
         // titled "𝕋𝕒𝕦𝕗𝕚𝕢" (U+1D54B ...) used to draw as six missing-glyph
         // boxes because no face in the chain carried U+1D400-U+1D7FF. Segoe UI
         // Symbol ships with every Windows 10/11 install.
         ("system-symbols", SYMBOL_FONTS),
-        (
-            "system-emoji",
-            &[
-                // Windows: Segoe UI Emoji (outlines are readable even without colour).
-                "C:\\Windows\\Fonts\\seguiemj.ttf",
-                "C:\\Windows\\Fonts\\seguisym.ttf",
-                // Linux.
-                "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-                "/usr/share/fonts/noto/NotoColorEmoji.ttf",
-                "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
-            ],
-        ),
         (
             "system-cjk",
             &[
@@ -4236,7 +4275,7 @@ fn install_fonts(ctx: &egui::Context) {
         let Some(bytes) = candidates.iter().find_map(|path| std::fs::read(path).ok()) else {
             continue;
         };
-        diag(&format!("font {key}: loaded"));
+        diag(&format!("font {key}: {} kB", bytes.len() / 1024));
         fonts.font_data.insert(
             key.to_owned(),
             std::sync::Arc::new(egui::FontData::from_owned(bytes)),
@@ -5282,6 +5321,109 @@ fn draw_laptop(ui: &egui::Ui, rect: egui::Rect, palette: &crate::theme::Palette)
     painter.rect_filled(base, egui::CornerRadius::same(3), green);
 }
 
+/// The chat wallpaper: WhatsApp's faint doodle sheet, drawn once into a tile
+/// and repeated behind the messages. Official dark is `#0B141A` with `#182229`
+/// doodles; the light theme uses the paper sheet with `#EFE7DD` doodles.
+fn wallpaper_textile(ctx: &egui::Context, palette: &crate::theme::Palette) -> egui::TextureHandle {
+    let key = format!(
+        "wallpaper:{:02x}{:02x}{:02x}",
+        palette.wallpaper.r(),
+        palette.wallpaper.g(),
+        palette.wallpaper.b()
+    );
+    if let Some(texture) =
+        ctx.data(|data| data.get_temp::<egui::TextureHandle>(egui::Id::new(&key)))
+    {
+        return texture;
+    }
+    const SIDE: usize = 220;
+    let base = palette.wallpaper;
+    let ink = if palette.dark {
+        egui::Color32::from_rgb(17, 25, 31)
+    } else {
+        egui::Color32::from_rgb(240, 233, 224)
+    };
+    let mut pixels = vec![base; SIDE * SIDE];
+    let plot = |pixels: &mut Vec<egui::Color32>, x: i32, y: i32, radius: i32| {
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                let px = x + dx;
+                let py = y + dy;
+                if px < 0 || py < 0 || px >= SIDE as i32 || py >= SIDE as i32 {
+                    continue;
+                }
+                pixels[py as usize * SIDE + px as usize] = ink;
+            }
+        }
+    };
+    // A deterministic scatter of small doodles: rings, blocks and dashes.
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    for _ in 0..26 {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let x = (seed % SIDE as u64) as i32;
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let y = (seed % SIDE as u64) as i32;
+        match seed % 3 {
+            0 => {
+                for angle in 0..40 {
+                    let step = angle as f32 * std::f32::consts::TAU / 40.0;
+                    plot(
+                        &mut pixels,
+                        x + (step.cos() * 7.0) as i32,
+                        y + (step.sin() * 7.0) as i32,
+                        1,
+                    );
+                }
+            }
+            1 => {
+                for dy in 0..4 {
+                    for dx in 0..7 {
+                        plot(&mut pixels, x + dx, y + dy, 0);
+                    }
+                }
+            }
+            _ => {
+                for dx in 0..11 {
+                    plot(&mut pixels, x + dx, y, 0);
+                }
+            }
+        }
+    }
+    let image = egui::ColorImage {
+        size: [SIDE, SIDE],
+        source_size: egui::vec2(SIDE as f32, SIDE as f32),
+        pixels,
+    };
+    let texture = ctx.load_texture(key.clone(), image, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new(&key), texture.clone()));
+    texture
+}
+
+/// Paint the wallpaper tile across `area`, like a tiled background image.
+fn paint_wallpaper(ui: &egui::Ui, palette: &crate::theme::Palette, area: egui::Rect) {
+    let texture = wallpaper_textile(ui.ctx(), palette);
+    let side = 220.0;
+    let painter = ui.painter().with_clip_rect(area);
+    let mut y = area.top();
+    while y < area.bottom() {
+        let mut x = area.left();
+        while x < area.right() {
+            painter.image(
+                texture.id(),
+                egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(side, side)),
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+            x += side;
+        }
+        y += side;
+    }
+}
+
 /// Drop invisible formatting characters (zero-width space/joiner, word joiner,
 /// BOM): WhatsApp passes them through, and the bundled fonts paint them as
 /// missing-glyph boxes.
@@ -5861,6 +6003,23 @@ impl eframe::App for WaDesk {
         // Texture caches are capped so memory does not grow with a long session.
         prune_textures(ctx, &mut self.textures, 96);
         prune_textures(ctx, &mut self.sticker_textures, 240);
+        // `WA_DESK_DIAG=1` gets a line every ten seconds, so a long session's
+        // growth (or lack of it) can be read from diagnostics.log.
+        if self.last_memory_log.elapsed() >= std::time::Duration::from_secs(10) {
+            self.last_memory_log = std::time::Instant::now();
+            diag(&format!(
+                "memory: textures {} stickers {} video-frames {} chats {} messages {}",
+                self.textures.len(),
+                self.sticker_textures.len(),
+                self.video_textures.len(),
+                self.model.chats.len(),
+                self.model
+                    .chats
+                    .values()
+                    .map(|row| row.messages.len())
+                    .sum::<usize>(),
+            ));
+        }
         self.palette = crate::theme::palette(&self.settings.theme, self.system_dark);
         crate::theme::apply(ctx, &self.palette);
         self.model.now = std::time::SystemTime::now()
@@ -8093,6 +8252,42 @@ mod notification_tests {
         assert_eq!(notification_body("audio", "   "), "Voice message");
         assert_eq!(notification_body("document", ""), "Document");
         assert_eq!(notification_body("text", "  hi there "), "hi there");
+    }
+}
+
+#[cfg(test)]
+mod texture_budget_tests {
+    use super::*;
+
+    /// The caches have a hard ceiling: every extra texture evicts the oldest
+    /// one that was not painted in the current frame.
+    #[test]
+    fn the_texture_cache_drops_the_least_recently_painted_entries() {
+        let ctx = egui::Context::default();
+        let mut cache = std::collections::HashMap::new();
+        let cap = 8;
+        for index in 0..40 {
+            let key = format!("photo-{index}");
+            let image = egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+            let texture = ctx.load_texture(key.clone(), image, egui::TextureOptions::LINEAR);
+            cache.insert(key, Some(texture));
+            prune_textures(&ctx, &mut cache, cap);
+            assert!(
+                cache.len() <= cap,
+                "cache grew to {} entries at {index}",
+                cache.len()
+            );
+        }
+        // The newest entry always survives.
+        assert!(cache.contains_key("photo-39"));
+        assert!(!cache.contains_key("photo-0"));
+    }
+
+    /// Sticker and quote textures are decoded small: they paint at 192 px and
+    /// 96 px, so the full 512 px sticker bitmap would be wasted memory.
+    #[test]
+    fn textures_decode_at_the_size_they_paint_at() {
+        const { assert!(STICKER_PX < PHOTO_PX && QUOTE_PX < STICKER_PX) };
     }
 }
 

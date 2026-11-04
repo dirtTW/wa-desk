@@ -1052,6 +1052,9 @@ impl Model {
         let Some(sender) = reply.sender.clone().filter(|jid| !jid.is_empty()) else {
             return "You".to_string();
         };
+        if wa_ui::text::is_self_jid(&sender, &self.me_jid, "") {
+            return "You".to_string();
+        }
         if let Some(name) = self
             .chats
             .get(&sender)

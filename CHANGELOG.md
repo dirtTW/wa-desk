@@ -4,6 +4,42 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.1] - 2026-11-04
+
+- **The chat has the official wallpaper again.** WhatsApp's faint doodle sheet is drawn once into
+  a 220 px tile (`wallpaper_textile`) and repeated behind the messages - `#0B141A` with `#11191F`
+  doodles in dark, the paper sheet with `#F0E9E0` in light - instead of a flat fill
+  (`target/ui_wallpaper2.png`).
+- **Reactions sit on the bubble.** The chip straddles the bubble's bottom edge, aligned with the
+  bubble itself (not the message column), with the bubble's own fill plus a hairline border, and
+  it never covers the clock (`target/ui_parity3.png`).
+- **The media placeholder is the official tile**: a 16:9 rounded card with a play disc for video
+  (a picture glyph for photos) and "Loading the video…" underneath, instead of a big grey square.
+- **The chat list has no "Connected" row** while the link is healthy; the line only appears when
+  the status says something else (connecting, reconnecting, failure).
+- Version numbering restarts under 0.2.1: `0.2.1-rc.1`.
+- Tests: 107 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
+## [0.2.0-rc.102] - 2026-11-04
+
+- **Memory: the last unbounded caches are capped, with a diagnostic to prove it.** The media and
+  sticker texture maps now evict the least-recently-painted entries (96 photos, 240 stickers) and
+  a single frame that somehow paints more than the cap is still trimmed; textures also decode at
+  the size they paint at (720 / 192 / 96 px). `WA_DESK_DIAG=1` writes a `memory:` line every ten
+  seconds - a linked session holds `textures 12 stickers 0 video-frames 0 chats 96 messages 322`
+  steadily, i.e. flat instead of growing. Tests:
+  `texture_budget_tests::the_texture_cache_drops_the_least_recently_painted_entries`,
+  `textures_decode_at_the_size_they_paint_at`.
+- **~12 MB less RSS:** the colour-emoji face is no longer a second copy in egui's font chain.
+  Bubbles and the picker rasterise emoji with `emoji_glyph` (swash, reading Segoe UI Emoji
+  directly), so the glyphs are unchanged - verified with `target/emoji_bubble.png` and
+  `target/emoji_picker.png` (colour party popper, colour thumbs, full picker grid).
+- **Font loading is measurable now**: `install_fonts` logs each face's size
+  (`symbols 2455 kB, cjk 19242 kB, japanese 13582 kB, hangul 13143 kB`).
+- A quote of one of our own messages reads **"You"** instead of the chat title, and bubbles have
+  two extra pixels under the body so an emoji cell never touches the clock line.
+- Tests: 107 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.0-rc.101] - 2026-11-04
 
 - **Fixed a deadlock in the texture cache.** `texture_at` called
