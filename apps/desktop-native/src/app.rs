@@ -158,6 +158,14 @@ pub struct WaDesk {
     settings_section: usize,
     /// The audio player, kept alive for the window's lifetime.
     audio: crate::audio::Audio,
+    /// The emoji picker's selected category (0 = recents, 1.. = catalogue groups).
+    emoji_group: usize,
+    /// The picker's GIF tab (no GIF search yet, so it explains itself).
+    emoji_gif: bool,
+    /// Colour emoji textures, keyed by (glyph, pixel size).
+    emoji_textures: std::collections::HashMap<(char, u32), Option<egui::TextureHandle>>,
+    /// The Windows tray icon and menu (None when the shell refuses it).
+    tray: Option<crate::tray::Tray>,
     /// The open chat's actions menu.
     show_chat_actions: bool,
     /// The new-chat picker and its search.
@@ -255,6 +263,10 @@ impl WaDesk {
             contacts: Vec::new(),
             contacts_rx: native.contacts,
             audio: crate::audio::Audio::new(),
+            tray: crate::tray::Tray::new(&crate::icon::window_icon()),
+            emoji_group: 0,
+            emoji_gif: false,
+            emoji_textures: std::collections::HashMap::new(),
             show_starred: false,
             show_new_group: false,
             new_group_subject: String::new(),
@@ -282,6 +294,10 @@ impl WaDesk {
             && let Ok(index) = section.parse::<usize>()
         {
             self.settings_section = index.min(4);
+        }
+        // `WA_DESK_EMOJI=1` opens the emoji picker for a screenshot.
+        if std::env::var("WA_DESK_EMOJI").is_ok() {
+            self.model.emoji_open = true;
         }
         // `WA_DESK_VIEWER=1` opens the media viewer on the demo video;
         // `WA_DESK_DEMO_VIDEO=<clip>` supplies a real file to play and
@@ -1005,6 +1021,57 @@ impl WaDesk {
         }
     }
 
+    /// A toast for a message that arrived while the window is in the
+    /// background, like the official client. History replays never get here
+    /// (`HistoryMessage` is a different event), and the open chat is skipped.
+    fn notify_message(
+        &mut self,
+        ctx: &egui::Context,
+        chat: &str,
+        name: &str,
+        kind: &str,
+        text: &str,
+    ) {
+        if !self.settings.notifications
+            || chat == "status@broadcast"
+            || chat.ends_with("@newsletter")
+            || self.model.active.as_deref() == Some(chat)
+            || ctx.input(|input| input.viewport().focused.unwrap_or(true))
+        {
+            return;
+        }
+        let body = notification_body(kind, text);
+        let title = if name.trim().is_empty() {
+            "WA Desk".to_string()
+        } else {
+            name.to_string()
+        };
+        if let Err(err) = crate::notify::send(&title, &body) {
+            diag(&format!("notification: {err}"));
+        }
+    }
+
+    /// System tray: reopen the window or quit.
+    fn poll_tray(&mut self, ctx: &egui::Context) {
+        let Some(tray) = &self.tray else {
+            return;
+        };
+        match tray.poll() {
+            Some(crate::tray::TrayAction::Open) => {
+                self.show_status = false;
+                self.show_channels = false;
+                self.show_group = false;
+                self.show_settings = false;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
+            Some(crate::tray::TrayAction::Quit) => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            None => {}
+        }
+    }
+
     /// Check the release list on a worker thread; the window never blocks.
     fn check_updates(&mut self) {
         self.update = UpdateState::Checking;
@@ -1029,8 +1096,20 @@ impl WaDesk {
         let mut changed = false;
         while let Ok(event) = self.events.try_recv() {
             crate::app::diag(&format!("event {}", event.kind()));
+            let incoming = match &event {
+                UiEvent::Message(message) if !message.from_me => Some((
+                    message.chat.clone(),
+                    message.chat_name.clone(),
+                    message.kind.clone(),
+                    message.text.clone(),
+                )),
+                _ => None,
+            };
             self.model.apply(&event);
             changed = true;
+            if let Some((chat, name, kind, text)) = incoming {
+                self.notify_message(ctx, &chat, &name, &kind, &text);
+            }
         }
         while let Ok((chat, reply)) = self.group_rx.try_recv() {
             match reply {
@@ -3210,6 +3289,32 @@ impl WaDesk {
             .color(palette.secondary),
         );
 
+        let mut notifications = self.settings.notifications;
+        let mut toggled = false;
+        settings_card(ui, palette, "NOTIFICATIONS", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Desktop notifications",
+                "A toast when a message arrives while WA Desk is in the background.",
+                |ui| {
+                    if settings_switch(ui, palette, notifications).clicked() {
+                        notifications = !notifications;
+                        toggled = true;
+                    }
+                },
+            );
+        });
+        if toggled {
+            self.settings.notifications = notifications;
+            let _ = self.settings.save(&self.settings_path);
+            self.settings_note = if notifications {
+                "Desktop notifications are on.".to_string()
+            } else {
+                "Desktop notifications are off.".to_string()
+            };
+        }
+
         let mut action: Option<&'static str> = None;
         settings_card(ui, palette, "CHAT HISTORY", |ui| {
             ui.label(
@@ -3519,6 +3624,78 @@ impl WaDesk {
             );
         });
     }
+}
+
+/// One category tab of the emoji picker: the group's own emoji on a pill, with
+/// the accent underline the official panel uses for the active tab.
+fn emoji_category(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    emoji: &str,
+    texture: Option<egui::TextureHandle>,
+    selected: bool,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(34.0, 30.0), egui::Sense::click());
+    if selected || response.hovered() {
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(8),
+            if selected {
+                palette.selected
+            } else {
+                palette.hover
+            },
+        );
+    }
+    let center = egui::pos2(rect.center().x, rect.center().y);
+    match texture {
+        Some(texture) => {
+            let size = texture.size_vec2();
+            let scale = (20.0 / size.x.max(1.0)).min(20.0 / size.y.max(1.0));
+            ui.painter().image(
+                texture.id(),
+                egui::Rect::from_center_size(center, size * scale),
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        }
+        None => {
+            ui.painter().text(
+                center,
+                egui::Align2::CENTER_CENTER,
+                emoji,
+                egui::FontId::proportional(16.0),
+                palette.text,
+            );
+        }
+    }
+    if selected {
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(
+                egui::pos2(rect.left() + 7.0, rect.bottom() - 2.0),
+                egui::vec2(rect.width() - 14.0, 2.0),
+            ),
+            egui::CornerRadius::same(1),
+            palette.accent,
+        );
+    }
+    response
+}
+
+/// What a notification says: the text, or the media type when it has none.
+fn notification_body(kind: &str, text: &str) -> String {
+    if !text.trim().is_empty() {
+        return text.trim().to_string();
+    }
+    match kind {
+        "image" => "Photo",
+        "video" => "Video",
+        "audio" => "Voice message",
+        "sticker" => "Sticker",
+        "document" => "Document",
+        _ => "New message",
+    }
+    .to_string()
 }
 
 /// One row of the settings section list.
@@ -3874,6 +4051,7 @@ impl eframe::App for WaDesk {
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         self.drain_events(ctx);
+        self.poll_tray(ctx);
         self.model.now = now_ms();
         // Screenshot testing: open a seeded chat so history can be exercised
         // without clicking.
@@ -4015,41 +4193,262 @@ impl Drop for WaDesk {
 impl WaDesk {
     /// The emoji picker: search, recents, and a wrapped grid that inserts into
     /// the composer.
+    /// The emoji picker: the official panel - category tabs, a rounded search
+    /// field, colour emoji in a nine-column grid and the Emoji / GIF / Stickers
+    /// footer. Glyphs come from the system colour font (`emoji_glyph`), so they
+    /// look like the phone's rather than egui's monochrome outlines.
     fn emoji_window(&mut self, ctx: &egui::Context) {
         if !self.model.emoji_open {
             return;
         }
-        let mut open = true;
-        egui::Window::new("Emoji")
-            .open(&mut open)
-            .default_pos([420.0, 160.0])
-            .default_width(320.0)
-            .resizable(false)
+        let palette = self.palette.clone();
+        let groups = wa_ui::emoji::groups();
+        let mut clicked: Option<String> = None;
+        let mut close = false;
+        let mut stickers = false;
+
+        egui::Area::new(egui::Id::new("emoji-panel"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-96.0, -84.0))
             .show(ctx, |ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.model.emoji_query)
-                        .hint_text("Search emoji")
-                        .desired_width(f32::INFINITY),
-                );
-                let items = self.model.emoji_items();
-                egui::ScrollArea::vertical()
-                    .max_height(220.0)
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .corner_radius(egui::CornerRadius::same(14))
+                    .inner_margin(egui::Margin::same(12))
                     .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            for item in items {
-                                if ui
-                                    .add(egui::Button::new(egui::RichText::new(&item).size(19.0)))
-                                    .clicked()
+                        ui.set_width(364.0);
+                        // Category tabs: recents first, then the catalogue.
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 1.0;
+                            let recent = self.emoji_texture(ui.ctx(), '\u{1F553}', 20);
+                            if emoji_category(ui, &palette, "🕘", recent, self.emoji_group == 0)
+                                .clicked()
+                            {
+                                self.emoji_group = 0;
+                                self.emoji_gif = false;
+                            }
+                            for (index, group) in groups.iter().enumerate() {
+                                let glyph = group.icon.chars().next().unwrap_or('?');
+                                let texture = self.emoji_texture(ui.ctx(), glyph, 20);
+                                if emoji_category(
+                                    ui,
+                                    &palette,
+                                    &group.icon,
+                                    texture,
+                                    self.emoji_group == index + 1 && !self.emoji_gif,
+                                )
+                                .clicked()
                                 {
-                                    self.model.insert_emoji(&item);
+                                    self.emoji_group = index + 1;
+                                    self.emoji_gif = false;
                                 }
                             }
                         });
+                        ui.add_space(8.0);
+                        // Rounded search field.
+                        egui::Frame::new()
+                            .fill(palette.rail)
+                            .corner_radius(egui::CornerRadius::same(9))
+                            .inner_margin(egui::Margin::symmetric(10, 5))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(16.0, 16.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    draw_icon(ui, rect, Icon::Search, palette.secondary);
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.model.emoji_query)
+                                            .frame(false)
+                                            .hint_text("Search emoji")
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                });
+                            });
+                        ui.add_space(6.0);
+
+                        let query = self.model.emoji_query.trim().to_string();
+                        let height = (ui.ctx().screen_rect().height() * 0.42).clamp(180.0, 320.0);
+                        egui::ScrollArea::vertical()
+                            .max_height(height)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                                if self.emoji_gif {
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "GIF search is not part of this build yet - the \
+                                             sticker tab has the account's stickers.",
+                                        )
+                                        .size(12.5)
+                                        .color(palette.secondary),
+                                    );
+                                } else if !query.is_empty() {
+                                    let items = wa_ui::emoji::search(&query, 160);
+                                    let chars: Vec<String> =
+                                        items.iter().map(|item| item.char.clone()).collect();
+                                    clicked = self.emoji_grid(ui, &palette, &chars);
+                                } else if self.emoji_group == 0
+                                    && !self.model.emoji_recents.is_empty()
+                                {
+                                    let recents = self.model.emoji_recents.clone();
+                                    clicked = self.emoji_grid(ui, &palette, &recents);
+                                } else {
+                                    // Recents with nothing remembered yet show the
+                                    // first catalogue group, like the phone does.
+                                    let index = self.emoji_group.saturating_sub(1);
+                                    if let Some(group) = groups.get(index) {
+                                        ui.label(
+                                            egui::RichText::new(&group.label)
+                                                .size(11.5)
+                                                .strong()
+                                                .color(palette.secondary),
+                                        );
+                                        ui.add_space(4.0);
+                                        let chars: Vec<String> = group
+                                            .items
+                                            .iter()
+                                            .map(|item| item.char.clone())
+                                            .collect();
+                                        clicked = self.emoji_grid(ui, &palette, &chars);
+                                    }
+                                }
+                            });
+
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 18.0;
+                            ui.label(
+                                egui::RichText::new("Emoji")
+                                    .size(12.5)
+                                    .strong()
+                                    .color(palette.accent),
+                            );
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("GIF")
+                                            .size(12.5)
+                                            .color(palette.secondary),
+                                    )
+                                    .frame(false),
+                                )
+                                .clicked()
+                            {
+                                self.emoji_gif = true;
+                            }
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Stickers")
+                                            .size(12.5)
+                                            .color(palette.secondary),
+                                    )
+                                    .frame(false),
+                                )
+                                .clicked()
+                            {
+                                stickers = true;
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new("Close")
+                                                    .size(12.0)
+                                                    .color(palette.secondary),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .clicked()
+                                    {
+                                        close = true;
+                                    }
+                                },
+                            );
+                        });
                     });
             });
-        if !open {
+
+        if let Some(emoji) = clicked {
+            self.model.insert_emoji(&emoji);
+        }
+        if stickers {
+            self.model.emoji_open = false;
+            self.model.stickers_open = true;
+            self.send(Command::FavoriteStickers);
+        }
+        if close {
             self.model.emoji_open = false;
         }
+    }
+
+    /// A colour texture for one emoji glyph.
+    fn emoji_texture(
+        &mut self,
+        ctx: &egui::Context,
+        ch: char,
+        px: u32,
+    ) -> Option<egui::TextureHandle> {
+        crate::emoji_glyph::texture(ctx, &mut self.emoji_textures, ch, px)
+    }
+
+    /// One emoji cell: the colour glyph, a hover pill, click to insert.
+    fn emoji_cell(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &crate::theme::Palette,
+        emoji: &str,
+    ) -> bool {
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::click());
+        if response.hovered() {
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(8), palette.hover);
+        }
+        let glyph = emoji.chars().next().unwrap_or('?');
+        if let Some(texture) = self.emoji_texture(ui.ctx(), glyph, 30) {
+            let size = texture.size_vec2();
+            let scale = (28.0 / size.x.max(1.0)).min(28.0 / size.y.max(1.0));
+            ui.painter().image(
+                texture.id(),
+                egui::Rect::from_center_size(rect.center(), size * scale),
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        } else {
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                emoji,
+                egui::FontId::proportional(19.0),
+                palette.text,
+            );
+        }
+        response.clicked()
+    }
+
+    /// The nine-column grid of emoji.
+    fn emoji_grid(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &crate::theme::Palette,
+        chars: &[String],
+    ) -> Option<String> {
+        let mut clicked = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(1.0, 1.0);
+            for emoji in chars {
+                if self.emoji_cell(ui, palette, emoji) {
+                    clicked = Some(emoji.clone());
+                }
+            }
+        });
+        clicked
     }
 
     /// The sticker picker: the account's favourites, then the stickers the
@@ -5028,4 +5427,17 @@ fn chat_row(
         );
     }
     response.clicked()
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+
+    #[test]
+    fn media_notifications_name_the_kind() {
+        assert_eq!(notification_body("image", ""), "Photo");
+        assert_eq!(notification_body("audio", "   "), "Voice message");
+        assert_eq!(notification_body("document", ""), "Document");
+        assert_eq!(notification_body("text", "  hi there "), "hi there");
+    }
 }

@@ -26,6 +26,7 @@ rodio = "0.20"
 ogg = "0.9"
 audiopus = "0.2"
 resvg = "0.45"
+swash = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -45,3 +46,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_Storage_Xps",
     "Win32_Foundation",
 ] }
+# Desktop toasts (Windows) and the tray icon/menu.
+tauri-winrt-notification = "0.8"
+tray-icon = "0.26"
+
+[target.'cfg(not(windows))'.dependencies]
+# Linux/macOS toasts over the session bus.
+notify-rust = { version = "4", default-features = false, features = ["z"] }

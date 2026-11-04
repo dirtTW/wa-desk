@@ -4,6 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.81] - 2026-11-04
+
+- **Desktop notifications** (JS-only since the migration). A toast fires for a message that
+  arrives while the window is unfocused, except for the open chat, status broadcasts and
+  channels - the official client's rule. `notify.rs` posts WinRT toasts through
+  `tauri-winrt-notification` with the `io.github.dirttw.wadesk` app id on Windows and a session-bus
+  notification through `notify-rust` elsewhere; the Settings page has a **Desktop notifications**
+  switch (stored in `settings.json`) and `--test-notification` proves the path from the CLI
+  (it printed `notification sent`, and Windows' toast history lists the entry).
+- **System tray on Windows.** `tray.rs` installs the WA Desk artwork as a tray icon with an
+  **Open WA Desk / Quit WA Desk** menu; a click/double-click reopens and focuses the window, Quit
+  closes it. Event ids map through `tray::action_for` (tested). Linux has no tray yet (it would
+  pull GTK into the build), and the module compiles to a no-op there.
+- **The emoji picker now looks like the official panel.** Emoji are no longer monochrome text:
+  `emoji_glyph.rs` rasterises the system colour emoji font (COLR/CPAL on Windows, CBDT on Linux)
+  with `swash` and caches the glyph as a texture, so the grid shows the same full-colour emoji as
+  the phone. The panel is the official layout - category tabs with accent underline, rounded
+  search field, a section heading and the Emoji / GIF / Stickers footer - anchored above the
+  composer. GIF search is not implemented yet and says so.
+- Tests: `emoji_glyph::tests::an_emoji_rasterises_with_colour` (asserts warm pixels, not an
+  outline), `tray::tests::menu_ids_map_to_actions`,
+  `app::notification_tests::media_notifications_name_the_kind`; 49 native tests, clippy clean,
+  selftest green. Screenshot: `target/emoji2.png`.
+
+
 ## [0.2.0-rc.80] - 2026-11-04
 
 - **Chinese, Japanese and Korean text renders with real glyphs.** egui's bundled fonts are

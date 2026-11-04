@@ -48,6 +48,10 @@ pub struct NativeSettings {
     /// `light`, `dark` or `system`.
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Desktop notifications for messages that arrive while the window is in
+    /// the background (the official client's rule).
+    #[serde(default = "default_enabled")]
+    pub notifications: bool,
     #[serde(default)]
     pub ai: AiFields,
 }
@@ -56,10 +60,15 @@ fn default_theme() -> String {
     "system".to_string()
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
 impl Default for NativeSettings {
     fn default() -> Self {
         Self {
             theme: default_theme(),
+            notifications: default_enabled(),
             ai: AiFields::default(),
         }
     }
@@ -159,6 +168,7 @@ mod tests {
 
         let settings = NativeSettings {
             theme: "dark".into(),
+            notifications: true,
             ai: AiFields {
                 model: "m1".into(),
                 api_key: "sk-secret".into(),

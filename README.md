@@ -39,7 +39,9 @@ account. Issues and pull requests are welcome.
 - **Media viewer**: filmstrip, arrow keys, Esc, and Save copies to `Downloads\WA Desk`; **videos
   play** in it (decoded with `ffmpeg`) with the official transport bar - play/pause, seek line,
   elapsed/total, mute and fullscreen.
-- **Emoji and stickers**: full catalogue with search/recents, favourites and cached stickers.
+- **Emoji and stickers**: full catalogue with search/recents, favourites and cached stickers, in
+  the official picker (category tabs, rounded search, colour emoji rasterised from the system
+  colour font).
 - **Message actions**: reply, react, copy, forward, edit, delete (for me / everyone) and
   **star**; plus **chat actions**: mute, pin, mark unread, archive, clear, delete. Starred
   messages have their own screen, and the Chats menu can create a group or save a contact.
@@ -52,6 +54,9 @@ account. Issues and pull requests are welcome.
   General holds launch-at-login and the version; chat-history/group/status sync and relink sit
   next to it. Sync runs automatically on every connection (history batches, groups, statuses,
   chat state) and refreshes on a timer; profile photos are cached on disk.
+- **Tray and notifications** (Windows): the WA Desk icon in the system tray with an Open / Quit
+  menu, plus a desktop toast for messages that arrive while the window is in the background
+  (a Settings switch, `--test-notification` from the CLI, session-bus notifications on Linux).
 - **Official look**: WhatsApp's `--WDS-*` palette, Material Symbols rasterised with `resvg`,
   rounded composer and card menus, the green speech-bubble app icon in the window/taskbar/exe,
   and OS font fallbacks so Chinese (simplified and traditional), Japanese and Korean render.

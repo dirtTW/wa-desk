@@ -17,12 +17,15 @@ mod app;
 mod audio;
 mod autostart;
 mod clipboard;
+mod emoji_glyph;
 mod icon;
 mod icons;
 mod login;
 mod model;
+mod notify;
 mod settings;
 mod theme;
+mod tray;
 mod updates;
 mod video;
 
@@ -129,6 +132,20 @@ fn main() {
             }
             Err(err) => {
                 eprintln!("selftest failed: {err}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // `--test-notification` proves the toast path without a message arriving.
+    if std::env::args().any(|arg| arg == "--test-notification") {
+        match notify::send("WA Desk", "Notifications are working.") {
+            Ok(()) => {
+                println!("notification sent");
+                return;
+            }
+            Err(err) => {
+                eprintln!("notification failed: {err}");
                 std::process::exit(1);
             }
         }

@@ -456,6 +456,15 @@ device until you remove it from the phone).
   uppercase titles, `settings_row` (two scaling columns: text + trailing control),
   `settings_radio_row` for the theme and `settings_switch` for toggles. Nothing may overflow:
   rows split their available width, the page is clamped to 240-640 px and paths wrap.
+- **Notifications and the tray are native now.** `notify.rs` posts a toast only for a message that
+  arrives while the window is unfocused, and never for the open chat, status broadcasts or
+  channels; the switch lives in Settings -> Chats (persisted) and `--test-notification` proves the
+  path. `tray.rs` (Windows) installs the app icon with an Open / Quit menu; the ids map through
+  `action_for`, and `poll_tray` focuses or closes the window. Linux skips the tray (no GTK
+  dependency) and uses `notify-rust` for toasts.
+- **Colour emoji.** egui's text path cannot draw colour fonts, so the picker rasterises glyphs
+  from the system colour emoji face with `swash` (`emoji_glyph.rs`, cached per glyph+size) and
+  paints them as textures; a mask-only result falls back to text rather than a solid block.
 - **The window is `egui`, not a WebView** (`apps/desktop-native`): `--preview` renders the demo
   model, `WA_DESK_SETTINGS_SECTION=n` picks a settings page and `WA_DESK_SIZE=WxH` pins the
   window; `--screenshot` saves one settled frame.
