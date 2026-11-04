@@ -423,6 +423,18 @@ impl Model {
             now - 3 * 60_000,
             false,
         )));
+        // `WA_DESK_CJK=1` (screenshot testing): simplified + traditional text
+        // must draw with glyphs, not the missing-font boxes.
+        if std::env::var("WA_DESK_CJK").is_ok() {
+            model.apply(&UiEvent::Message(view(
+                "1203@g.us",
+                "Team",
+                "d9",
+                "简体字：今天开会吗？繁體字：今天開會嗎？日本語：ひらがな・カタカナ・漢字 髙﨑 한국어",
+                now - 45_000,
+                false,
+            )));
+        }
 
         model.apply(&UiEvent::Message(view(
             "1@s.whatsapp.net",

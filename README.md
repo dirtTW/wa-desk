@@ -47,12 +47,14 @@ account. Issues and pull requests are welcome.
 - **Send files**: paperclip picker, or Ctrl+V a file copied in Explorer; composer text becomes
   the caption.
 - **Settings**: the official two-pane layout - profile header, General / Chats / AI / Updates /
-  Help sections with icons and subtitles, Log out. Theme lives under Chats, General holds
-  launch-at-login and the version; chat-history/group/status sync and relink sit next to it.
-  Sync runs automatically on every connection (history batches, groups, statuses, chat state) and
-  refreshes on a timer; profile photos are cached on disk.
+  Help sections with icons and subtitles, Log out. The page is a set of cards with Material 3
+  switches and radio rows; the chat list is replaced while it is open. Theme lives under Chats,
+  General holds launch-at-login and the version; chat-history/group/status sync and relink sit
+  next to it. Sync runs automatically on every connection (history batches, groups, statuses,
+  chat state) and refreshes on a timer; profile photos are cached on disk.
 - **Official look**: WhatsApp's `--WDS-*` palette, Material Symbols rasterised with `resvg`,
-  rounded composer and card menus.
+  rounded composer and card menus, the green speech-bubble app icon in the window/taskbar/exe,
+  and OS font fallbacks so Chinese (simplified and traditional), Japanese and Korean render.
 
 **History caveat.** WhatsApp only pushes older message history to a newly linked device. The app
 asks for the recent chats in batches and on open; Settings → Chat history can unlink so a fresh

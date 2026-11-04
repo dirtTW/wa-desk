@@ -4,7 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.80] - 2026-11-04
+
+- **Chinese, Japanese and Korean text renders with real glyphs.** egui's bundled fonts are
+  Latin-only, so every CJK character (simplified *and* traditional, kana, Hangul) drew as a box.
+  `install_fonts` now appends three OS fallbacks after the emoji face: Microsoft YaHei (GB18030),
+  Yu Gothic / Meiryo for Japanese, and Malgun Gothic for Hangul (Linux/macOS: Noto Sans CJK,
+  Takao, Nanum, PingFang). Verified with `target/cjk3.png`: 简体字 / 繁體字 / ひらがな・カタカナ /
+  髙﨑 / 한국어 all render.
+- **The WA Desk icon is back.** `examples/gen_icon` rasterises the artwork (green rounded square,
+  white speech bubble, three dots) into `assets/icon.png` + `assets/icon.ico`; the window and
+  taskbar use the PNG through `icon::window_icon()`, and `build.rs` embeds the ICO in the exe
+  with `winresource` (ProductName / FileDescription "WA Desk"). Verified: the built binary
+  reports `ProductName: WA Desk`.
+- **Settings rebuilt as the official screen.** Opening Settings now replaces the chat list (the
+  section list takes that column), the detail pane is a scrolling page of cards with green
+  uppercase titles, Material 3 switches and radio rows for the theme; the text column and the
+  control column scale with the pane, so nothing is clipped at the 720 px minimum width. Storage
+  paths wrap instead of running off the card, sync actions are accent text links that wrap, the
+  AI form uses full-width fields, and Updates shows a status card. Screenshots:
+  `target/settings7.png` (Chats page) and `target/settings6.png` (General).
+- New screenshot hooks: `WA_DESK_SIZE=WxH` sets the window size and `WA_DESK_SETTINGS_SECTION=n`
+  picks the settings page, next to the existing `WA_DESK_SETTINGS` / `WA_DESK_CJK`.
+
 ## [0.2.0-rc.79] - 2026-11-04
+
 
 - **Videos play in the media viewer** (they only showed a poster after the migration).
   `video.rs` pre-decodes the clip with `ffmpeg` (10 fps, ≤640 px wide, first 120 s) into

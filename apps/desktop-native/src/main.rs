@@ -17,6 +17,7 @@ mod app;
 mod audio;
 mod autostart;
 mod clipboard;
+mod icon;
 mod icons;
 mod login;
 mod model;
@@ -625,11 +626,20 @@ fn main() {
         }
     });
 
+    // `WA_DESK_SIZE=720x480` pins the window for screenshot tests.
+    let size = std::env::var("WA_DESK_SIZE")
+        .ok()
+        .and_then(|value| {
+            let (width, height) = value.split_once('x')?;
+            Some([width.trim().parse().ok()?, height.trim().parse().ok()?])
+        })
+        .unwrap_or([1120.0, 780.0]);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1120.0, 780.0])
+            .with_inner_size(size)
             .with_min_inner_size([720.0, 480.0])
-            .with_title("WA Desk"),
+            .with_title("WA Desk")
+            .with_icon(icon::window_icon()),
         ..Default::default()
     };
 

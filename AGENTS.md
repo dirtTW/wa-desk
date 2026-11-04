@@ -442,6 +442,23 @@ device until you remove it from the phone).
   inside a full-window `egui::Area` reports ~83 000 px, so `available_height - chrome` pushed the
   stage (and the caption/filmstrip under it) off screen. `media_overlay` now uses
   `ctx.screen_rect().height() - margins - header - bars`; video frames scale up to fill it.
+- **The window paints with real text.** `install_fonts` appends OS fallbacks in order after the
+  emoji face: Microsoft YaHei (`msyh.ttc`, GB18030 - simplified *and* traditional), Yu Gothic /
+  Meiryo (`msgothic.ttc` last), Malgun Gothic for Hangul; Linux/macOS use Noto Sans CJK, Takao,
+  Nanum, PingFang. egui's bundled fonts are Latin-only, which is why CJK used to draw as boxes.
+  Each group loads the first readable file, so a missing face is skipped silently.
+- **The app icon** is generated from one SVG description: `cargo run -p wa-desktop-native
+  --example gen_icon` writes `assets/icon.png` (window/taskbar, `src/icon.rs`) and
+  `assets/icon.ico`, which `build.rs` embeds in the Windows exe with `winresource`
+  (ProductName/FileDescription "WA Desk"). Regenerate both after changing the artwork.
+- **Settings mirrors the official screen**: opening it replaces the chat list; the section
+  column is `settings_sections`, the page is a `ScrollArea` of `settings_card`s with green
+  uppercase titles, `settings_row` (two scaling columns: text + trailing control),
+  `settings_radio_row` for the theme and `settings_switch` for toggles. Nothing may overflow:
+  rows split their available width, the page is clamped to 240-640 px and paths wrap.
+- **The window is `egui`, not a WebView** (`apps/desktop-native`): `--preview` renders the demo
+  model, `WA_DESK_SETTINGS_SECTION=n` picks a settings page and `WA_DESK_SIZE=WxH` pins the
+  window; `--screenshot` saves one settled frame.
 - **In-chat search.** The header search button opens a search bar with a match counter,
   previous/next buttons, yellow highlighting and Esc to close. It searches text and media
   captions in the open chat, not the chat list.

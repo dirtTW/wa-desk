@@ -275,8 +275,14 @@ impl WaDesk {
         self.show_group = false;
         self.show_status = false;
         self.show_channels = false;
-        // `WA_DESK_SETTINGS=1` renders the Settings screen for a screenshot.
+        // `WA_DESK_SETTINGS=1` renders the Settings screen for a screenshot, and
+        // `WA_DESK_SETTINGS_SECTION=n` picks the page shown.
         self.show_settings = std::env::var("WA_DESK_SETTINGS").is_ok();
+        if let Ok(section) = std::env::var("WA_DESK_SETTINGS_SECTION")
+            && let Ok(index) = section.parse::<usize>()
+        {
+            self.settings_section = index.min(4);
+        }
         // `WA_DESK_VIEWER=1` opens the media viewer on the demo video;
         // `WA_DESK_DEMO_VIDEO=<clip>` supplies a real file to play and
         // `WA_DESK_VIEWER_PLAY=1` starts it so a screenshot shows playback.
@@ -1262,6 +1268,12 @@ impl WaDesk {
                     paint_avatar(ui, &self.model.own_name(), 30.0, own_avatar.as_ref());
                 });
             });
+
+        // Settings replaces the chat list, like the official client: the section
+        // list takes this column instead.
+        if self.show_settings {
+            return;
+        }
 
         egui::SidePanel::left("chats")
             .resizable(true)
@@ -2741,34 +2753,87 @@ fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
     }
 }
 
-/// Add the OS emoji font as a fallback: egui's bundled NotoEmoji subset draws
-/// many common emoji as empty boxes.
+/// Fallback faces the bundled set lacks, in fallback order: emoji, Chinese
+/// (simplified *and* traditional), Japanese, then Korean. Before this, non-Latin
+/// text drew as empty boxes.
 fn install_fonts(ctx: &egui::Context) {
-    let candidates = [
-        // Windows: Segoe UI Emoji (outlines are readable even without colour).
-        "C:\\Windows\\Fonts\\seguiemj.ttf",
-        "C:\\Windows\\Fonts\\seguisym.ttf",
-        // Linux.
-        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-        "/usr/share/fonts/noto/NotoColorEmoji.ttf",
-        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+    let groups: [(&str, &[&str]); 4] = [
+        (
+            "system-emoji",
+            &[
+                // Windows: Segoe UI Emoji (outlines are readable even without colour).
+                "C:\\Windows\\Fonts\\seguiemj.ttf",
+                "C:\\Windows\\Fonts\\seguisym.ttf",
+                // Linux.
+                "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+                "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+                "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+            ],
+        ),
+        (
+            "system-cjk",
+            &[
+                // Microsoft YaHei (GB18030: simplified, traditional, kana), then
+                // Traditional-first faces, then the older SimSun.
+                "C:\\Windows\\Fonts\\msyh.ttc",
+                "C:\\Windows\\Fonts\\msyh.ttf",
+                "C:\\Windows\\Fonts\\msjh.ttc",
+                "C:\\Windows\\Fonts\\simsun.ttc",
+                "C:\\Windows\\Fonts\\mingliu.ttc",
+                // Linux / macOS.
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+                "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+                "/usr/share/fonts/truetype/arphic/uming.ttc",
+                "/System/Library/Fonts/PingFang.ttc",
+            ],
+        ),
+        (
+            "system-japanese",
+            &[
+                // Kana and Japanese-only kanji the Chinese faces do not carry.
+                "C:\\Windows\\Fonts\\YuGothM.ttc",
+                "C:\\Windows\\Fonts\\YuGothR.ttc",
+                "C:\\Windows\\Fonts\\meiryo.ttc",
+                "C:\\Windows\\Fonts\\msgothic.ttc",
+                "/usr/share/fonts/truetype/takao-gothic/TakaoPGothic.ttf",
+                "/usr/share/fonts/truetype/vlgothic/VL-Gothic-Regular.ttf",
+            ],
+        ),
+        (
+            "system-hangul",
+            &[
+                // Hangul is not in the Chinese faces above.
+                "C:\\Windows\\Fonts\\malgun.ttf",
+                "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            ],
+        ),
     ];
-    let Some(bytes) = candidates.iter().find_map(|path| std::fs::read(path).ok()) else {
-        return;
-    };
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "system-emoji".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-    );
-    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-        fonts
-            .families
-            .entry(family)
-            .or_default()
-            .push("system-emoji".to_owned());
+    let mut added = false;
+    for (key, candidates) in groups {
+        let Some(bytes) = candidates.iter().find_map(|path| std::fs::read(path).ok()) else {
+            continue;
+        };
+        diag(&format!("font {key}: loaded"));
+        fonts.font_data.insert(
+            key.to_owned(),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+        );
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            fonts
+                .families
+                .entry(family)
+                .or_default()
+                .push(key.to_owned());
+        }
+        added = true;
     }
-    ctx.set_fonts(fonts);
+    if added {
+        ctx.set_fonts(fonts);
+    }
 }
 
 /// What the viewer knows about a video message.
@@ -2903,156 +2968,166 @@ impl WaDesk {
 }
 
 impl WaDesk {
-    /// Settings: theme and the AI form, validated by wa-ui.
+    /// Settings: the official two-pane screen - the section list on the left,
+    /// the selected page as cards on the right.
     fn settings_panel(&mut self, ctx: &egui::Context) {
         let palette = self.palette.clone();
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.panel))
             .show(ctx, |ui| {
                 ui.horizontal_top(|ui| {
-                    ui.vertical(|ui| {
-                        ui.set_width(320.0);
-                        ui.add_space(10.0);
-                        self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
-                        let avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
-                        ui.horizontal(|ui| {
-                            paint_avatar(ui, &self.model.own_name(), 54.0, avatar.as_ref());
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new(self.model.own_name())
-                                        .size(17.0)
-                                        .strong(),
-                                );
-                                ui.label(
-                                    egui::RichText::new(&self.model.status)
-                                        .small()
-                                        .color(palette.secondary),
-                                );
+                    self.settings_sections(ui, &palette);
+                    ui.add_space(2.0);
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.horizontal_top(|ui| {
+                                ui.add_space(28.0);
+                                ui.vertical(|ui| {
+                                    let width = (ui.available_width() - 40.0).clamp(240.0, 640.0);
+                                    ui.set_width(width);
+                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                                    ui.add_space(24.0);
+                                    match self.settings_section {
+                                        0 => self.general_detail(ui, &palette),
+                                        1 => self.chats_detail(ui, &palette),
+                                        2 => self.ai_detail(ui, &palette),
+                                        3 => self.updates_detail(ui, &palette),
+                                        _ => self.help_detail(ui, &palette),
+                                    }
+                                    if !self.settings_note.is_empty() {
+                                        ui.add_space(12.0);
+                                        ui.label(
+                                            egui::RichText::new(&self.settings_note)
+                                                .size(12.5)
+                                                .color(palette.secondary),
+                                        );
+                                    }
+                                    ui.add_space(28.0);
+                                });
                             });
                         });
-                        ui.add_space(12.0);
-
-                        let sections = [
-                            (Icon::Settings, "General", "Startup and close"),
-                            (Icon::Chats, "Chats", "Theme, history, chat settings"),
-                            (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
-                            (Icon::Document, "Updates", "Version and releases"),
-                            (
-                                Icon::Groups,
-                                "Help and feedback",
-                                "Project, changelog, issues",
-                            ),
-                        ];
-                        for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
-                            let selected = self.settings_section == index;
-                            let (rect, response) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), 54.0),
-                                egui::Sense::click(),
-                            );
-                            if selected || response.hovered() {
-                                ui.painter().rect_filled(
-                                    rect,
-                                    egui::CornerRadius::same(10),
-                                    if selected {
-                                        palette.selected
-                                    } else {
-                                        palette.hover
-                                    },
-                                );
-                            }
-                            draw_icon(
-                                ui,
-                                egui::Rect::from_min_size(
-                                    egui::pos2(rect.left() + 10.0, rect.center().y - 10.0),
-                                    egui::vec2(20.0, 20.0),
-                                ),
-                                *icon,
-                                palette.secondary,
-                            );
-                            ui.painter().text(
-                                egui::pos2(rect.left() + 42.0, rect.center().y - 8.0),
-                                egui::Align2::LEFT_CENTER,
-                                *title,
-                                egui::FontId::proportional(14.0),
-                                palette.text,
-                            );
-                            ui.painter().text(
-                                egui::pos2(rect.left() + 42.0, rect.center().y + 9.0),
-                                egui::Align2::LEFT_CENTER,
-                                *subtitle,
-                                egui::FontId::proportional(11.5),
-                                palette.secondary,
-                            );
-                            if response.clicked() {
-                                self.settings_section = index;
-                            }
-                        }
-                        ui.add_space(6.0);
-                        let (rect, response) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 48.0),
-                            egui::Sense::click(),
-                        );
-                        if response.hovered() {
-                            ui.painter().rect_filled(
-                                rect,
-                                egui::CornerRadius::same(10),
-                                palette.hover,
-                            );
-                        }
-                        draw_icon(
-                            ui,
-                            egui::Rect::from_min_size(
-                                egui::pos2(rect.left() + 10.0, rect.center().y - 9.0),
-                                egui::vec2(18.0, 18.0),
-                            ),
-                            Icon::Logout,
-                            palette.danger,
-                        );
-                        ui.painter().text(
-                            egui::pos2(rect.left() + 42.0, rect.center().y),
-                            egui::Align2::LEFT_CENTER,
-                            "Log out",
-                            egui::FontId::proportional(14.0),
-                            palette.danger,
-                        );
-                        if response.clicked() {
-                            self.send(Command::Relink);
-                            self.settings_note =
-                                "Unlinked - scan the QR with the phone to link again.".to_string();
-                        }
-                    });
-                    ui.separator();
-                    ui.vertical(|ui| {
-                        ui.add_space(10.0);
-                        match self.settings_section {
-                            0 => self.general_detail(ui, &palette),
-                            1 => self.chats_detail(ui, &palette),
-                            2 => self.ai_detail(ui, &palette),
-                            3 => self.updates_detail(ui, &palette),
-                            _ => self.help_detail(ui, &palette),
-                        }
-                        if !self.settings_note.is_empty() {
-                            ui.add_space(8.0);
-                            ui.label(
-                                egui::RichText::new(&self.settings_note)
-                                    .small()
-                                    .color(palette.secondary),
-                            );
-                        }
-                    });
                 });
             });
     }
 
+    /// The left column: account header, the section rows and Log out.
+    fn settings_sections(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        ui.vertical(|ui| {
+            let width = (ui.available_width() * 0.42).clamp(230.0, 330.0);
+            ui.set_width(width);
+            ui.add_space(20.0);
+            let me = self.model.me_jid.clone();
+            self.ensure_avatar(ui.ctx(), &me);
+            let avatar = self.avatar_for(&me).cloned();
+            ui.horizontal(|ui| {
+                ui.add_space(18.0);
+                paint_avatar(ui, &self.model.own_name(), 56.0, avatar.as_ref());
+                ui.add_space(4.0);
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(self.model.own_name())
+                            .size(17.0)
+                            .strong()
+                            .color(palette.text),
+                    );
+                    ui.label(
+                        egui::RichText::new(&self.model.status)
+                            .size(12.5)
+                            .color(palette.secondary),
+                    );
+                });
+            });
+            ui.add_space(20.0);
+            let sections = [
+                (Icon::Settings, "General", "Startup, updates, about"),
+                (Icon::Chats, "Chats", "Theme, history, sync"),
+                (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
+                (Icon::Document, "Updates", "Version and releases"),
+                (
+                    Icon::Groups,
+                    "Help and feedback",
+                    "Project, changelog, issues",
+                ),
+            ];
+            for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
+                let selected = self.settings_section == index;
+                let response = settings_list_row(
+                    ui,
+                    palette,
+                    *icon,
+                    title,
+                    Some(subtitle),
+                    selected,
+                    palette.secondary,
+                );
+                if response.clicked() {
+                    self.settings_section = index;
+                }
+            }
+            ui.add_space(6.0);
+            let response = settings_list_row(
+                ui,
+                palette,
+                Icon::Logout,
+                "Log out",
+                None,
+                false,
+                palette.danger,
+            );
+            if response.clicked() {
+                self.send(Command::Relink);
+                self.settings_note =
+                    "Unlinked - scan the QR with the phone to link again.".to_string();
+            }
+        });
+    }
+
+    /// The page title and one-line description at the top of the detail pane.
+    fn settings_header(
+        ui: &mut egui::Ui,
+        palette: &crate::theme::Palette,
+        title: &str,
+        subtitle: &str,
+    ) {
+        ui.label(
+            egui::RichText::new(title)
+                .size(22.0)
+                .strong()
+                .color(palette.text),
+        );
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(subtitle)
+                .size(13.0)
+                .color(palette.secondary),
+        );
+    }
+
     /// General: start-up behaviour and version.
     fn general_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
-        ui.set_max_width(560.0);
-        ui.label(egui::RichText::new("Startup and close").size(16.0).strong());
+        Self::settings_header(
+            ui,
+            palette,
+            "General",
+            "Startup behaviour and this installation.",
+        );
         let mut launch = crate::autostart::enabled();
-        if ui
-            .checkbox(&mut launch, "Launch WA Desk at login")
-            .changed()
-        {
+        let mut toggle = false;
+        settings_card(ui, palette, "STARTUP AND CLOSE", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Launch WA Desk at login",
+                "Starts with Windows through your account's Run key; nothing is written outside it.",
+                |ui| {
+                    toggle = settings_switch(ui, palette, launch).clicked();
+                },
+            );
+        });
+        if toggle {
+            launch = !launch;
             self.settings_note = match crate::autostart::set(launch) {
                 Ok(()) => {
                     if launch {
@@ -3064,123 +3139,232 @@ impl WaDesk {
                 Err(err) => err,
             };
         }
-        ui.label(
-            egui::RichText::new(
-                "Uses the per-user Run key; nothing is written outside your account.",
-            )
-            .small()
-            .color(palette.secondary),
-        );
-        ui.add_space(14.0);
-        ui.separator();
-        ui.add_space(6.0);
-        ui.label(egui::RichText::new("About").size(16.0).strong());
-        ui.label(
-            egui::RichText::new(format!(
-                "WA Desk v{} · unofficial WhatsApp client in pure Rust",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .small()
-            .color(palette.secondary),
-        );
+
+        settings_card(ui, palette, "ABOUT", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Version",
+                "Unofficial WhatsApp client in pure Rust.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(env!("CARGO_PKG_VERSION"))
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Storage",
+                "Chat cache, media and settings live here:",
+                |_ui| {},
+            );
+            ui.label(
+                egui::RichText::new("%APPDATA%\\io.github.dirttw.wadesk-native")
+                    .size(12.0)
+                    .monospace()
+                    .color(palette.secondary),
+            );
+        });
     }
 
+    /// Chats: theme, chat history and the sync actions.
     fn chats_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
-        ui.set_max_width(560.0);
-        ui.label(egui::RichText::new("Theme").size(16.0).strong());
+        Self::settings_header(
+            ui,
+            palette,
+            "Chats",
+            "Appearance and what the phone sends us.",
+        );
         let system_dark = ui.ctx().style().visuals.dark_mode;
-        ui.horizontal(|ui| {
+        let current = self.settings.theme.clone();
+        let mut chosen: Option<String> = None;
+        settings_card(ui, palette, "THEME", |ui| {
             for choice in ["light", "dark", "system"] {
-                let label = wa_ui::settings::theme_label(choice);
-                if ui
-                    .selectable_label(self.settings.theme == choice, label)
-                    .clicked()
+                if settings_radio_row(
+                    ui,
+                    palette,
+                    wa_ui::settings::theme_label(choice),
+                    current == choice,
+                )
+                .clicked()
                 {
-                    self.settings.theme = choice.to_string();
+                    chosen = Some(choice.to_string());
                 }
             }
         });
+        if let Some(choice) = chosen {
+            self.settings.theme = choice;
+            let _ = self.settings.save(&self.settings_path);
+        }
+        ui.add_space(4.0);
         ui.label(
             egui::RichText::new(format!(
                 "{} · showing {}",
                 self.settings.theme_label(),
                 self.settings.resolved_theme(system_dark)
             ))
-            .small()
+            .size(12.0)
             .color(palette.secondary),
         );
-        ui.add_space(14.0);
-        ui.separator();
-        ui.add_space(6.0);
-        ui.label(egui::RichText::new("Chat history").size(16.0).strong());
-        ui.label(
-            egui::RichText::new(
-                "The phone only pushes the full chat list to a newly linked device; this asks                  for a batch from the linked session (eight chats at a time).",
-            )
-            .small()
-            .color(palette.secondary),
-        );
-        ui.horizontal(|ui| {
-            if ui.button("Sync chat history").clicked() {
-                self.send(Command::InitialSync);
-                self.send(Command::SyncChatState);
-                self.settings_note = "Asking the phone for history…".to_string();
-            }
-            if ui.button("Sync more chats").clicked() {
-                self.send(Command::SyncMore);
-                self.settings_note = "Asking for the next chats…".to_string();
-            }
-            if ui.button("Sync groups").clicked() {
-                self.send(Command::SyncGroups);
-                self.settings_note = "Asking for participating groups…".to_string();
-            }
-            if ui.button("Refresh statuses").clicked() {
-                self.send(Command::StatusHistory);
-                self.settings_note = "Asking for recent statuses…".to_string();
-            }
+
+        let mut action: Option<&'static str> = None;
+        settings_card(ui, palette, "CHAT HISTORY", |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "Phones only push the full chat list to a newly linked device, so this asks \
+                     the linked session for one batch at a time (eight chats).",
+                )
+                .size(12.5)
+                .color(palette.secondary),
+            );
+            ui.add_space(10.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 22.0;
+                for (label, key) in [
+                    ("Sync chat history", "history"),
+                    ("Sync more chats", "more"),
+                    ("Sync groups", "groups"),
+                    ("Refresh statuses", "status"),
+                ] {
+                    if settings_link(ui, palette, label) {
+                        action = Some(key);
+                    }
+                }
+            });
         });
+        if let Some(action) = action {
+            match action {
+                "history" => {
+                    self.send(Command::InitialSync);
+                    self.send(Command::SyncChatState);
+                    self.settings_note = "Asking the phone for history…".to_string();
+                }
+                "more" => {
+                    self.send(Command::SyncMore);
+                    self.settings_note = "Asking for the next chats…".to_string();
+                }
+                "groups" => {
+                    self.send(Command::SyncGroups);
+                    self.settings_note = "Asking for participating groups…".to_string();
+                }
+                _ => {
+                    self.send(Command::StatusHistory);
+                    self.settings_note = "Asking for recent statuses…".to_string();
+                }
+            }
+        }
     }
 
+    /// AI assistant: the encrypted key and the model configuration.
     fn ai_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
-        ui.set_max_width(560.0);
-        ui.label(egui::RichText::new("AI assistant").size(16.0).strong());
-        ui.label(
-            egui::RichText::new(self.settings.key_hint())
-                .small()
-                .color(palette.secondary),
+        Self::settings_header(
+            ui,
+            palette,
+            "AI assistant",
+            "Bring your own OpenAI-compatible endpoint.",
         );
-        ui.checkbox(&mut self.settings.ai.enabled, "AI mode");
-        ui.checkbox(&mut self.settings.ai.require_trigger, "Require /ai trigger");
-        egui::Grid::new("ai-form").num_columns(2).show(ui, |ui| {
-            ui.label("Base URL");
-            ui.add(egui::TextEdit::singleline(&mut self.settings.ai.base_url).desired_width(380.0));
-            ui.end_row();
-            ui.label("Model");
-            ui.add(egui::TextEdit::singleline(&mut self.settings.ai.model).desired_width(380.0));
-            ui.end_row();
-            ui.label("Vision model");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.settings.ai.vision_model).desired_width(380.0),
+        let hint = self.settings.key_hint();
+        settings_card(ui, palette, "BEHAVIOUR", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "AI mode",
+                "Answer saved contacts, and groups that mention you.",
+                |ui| {
+                    let mut on = self.settings.ai.enabled;
+                    if settings_switch(ui, palette, on).clicked() {
+                        on = !on;
+                    }
+                    self.settings.ai.enabled = on;
+                },
             );
-            ui.end_row();
-            ui.label("System prompt");
+            settings_row(
+                ui,
+                palette,
+                "Require /ai trigger",
+                "Only reply when a message asks with /ai.",
+                |ui| {
+                    let mut on = self.settings.ai.require_trigger;
+                    if settings_switch(ui, palette, on).clicked() {
+                        on = !on;
+                    }
+                    self.settings.ai.require_trigger = on;
+                },
+            );
+        });
+
+        settings_card(ui, palette, "CONNECTION", |ui| {
+            ui.label(
+                egui::RichText::new(hint.clone())
+                    .size(12.0)
+                    .color(palette.secondary),
+            );
+            ui.add_space(8.0);
+            settings_field(
+                ui,
+                palette,
+                "Base URL",
+                "https://opencode.ai/zen/go/v1",
+                &mut self.settings.ai.base_url,
+                false,
+            );
+            settings_field(
+                ui,
+                palette,
+                "Model",
+                "the chat model id",
+                &mut self.settings.ai.model,
+                false,
+            );
+            settings_field(
+                ui,
+                palette,
+                "Vision model",
+                "optional - the chat model when empty",
+                &mut self.settings.ai.vision_model,
+                false,
+            );
+            settings_field(
+                ui,
+                palette,
+                "API key",
+                "leave blank to keep the stored key",
+                &mut self.settings.ai.api_key,
+                true,
+            );
+        });
+
+        settings_card(ui, palette, "PERSONA", |ui| {
+            ui.label(
+                egui::RichText::new("System prompt")
+                    .size(13.0)
+                    .color(palette.text),
+            );
+            ui.add_space(6.0);
             ui.add(
                 egui::TextEdit::multiline(&mut self.settings.ai.system_prompt)
-                    .desired_width(380.0)
-                    .desired_rows(3),
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(4),
             );
-            ui.end_row();
-            ui.label("API key");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.settings.ai.api_key)
-                    .password(true)
-                    .hint_text("leave blank to keep the stored key")
-                    .desired_width(380.0),
-            );
-            ui.end_row();
         });
-        ui.add_space(8.0);
-        if ui.button("Save").clicked() {
+
+        ui.add_space(14.0);
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new("Save")
+                        .size(13.5)
+                        .color(egui::Color32::WHITE),
+                )
+                .fill(palette.accent)
+                .corner_radius(egui::CornerRadius::same(18))
+                .min_size(egui::vec2(96.0, 34.0)),
+            )
+            .clicked()
+        {
             let plan = self.settings.ai_plan();
             if !plan.ok {
                 self.settings_note = plan.error.unwrap_or_default();
@@ -3199,102 +3383,376 @@ impl WaDesk {
         }
     }
 
+    /// Updates: the GitHub pre-release channel.
     fn updates_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
-        ui.set_max_width(560.0);
-        ui.label(egui::RichText::new("Updates").size(16.0).strong());
-        ui.label(
-            egui::RichText::new(format!(
-                "Installed v{} · published on GitHub releases",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .small()
-            .color(palette.secondary),
-        );
+        Self::settings_header(ui, palette, "Updates", "Version and GitHub releases.");
+        let version = env!("CARGO_PKG_VERSION");
         let state = self.update.clone();
         let busy = matches!(state, UpdateState::Checking | UpdateState::Downloading(_));
-        ui.horizontal(|ui| {
-            if !busy && ui.button("Check for updates").clicked() {
-                self.check_updates();
-            }
-            match state {
-                UpdateState::Idle => {}
-                UpdateState::Checking => {
-                    ui.label(egui::RichText::new("Checking…").small().weak());
-                }
-                UpdateState::UpToDate => {
+        settings_card(ui, palette, "THIS INSTALL", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Installed version",
+                "Every WA Desk release is a pre-release.",
+                |ui| {
                     ui.label(
-                        egui::RichText::new("You are on the newest release.")
-                            .small()
-                            .weak(),
+                        egui::RichText::new(format!("v{version}"))
+                            .size(13.0)
+                            .color(palette.secondary),
                     );
+                },
+            );
+            settings_row(ui, palette, "Channel", "dirtTW/wa-desk", |ui| {
+                if !busy && settings_link(ui, palette, "Check now") {
+                    self.check_updates();
                 }
-                UpdateState::Available(release) => {
-                    let megabytes = release.size as f64 / 1_048_576.0;
-                    ui.label(egui::RichText::new(format!(
+            });
+        });
+
+        settings_card(ui, palette, "STATUS", |ui| match state {
+            UpdateState::Idle => {
+                ui.label(
+                    egui::RichText::new("Not checked yet.")
+                        .size(13.0)
+                        .color(palette.secondary),
+                );
+            }
+            UpdateState::Checking => {
+                ui.label(
+                    egui::RichText::new("Checking the release list…")
+                        .size(13.0)
+                        .color(palette.secondary),
+                );
+            }
+            UpdateState::UpToDate => {
+                ui.label(
+                    egui::RichText::new("You are on the newest release.")
+                        .size(13.0)
+                        .color(palette.secondary),
+                );
+            }
+            UpdateState::Available(release) => {
+                let megabytes = release.size as f64 / 1_048_576.0;
+                ui.label(
+                    egui::RichText::new(format!(
                         "{} is available ({megabytes:.1} MB)",
                         release.tag
-                    )));
-                    if !release.notes_url.is_empty() {
-                        ui.hyperlink_to("notes", &release.notes_url);
+                    ))
+                    .size(13.0)
+                    .color(palette.text),
+                );
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 20.0;
+                    if settings_link(ui, palette, "Download & install") {
+                        self.download_update(release.clone());
                     }
-                    if ui.button("Download & install").clicked() {
-                        self.download_update(release);
+                    if !release.notes_url.is_empty() && settings_link(ui, palette, "Release notes")
+                    {
+                        ui.ctx()
+                            .open_url(egui::OpenUrl::new_tab(&release.notes_url));
+                    }
+                });
+            }
+            UpdateState::Downloading(release) => {
+                ui.label(
+                    egui::RichText::new(format!("Downloading {}…", release.tag))
+                        .size(13.0)
+                        .color(palette.secondary),
+                );
+            }
+            UpdateState::Ready(path) => {
+                ui.label(
+                    egui::RichText::new("Downloaded - restarting finishes the update.")
+                        .size(13.0)
+                        .color(palette.secondary),
+                );
+                ui.add_space(8.0);
+                if settings_link(ui, palette, "Restart now") {
+                    match updates::install(&path) {
+                        Ok(()) => std::process::exit(0),
+                        Err(err) => self.update = UpdateState::Failed(err),
                     }
                 }
-                UpdateState::Downloading(release) => {
-                    ui.label(
-                        egui::RichText::new(format!("Downloading {}…", release.tag))
-                            .small()
-                            .weak(),
-                    );
-                }
-                UpdateState::Ready(path) => {
-                    if ui.button("Restart now").clicked() {
-                        match updates::install(&path) {
-                            Ok(()) => std::process::exit(0),
-                            Err(err) => self.update = UpdateState::Failed(err),
-                        }
-                    }
-                    ui.label(
-                        egui::RichText::new("Downloaded - restarting finishes the update.")
-                            .small()
-                            .weak(),
-                    );
-                }
-                UpdateState::Failed(err) => {
-                    ui.label(egui::RichText::new(err).small().color(palette.danger));
-                }
+            }
+            UpdateState::Failed(err) => {
+                ui.label(egui::RichText::new(err).size(13.0).color(palette.danger));
             }
         });
     }
 
+    /// Help and feedback: the project links.
     fn help_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
-        ui.set_max_width(560.0);
-        ui.label(egui::RichText::new("Help and feedback").size(16.0).strong());
-        ui.label(
-            egui::RichText::new(
-                "WA Desk is an unofficial client; issues and pull requests are welcome.",
-            )
-            .small()
-            .color(palette.secondary),
+        Self::settings_header(
+            ui,
+            palette,
+            "Help and feedback",
+            "WA Desk is unofficial and open.",
         );
-        ui.add_space(8.0);
-        ui.hyperlink_to("Source code", "https://github.com/dirtTW/wa-desk");
-        ui.hyperlink_to(
-            "Change log",
-            "https://github.com/dirtTW/wa-desk/blob/main/CHANGELOG.md",
-        );
-        ui.hyperlink_to(
-            "Report an issue",
-            "https://github.com/dirtTW/wa-desk/issues",
-        );
-        ui.add_space(10.0);
-        ui.label(
-            egui::RichText::new(format!("WA Desk v{}", env!("CARGO_PKG_VERSION")))
-                .small()
+        settings_card(ui, palette, "PROJECT", |ui| {
+            for (label, url) in [
+                ("Source code", "https://github.com/dirtTW/wa-desk"),
+                (
+                    "Change log",
+                    "https://github.com/dirtTW/wa-desk/blob/main/CHANGELOG.md",
+                ),
+                (
+                    "Report an issue",
+                    "https://github.com/dirtTW/wa-desk/issues",
+                ),
+            ] {
+                if settings_link(ui, palette, label) {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
+                ui.add_space(8.0);
+            }
+        });
+        settings_card(ui, palette, "ABOUT", |ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "WA Desk v{} · MIT licensed · not affiliated with WhatsApp or Meta.",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .size(12.5)
                 .color(palette.secondary),
-        );
+            );
+        });
     }
+}
+
+/// One row of the settings section list.
+fn settings_list_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    icon: Icon,
+    title: &str,
+    subtitle: Option<&str>,
+    selected: bool,
+    color: egui::Color32,
+) -> egui::Response {
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        let height = if subtitle.is_some() { 54.0 } else { 44.0 };
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width() - 10.0, height),
+            egui::Sense::click(),
+        );
+        if selected || response.hovered() {
+            ui.painter().rect_filled(
+                rect,
+                egui::CornerRadius::same(10),
+                if selected {
+                    palette.selected
+                } else {
+                    palette.hover
+                },
+            );
+        }
+        draw_icon(
+            ui,
+            egui::Rect::from_center_size(
+                egui::pos2(rect.left() + 24.0, rect.center().y),
+                egui::vec2(20.0, 20.0),
+            ),
+            icon,
+            if selected { palette.accent } else { color },
+        );
+        let text_left = rect.left() + 46.0;
+        match subtitle {
+            Some(subtitle) => {
+                ui.painter().text(
+                    egui::pos2(text_left, rect.center().y - 9.0),
+                    egui::Align2::LEFT_CENTER,
+                    title,
+                    egui::FontId::proportional(14.0),
+                    palette.text,
+                );
+                ui.painter().text(
+                    egui::pos2(text_left, rect.center().y + 10.0),
+                    egui::Align2::LEFT_CENTER,
+                    subtitle,
+                    egui::FontId::proportional(11.5),
+                    palette.secondary,
+                );
+            }
+            None => {
+                ui.painter().text(
+                    egui::pos2(text_left, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    title,
+                    egui::FontId::proportional(14.0),
+                    color,
+                );
+            }
+        }
+        response
+    })
+    .inner
+}
+
+/// A card in the detail pane: raised surface, green uppercase title.
+fn settings_card(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    title: &str,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    ui.add_space(16.0);
+    egui::Frame::new()
+        .fill(palette.elevated)
+        .corner_radius(egui::CornerRadius::same(14))
+        .inner_margin(egui::Margin::symmetric(18, 14))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+            ui.label(
+                egui::RichText::new(title)
+                    .size(11.5)
+                    .strong()
+                    .color(palette.accent),
+            );
+            ui.add_space(10.0);
+            body(ui);
+        });
+}
+
+/// A label + description row with an optional trailing control.
+fn settings_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    title: &str,
+    description: &str,
+    control: impl FnOnce(&mut egui::Ui),
+) {
+    ui.horizontal_top(|ui| {
+        // Two fixed columns: egui would otherwise wrap the control onto the
+        // next line once the wrapping label had taken the whole width. Both
+        // columns scale with the pane, so nothing is clipped when it is narrow.
+        let width = ui.available_width();
+        let control_width = (width * 0.36).clamp(84.0, 168.0);
+        let text_width = (width - control_width - 12.0).max(90.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(text_width, 0.0),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.set_width(text_width);
+                ui.label(egui::RichText::new(title).size(14.0).color(palette.text));
+                if !description.is_empty() {
+                    ui.add_space(2.0);
+                    ui.label(
+                        egui::RichText::new(description)
+                            .size(12.0)
+                            .color(palette.secondary),
+                    );
+                }
+            },
+        );
+        ui.allocate_ui_with_layout(
+            egui::vec2(control_width, 0.0),
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                ui.set_width(control_width);
+                control(ui)
+            },
+        );
+    });
+    ui.add_space(10.0);
+}
+
+/// A full-width radio row (the theme choices).
+fn settings_radio_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(8), palette.hover);
+    }
+    let center = egui::pos2(rect.right() - 18.0, rect.center().y);
+    ui.painter().circle_stroke(
+        center,
+        8.0,
+        egui::Stroke::new(
+            1.8_f32,
+            if selected {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+        ),
+    );
+    if selected {
+        ui.painter().circle_filled(center, 4.4, palette.accent);
+    }
+    ui.painter().text(
+        egui::pos2(rect.left() + 2.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(14.0),
+        palette.text,
+    );
+    response
+}
+
+/// A Material 3 switch.
+fn settings_switch(ui: &mut egui::Ui, palette: &crate::theme::Palette, on: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 22.0), egui::Sense::click());
+    let track = if on {
+        palette.accent
+    } else {
+        egui::Color32::from_gray(120)
+    };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(11), track);
+    let knob_x = if on {
+        rect.right() - 11.0
+    } else {
+        rect.left() + 11.0
+    };
+    ui.painter().circle_filled(
+        egui::pos2(knob_x, rect.center().y),
+        8.0,
+        egui::Color32::WHITE,
+    );
+    response
+}
+
+/// An accent-coloured text action.
+fn settings_link(ui: &mut egui::Ui, palette: &crate::theme::Palette, label: &str) -> bool {
+    ui.add(
+        egui::Button::new(egui::RichText::new(label).size(13.0).color(palette.accent)).frame(false),
+    )
+    .clicked()
+}
+
+/// A labelled single-line field.
+fn settings_field(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    label: &str,
+    hint: &str,
+    value: &mut String,
+    password: bool,
+) {
+    ui.label(
+        egui::RichText::new(label)
+            .size(12.5)
+            .color(palette.secondary),
+    );
+    ui.add_space(3.0);
+    let mut edit = egui::TextEdit::singleline(value)
+        .desired_width(f32::INFINITY)
+        .hint_text(hint);
+    if password {
+        edit = edit.password(true);
+    }
+    ui.add(edit);
+    ui.add_space(10.0);
 }
 
 /// Where the native app keeps its own settings.
