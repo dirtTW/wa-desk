@@ -1361,7 +1361,7 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             .text
             .chars()
             .filter(|ch| {
-                !(crate::app::is_emoji_char(*ch)
+                !(crate::rich_text::is_emoji_char(*ch)
                     || *ch == '\u{FE0F}'
                     || *ch == '\u{200D}'
                     || *ch == '\u{20E3}')

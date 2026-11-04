@@ -31,6 +31,7 @@ mod login;
 mod mic;
 mod model;
 mod notify;
+mod rich_text;
 mod settings;
 mod spawn;
 mod sticker;

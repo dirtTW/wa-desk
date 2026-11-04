@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.24] - 2026-11-05
+
+- **`app.rs` split, second module: `src/rich_text.rs`.** The bubble's text engine moved out - the
+  `Inline`/`BodyLayout` types, `is_emoji_char`, `has_emoji`, `emoji_only`, `layout_body`,
+  `paint_body` and `clean_text` (165 lines) now live in their own module with `pub(crate)`
+  visibility, imported by `app.rs`; the font tests import `is_emoji_char` directly. Nothing in
+  those functions touches window state, which is what made the move safe.
+- `apps/desktop-native/src` now holds `app.rs`, `widgets.rs`, `rich_text.rs`, `model.rs`,
+  `voicenote.rs`, `webp_anim.rs`, `frames.rs`, `gif.rs`, `emoji_glyph.rs`, `icons.rs`, `audio.rs`,
+  `mic.rs`, `camera.rs`, `callvideo.rs`, `aec.rs`, `echo.rs`, `tray.rs`, `notify.rs`, `settings.rs`,
+  `theme.rs`, `login.rs`, `updates.rs`, `clipboard.rs`, `spawn.rs`, `icon.rs`, `sticker.rs`,
+  `video.rs`, `ai.rs`.
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.23] - 2026-11-05
 
 - **Custom chat lists (the last ❌ in the filter row).** `ChatList { id, name, chats }` lives in the
