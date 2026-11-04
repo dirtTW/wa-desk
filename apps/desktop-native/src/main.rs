@@ -389,6 +389,30 @@ fn main() {
                         Err(err) => app::diag(&format!("chat history {chat}: {err}")),
                     }
                 }
+                model::Command::SyncChatState => {
+                    if let Err(err) = session.sync_chat_state().await {
+                        app::diag(&format!("chat state sync: {err}"));
+                    }
+                    let mut groups = 0;
+                    for jid in session.known_chats() {
+                        if jid.ends_with("@g.us") {
+                            groups += 1;
+                            let _ = events_out.send(wa_types::UiEvent::Chat {
+                                jid,
+                                name: String::new(),
+                                is_group: true,
+                                timestamp: 0,
+                            });
+                        }
+                    }
+                    app::diag(&format!("chat state sync: {groups} groups"));
+                }
+                model::Command::Relink => {
+                    // The client emits `LoggedOut`; the window returns to the
+                    // gate and the next link receives the full history.
+                    app::diag("relink requested");
+                    session.logout().await;
+                }
                 model::Command::SendDocument {
                     chat,
                     path,

@@ -108,6 +108,12 @@ pub enum Command {
     ChatHistory {
         chat: String,
     },
+    /// Apply the chat app-state collection (pins/archives/mutes) so groups can
+    /// be discovered without a fresh link.
+    SyncChatState,
+    /// Unlink this device so a fresh pair imports the complete chat list
+    /// (WhatsApp only sends groups and old chats to a new link).
+    Relink,
     /// Send a file from disk as an attachment.
     SendDocument {
         chat: String,
@@ -518,6 +524,17 @@ impl Model {
             }
             UiEvent::ChatDeleted { chat } if self.active.as_deref() == Some(chat.as_str()) => {
                 self.active = None;
+            }
+            UiEvent::ChatPin { chat, .. }
+            | UiEvent::ChatArchive { chat, .. }
+            | UiEvent::ChatMute { chat, .. } => {
+                // App-state mentions chats we have never seen - pinned, archived
+                // or muted groups are the usual case. Remember the JID so the
+                // sidebar can list it (the name arrives from group metadata).
+                self.chats.entry(chat.clone()).or_insert_with(|| ChatRow {
+                    jid: chat.clone(),
+                    ..Default::default()
+                });
             }
             UiEvent::MessageDeleted { chat, id } => {
                 self.remove_message(chat, id);
@@ -1013,7 +1030,9 @@ impl Model {
             .chats
             .values()
             .filter(|row| !row.jid.ends_with("@newsletter"))
-            .filter(|row| !row.messages.is_empty() || !row.name.is_empty())
+            .filter(|row| {
+                !row.messages.is_empty() || !row.name.is_empty() || row.jid.ends_with("@g.us")
+            })
             .filter(|row| match self.chat_filter {
                 ChatFilter::All => true,
                 ChatFilter::Groups => row.jid.ends_with("@g.us"),

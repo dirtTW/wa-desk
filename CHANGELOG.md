@@ -4,7 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.69] — 2026-11-04
+## [0.2.0-rc.70] — 2026-11-04
+
+- **Groups in the chat list.** The session now runs the chat app-state collection (pins,
+  archives, mutes) at start-up (`Session::sync_chat_state`), and every chat it mentions is added
+  to the sidebar - group metadata then fills in the subject and the community flag, and the
+  Groups/Communities pills count them. Chats learned from live traffic/receipts are added the
+  same way. `Session::known_chats()` exposes the JIDs the session has seen.
+- **The Chats kebab is a real menu** (rounded card, icon rows): Settings, Sync chat history,
+  Refresh statuses and Log out - previously it jumped straight to Settings. `WA_DESK_MENU=1`
+  opens it for screenshots.
+- **Visual parity pass against a real capture of the official client** (Windows GDI capture via
+  `cargo run -p wa-desktop-native --example capture_window -- WhatsApp shot.png`): search icon
+  inside the rounded field, 72 px rows with 48 px avatars, outlined filter pills, the green FAB,
+  and a Communities entry on the rail that jumps to the Communities filter.
+- **Relink to import everything.** WhatsApp only sends groups and older chats to a *newly
+  linked* device; there is no protocol call to enumerate existing groups. Settings → Chat
+  history now has **Unlink and pair again**, which returns to the QR gate so the next link
+  imports the complete list.
+- Rows with no history sort by name after the timestamped ones, so the list stays stable while
+  the batches land.
+
+
 
 - **Chat list order matches the phone.** Rows sort by their last message time, newest first, and
   ties fall back to the name so contacts without history are stable instead of appearing in

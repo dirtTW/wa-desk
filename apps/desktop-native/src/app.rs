@@ -127,6 +127,10 @@ pub struct WaDesk {
     focus_search: bool,
     /// The connection epoch the backfill already started for.
     seen_epoch: u64,
+    /// Group JIDs whose metadata has been requested.
+    groups_asked: std::collections::HashSet<String>,
+    /// The Chats kebab menu is open.
+    show_chat_menu: bool,
 }
 
 impl WaDesk {
@@ -185,6 +189,8 @@ impl WaDesk {
             last_sync: std::time::Instant::now(),
             focus_search: false,
             seen_epoch: 0,
+            groups_asked: std::collections::HashSet::new(),
+            show_chat_menu: std::env::var("WA_DESK_MENU").is_ok(),
         }
     }
 
@@ -234,6 +240,56 @@ impl WaDesk {
             }
         }
         ctx.request_repaint();
+    }
+
+    /// The Chats kebab menu: a small card with the actions the official client
+    /// keeps there.
+    fn chat_menu(&mut self, ctx: &egui::Context) {
+        if !self.show_chat_menu {
+            return;
+        }
+        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.show_chat_menu = false;
+            return;
+        }
+        let palette = self.palette.clone();
+        egui::Window::new("chats-menu")
+            .title_bar(false)
+            .resizable(false)
+            .fixed_pos(egui::pos2(58.0 + 300.0, 54.0))
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .stroke(egui::Stroke::new(1.0_f32, palette.border))
+                    .corner_radius(egui::CornerRadius::same(12))
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 8],
+                        blur: 24,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(120),
+                    })
+                    .inner_margin(egui::Margin::symmetric(6, 6)),
+            )
+            .show(ctx, |ui| {
+                ui.set_min_width(220.0);
+                if menu_row(ui, &palette, Icon::Settings, "Settings") {
+                    self.show_settings = true;
+                    self.show_chat_menu = false;
+                }
+                if menu_row(ui, &palette, Icon::Document, "Sync chat history") {
+                    self.send(Command::InitialSync);
+                    self.send(Command::SyncChatState);
+                    self.show_chat_menu = false;
+                }
+                if menu_row(ui, &palette, Icon::Status, "Refresh statuses") {
+                    self.send(Command::StatusHistory);
+                    self.show_chat_menu = false;
+                }
+                if menu_row(ui, &palette, Icon::Logout, "Log out") {
+                    self.send(Command::Relink);
+                    self.show_chat_menu = false;
+                }
+            });
     }
 
     /// Check the release list on a worker thread; the window never blocks.
@@ -402,6 +458,8 @@ impl WaDesk {
                 ui.add_space(10.0);
                 ui.vertical_centered(|ui| {
                     let chats = !self.show_status && !self.show_channels && !self.show_settings;
+                    let community_view =
+                        chats && self.model.chat_filter == crate::model::ChatFilter::Communities;
                     if rail_button(ui, &palette, Icon::Chats, chats, self.model.total_unread())
                         .on_hover_text("Chats")
                         .clicked()
@@ -436,6 +494,15 @@ impl WaDesk {
                         self.show_settings = false;
                         self.model.close_status();
                     }
+                    if rail_button(ui, &palette, Icon::Groups, community_view, 0)
+                        .on_hover_text("Communities")
+                        .clicked()
+                    {
+                        self.show_channels = false;
+                        self.show_status = false;
+                        self.show_settings = false;
+                        self.model.chat_filter = crate::model::ChatFilter::Communities;
+                    }
                     if rail_button(ui, &palette, Icon::Settings, self.show_settings, 0)
                         .on_hover_text("Settings")
                         .clicked()
@@ -456,7 +523,7 @@ impl WaDesk {
 
         egui::SidePanel::left("chats")
             .resizable(true)
-            .default_width(300.0)
+            .default_width(368.0)
             .show(ctx, |ui| {
                 let palette = self.palette.clone();
                 ui.add_space(8.0);
@@ -474,7 +541,7 @@ impl WaDesk {
                             .on_hover_text("Menu")
                             .clicked()
                         {
-                            self.show_settings = true;
+                            self.show_chat_menu = !self.show_chat_menu;
                         }
                         if matches!(
                             self.update,
@@ -492,23 +559,27 @@ impl WaDesk {
                     .corner_radius(egui::CornerRadius::same(9))
                     .inner_margin(egui::Margin::symmetric(10, 4))
                     .show(ui, |ui| {
-                        let edit = ui.add(
-                            egui::TextEdit::singleline(&mut self.model.search)
-                                .hint_text("Search or start a new chat")
-                                .frame(false)
-                                .desired_width(f32::INFINITY),
-                        );
-                        if self.focus_search {
-                            edit.request_focus();
-                            self.focus_search = false;
-                        }
+                        ui.horizontal(|ui| {
+                            let (rect, _) = ui
+                                .allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                            draw_icon(ui, rect, Icon::Search, palette.secondary);
+                            let edit = ui.add(
+                                egui::TextEdit::singleline(&mut self.model.search)
+                                    .hint_text("Search or start a new chat")
+                                    .frame(false)
+                                    .desired_width(f32::INFINITY),
+                            );
+                            if self.focus_search {
+                                edit.request_focus();
+                                self.focus_search = false;
+                            }
+                        });
                     });
                 ui.add_space(6.0);
                 // The filter pills with their counts.
                 let (groups, communities, unread) = self.model.filter_counts();
                 ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
+                    ui.spacing_mut().item_spacing.x = 6.0;
                     for (filter, label) in [
                         (crate::model::ChatFilter::All, "All".to_string()),
                         (crate::model::ChatFilter::Groups, format!("Groups {groups}")),
@@ -519,13 +590,7 @@ impl WaDesk {
                         (crate::model::ChatFilter::Unread, format!("Unread {unread}")),
                     ] {
                         let selected = self.model.chat_filter == filter;
-                        if ui
-                            .add(
-                                egui::Button::new(egui::RichText::new(label).size(12.0))
-                                    .selected(selected),
-                            )
-                            .clicked()
-                        {
+                        if pill_button(ui, &palette, &label, selected) {
                             self.model.chat_filter = filter;
                         }
                     }
@@ -548,6 +613,14 @@ impl WaDesk {
                             let title = self.model.title(row);
                             let preview = self.model.row_preview(row);
                             let stamp = self.model.row_stamp(row);
+                            if row.jid.ends_with("@g.us")
+                                && row.name.is_empty()
+                                && self.groups_asked.insert(row.jid.clone())
+                            {
+                                self.send(Command::GroupInfo {
+                                    chat: row.jid.clone(),
+                                });
+                            }
                             self.ensure_avatar(&row.jid);
                             let avatar = self.avatar_for(&row.jid).cloned();
                             if chat_row(
@@ -1972,6 +2045,15 @@ impl WaDesk {
                 self.send(Command::StatusHistory);
                 self.settings_note = "Asking the phone for recent statuses…".to_string();
             }
+            if ui
+                .button("Unlink and pair again (imports the full list)")
+                .clicked()
+            {
+                self.send(Command::Relink);
+                self.settings_note =
+                    "Unlinked - scan the QR with the phone to import the full chat list."
+                        .to_string();
+            }
 
             ui.add_space(14.0);
             ui.separator();
@@ -2247,6 +2329,7 @@ impl eframe::App for WaDesk {
             }
         }
         let _ = &self.runtime;
+        self.chat_menu(ctx);
         self.screenshot_tick(ctx);
         // A restart only finds the chat list because it is mirrored here: the
         // phone does not replay history to an already-linked device.
@@ -2263,6 +2346,7 @@ impl eframe::App for WaDesk {
         if self.model.needs_history && self.model.login.is_linked() {
             self.model.needs_history = false;
             self.send(Command::InitialSync);
+            self.send(Command::SyncChatState);
             // Keep pulling batches so the recent chats surface, like the phone.
             self.sync_rounds = 12;
             self.last_sync = std::time::Instant::now();
@@ -2276,6 +2360,7 @@ impl eframe::App for WaDesk {
                 self.sync_rounds = 6;
                 self.last_sync = std::time::Instant::now();
             }
+            self.send(Command::SyncChatState);
         }
         if self.model.login.is_linked()
             && self.sync_rounds > 0
@@ -2744,6 +2829,8 @@ enum Icon {
     Attach,
     Chats,
     Add,
+    Groups,
+    Logout,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -2795,8 +2882,54 @@ impl Icon {
             Icon::Attach => "attach_file",
             Icon::Chats => "chat_bubble",
             Icon::Add => "add",
+            Icon::Groups => "groups",
+            Icon::Logout => "logout",
         }
     }
+}
+
+/// An outlined filter pill (`All`, `Groups 3`, …), filled when selected.
+fn pill_button(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    label: &str,
+    selected: bool,
+) -> bool {
+    let font = egui::FontId::proportional(11.5);
+    let text = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), palette.text);
+    let width = text.size().x + 20.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 27.0), egui::Sense::click());
+    let fill = if selected {
+        palette.selected
+    } else if response.hovered() {
+        palette.hover
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(14),
+        fill,
+        egui::Stroke::new(1.0_f32, palette.border),
+        egui::StrokeKind::Inside,
+    );
+    let color = if selected {
+        palette.text
+    } else {
+        palette.secondary
+    };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        font,
+        color,
+    );
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
 }
 
 /// One rail button, with an optional badge for unread counts.
@@ -3016,7 +3149,7 @@ fn chat_row(
     texture: Option<&egui::TextureHandle>,
 ) -> bool {
     let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 66.0), egui::Sense::click());
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 72.0), egui::Sense::click());
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 0.0, palette.selected);
@@ -3024,16 +3157,16 @@ fn chat_row(
         painter.rect_filled(rect, 0.0, palette.hover);
     }
 
-    let center = egui::pos2(rect.left() + 36.0, rect.center().y);
+    let center = egui::pos2(rect.left() + 40.0, rect.center().y);
     if let Some(texture) = texture {
         painter.image(
             texture.id(),
-            egui::Rect::from_center_size(center, egui::vec2(44.0, 44.0)),
+            egui::Rect::from_center_size(center, egui::vec2(48.0, 48.0)),
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,
         );
     } else {
-        painter.circle_filled(center, 22.0, avatar_color(title));
+        painter.circle_filled(center, 24.0, avatar_color(title));
         painter.text(
             center,
             egui::Align2::CENTER_CENTER,
@@ -3043,7 +3176,7 @@ fn chat_row(
         );
     }
 
-    let left = rect.left() + 68.0;
+    let left = rect.left() + 76.0;
     let right = rect.right() - 12.0;
     // Reserve the clock's width so a long name cannot run underneath it.
     let stamp_width = if stamp.is_empty() {
@@ -3060,7 +3193,7 @@ fn chat_row(
             + 10.0
     };
     painter.text(
-        egui::pos2(left, rect.top() + 19.0),
+        egui::pos2(left, rect.top() + 22.0),
         egui::Align2::LEFT_CENTER,
         fit_text(
             painter,
@@ -3079,7 +3212,7 @@ fn chat_row(
             palette.secondary
         };
         painter.text(
-            egui::pos2(right, rect.top() + 19.0),
+            egui::pos2(right, rect.top() + 22.0),
             egui::Align2::RIGHT_CENTER,
             stamp,
             egui::FontId::proportional(11.5),
@@ -3087,7 +3220,7 @@ fn chat_row(
         );
     }
     painter.text(
-        egui::pos2(left, rect.top() + 41.0),
+        egui::pos2(left, rect.top() + 47.0),
         egui::Align2::LEFT_CENTER,
         fit_text(
             painter,

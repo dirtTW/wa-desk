@@ -117,6 +117,32 @@ impl Session {
         (!phone.is_empty()).then_some(phone)
     }
 
+    /// Every chat JID the session has learned (messages, app-state, receipts).
+    pub fn known_chats(&self) -> Vec<String> {
+        self.chats
+            .lock()
+            .expect("chats lock")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// Apply the chat app-state collection (pins, archives, mutes) so those
+    /// chats - typically groups, which never appear in the address book - are
+    /// announced to the UI.
+    pub async fn sync_chat_state(&self) -> Result<(), String> {
+        use whatsapp_rust::sync_task::MajorSyncTask;
+        use whatsapp_rust::wacore::appstate::patch_decode::WAPatchName;
+
+        self.client
+            .process_sync_task(MajorSyncTask::AppStateSync {
+                name: WAPatchName::Regular,
+                full_sync: false,
+            })
+            .await;
+        Ok(())
+    }
+
     /// The account's push name as stored in the device snapshot.
     pub fn push_name(&self) -> String {
         self.client.push_name()
