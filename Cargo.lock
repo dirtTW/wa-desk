@@ -4897,7 +4897,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wa-core"
-version = "0.2.0-rc.74"
+version = "0.2.0-rc.75"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -4916,7 +4916,7 @@ dependencies = [
 
 [[package]]
 name = "wa-desktop-native"
-version = "0.2.0-rc.74"
+version = "0.2.0-rc.75"
 dependencies = [
  "base64 0.23.1",
  "eframe",
@@ -4938,14 +4938,14 @@ dependencies = [
 
 [[package]]
 name = "wa-types"
-version = "0.2.0-rc.74"
+version = "0.2.0-rc.75"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "wa-ui"
-version = "0.2.0-rc.74"
+version = "0.2.0-rc.75"
 dependencies = [
  "chrono",
  "regex",
@@ -4955,7 +4955,7 @@ dependencies = [
 
 [[package]]
 name = "wa-windows-installer"
-version = "0.2.0-rc.74"
+version = "0.2.0-rc.75"
 dependencies = [
  "windows",
 ]

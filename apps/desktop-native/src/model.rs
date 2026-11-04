@@ -141,6 +141,16 @@ pub enum Command {
         phone: String,
         name: String,
     },
+    /// Add/remove/promote/demote a group member.
+    GroupMember {
+        chat: String,
+        member: String,
+        action: String,
+    },
+    /// Leave a group.
+    LeaveGroup {
+        chat: String,
+    },
     /// Send a file from disk as an attachment.
     SendDocument {
         chat: String,

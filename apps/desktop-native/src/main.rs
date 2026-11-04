@@ -238,6 +238,9 @@ fn main() {
     let sync_cursor: Arc<std::sync::Mutex<usize>> = Arc::new(std::sync::Mutex::new(0));
     let command_contacts = sync_contacts.clone();
     let command_cursor = sync_cursor.clone();
+    // Media downloads run in their own tasks; three at a time keeps the UI
+    // responsive without flooding the CDN or the phone.
+    let media_limit = Arc::new(tokio::sync::Semaphore::new(3));
     // Commands from the UI thread are executed on the runtime.
     let slot = session_slot.clone();
     handle.spawn(async move {
@@ -264,8 +267,18 @@ fn main() {
                     }
                 }
                 model::Command::FetchMedia { id } => {
-                    let reply = session.fetch_media(&id).await;
-                    let _ = media_tx.send((id, reply));
+                    // Downloads are independent; run a few at a time instead of
+                    // serialising the whole gallery behind one command loop.
+                    let session = session.clone();
+                    let media_tx = media_tx.clone();
+                    let limit = media_limit.clone();
+                    tokio::spawn(async move {
+                        let Ok(_permit) = limit.acquire_owned().await else {
+                            return;
+                        };
+                        let reply = session.fetch_media(&id).await;
+                        let _ = media_tx.send((id, reply));
+                    });
                 }
                 model::Command::GroupInfo { chat } => {
                     let reply = session.group_info(&chat).await;
@@ -525,6 +538,32 @@ fn main() {
                         Err(err) => app::diag(&format!("new contact: {err}")),
                     }
                 }
+                model::Command::GroupMember {
+                    chat,
+                    member,
+                    action,
+                } => {
+                    let members = [member];
+                    let result = match action.as_str() {
+                        "add" => session.add_group_members(&chat, &members).await,
+                        "remove" => session.remove_group_members(&chat, &members).await,
+                        "promote" => session.promote_group_members(&chat, &members).await,
+                        "demote" => session.demote_group_members(&chat, &members).await,
+                        other => Err(format!("unknown member action {other}")),
+                    };
+                    match result {
+                        Ok(()) => {
+                            app::diag(&format!("member action {chat} {action}: ok"));
+                            let reply = session.group_info(&chat).await;
+                            let _ = group_tx.send((chat, reply));
+                        }
+                        Err(err) => app::diag(&format!("member action {action}: {err}")),
+                    }
+                }
+                model::Command::LeaveGroup { chat } => match session.leave_group(&chat).await {
+                    Ok(()) => app::diag(&format!("left group {chat}")),
+                    Err(err) => app::diag(&format!("leave group: {err}")),
+                },
                 model::Command::SendDocument {
                     chat,
                     path,

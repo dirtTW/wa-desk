@@ -151,6 +151,8 @@ pub struct WaDesk {
     show_new_contact: bool,
     new_contact_phone: String,
     new_contact_name: String,
+    group_add_open: bool,
+    group_add_members: std::collections::HashSet<String>,
 }
 
 impl WaDesk {
@@ -224,6 +226,8 @@ impl WaDesk {
             show_new_contact: false,
             new_contact_phone: String::new(),
             new_contact_name: String::new(),
+            group_add_open: false,
+            group_add_members: std::collections::HashSet::new(),
         }
     }
 
@@ -612,6 +616,58 @@ impl WaDesk {
             });
         if !open {
             self.show_new_contact = false;
+        }
+    }
+
+    /// Add members to the open group.
+    fn group_add_window(&mut self, ctx: &egui::Context) {
+        if !self.group_add_open {
+            return;
+        }
+        let mut open = true;
+        let contacts = self.contacts.clone();
+        let chat = self.model.active.clone().unwrap_or_default();
+        egui::Window::new("Add members")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(320.0)
+                    .show(ui, |ui| {
+                        for (jid, name) in contacts {
+                            let mut checked = self.group_add_members.contains(&jid);
+                            if ui.checkbox(&mut checked, name).changed() {
+                                if checked {
+                                    self.group_add_members.insert(jid);
+                                } else {
+                                    self.group_add_members.remove(&jid);
+                                }
+                            }
+                        }
+                    });
+                let count = self.group_add_members.len();
+                if ui
+                    .add_enabled(
+                        count > 0,
+                        egui::Button::new(format!("Add {count} member(s)")),
+                    )
+                    .clicked()
+                {
+                    let members: Vec<String> = self.group_add_members.iter().cloned().collect();
+                    for member in members {
+                        self.send(Command::GroupMember {
+                            chat: chat.clone(),
+                            member,
+                            action: "add".into(),
+                        });
+                    }
+                    self.group_add_members.clear();
+                    self.group_add_open = false;
+                }
+            });
+        if !open {
+            self.group_add_open = false;
         }
     }
 
@@ -1100,11 +1156,14 @@ impl WaDesk {
                 ui.separator();
 
                 // Ask for photos and stickers that are not on disk yet (one
-                // request each). The same sticker files feed the picker.
+                // request each). Only the newest few: older bubbles were
+                // requested when they were on screen.
                 let wanted: Vec<String> = row
                     .messages
                     .iter()
+                    .rev()
                     .filter(|message| matches!(message.kind.as_str(), "image" | "sticker"))
+                    .take(24)
                     .map(|message| message.id.clone())
                     .collect();
                 for id in wanted {
@@ -1844,7 +1903,18 @@ fn texture_at(
         return texture.clone();
     }
     let bytes = std::fs::read(path?).ok()?;
-    let image = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let mut image = image::load_from_memory(&bytes).ok()?;
+    // Big screenshots are common; cap the upload size so decoding and texture
+    // creation stay cheap (the window never paints wider than this).
+    if image.width() > 720 {
+        let scale = 720.0 / image.width() as f32;
+        image = image.resize(
+            (image.width() as f32 * scale) as u32,
+            (image.height() as f32 * scale) as u32,
+            image::imageops::FilterType::Triangle,
+        );
+    }
+    let image = image.to_rgba8();
     let size = [image.width() as usize, image.height() as usize];
     let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
     let texture = ctx.load_texture(key.to_string(), color, egui::TextureOptions::LINEAR);
@@ -2606,10 +2676,21 @@ impl WaDesk {
             }
             ui.add_space(10.0);
             ui.separator();
+            let chat = self.model.active.clone().unwrap_or_default();
+            ui.horizontal(|ui| {
+                if ui.button("Add members").clicked() {
+                    self.group_add_open = true;
+                    self.send(Command::Contacts);
+                }
+                if ui.button("Leave group").clicked() {
+                    self.send(Command::LeaveGroup { chat: chat.clone() });
+                    self.show_group = false;
+                }
+            });
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for (name, admin, _jid) in self.model.group_members() {
+                    for (name, admin, jid) in self.model.group_members() {
                         ui.horizontal(|ui| {
                             ui.label(name);
                             if admin {
@@ -2619,6 +2700,33 @@ impl WaDesk {
                                         .color(egui::Color32::from_rgb(37, 211, 102)),
                                 );
                             }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.small_button("Remove").clicked() {
+                                        self.send(Command::GroupMember {
+                                            chat: chat.clone(),
+                                            member: jid.clone(),
+                                            action: "remove".into(),
+                                        });
+                                    }
+                                    if admin {
+                                        if ui.small_button("Demote").clicked() {
+                                            self.send(Command::GroupMember {
+                                                chat: chat.clone(),
+                                                member: jid.clone(),
+                                                action: "demote".into(),
+                                            });
+                                        }
+                                    } else if ui.small_button("Promote").clicked() {
+                                        self.send(Command::GroupMember {
+                                            chat: chat.clone(),
+                                            member: jid.clone(),
+                                            action: "promote".into(),
+                                        });
+                                    }
+                                },
+                            );
                         });
                     }
                 });
@@ -2689,6 +2797,7 @@ impl eframe::App for WaDesk {
         self.starred_window(ctx);
         self.new_group_window(ctx);
         self.new_contact_window(ctx);
+        self.group_add_window(ctx);
         self.screenshot_tick(ctx);
         // A restart only finds the chat list because it is mirrored here: the
         // phone does not replay history to an already-linked device.

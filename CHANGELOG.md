@@ -4,7 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.74] — 2026-11-04
+## [0.2.0-rc.75] — 2026-11-04
+
+- **Media loads faster.** `FetchMedia` no longer runs inside the serial command loop: each
+  download is a task behind a three-permit semaphore, so a photo grid fills in parallel instead
+  of one image per round-trip. The window only requests the newest 24 photo/sticker messages in a
+  chat (older ones were requested when they were on screen), and textures are decoded capped at
+  720 px wide, which cuts decode and upload time for large camera images.
+- **Group member management** (JS-only before): group info now has Add members (contact
+  checklist), Promote/Demote and Remove per member, and Leave group, all through the session's
+  `add/remove/promote/demote_group_members` and `leave_group`.
+
+
 
 - **Starred messages** (JS-only before): the bubble menu stars/unstars through
   `star_message`, `StarMessage` events fold into `Model::starred`, and Chats → kebab →
