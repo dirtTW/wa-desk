@@ -4,7 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.72] — 2026-11-04
+## [0.2.0-rc.73] — 2026-11-04
+
+- **Chat actions are back** (they were JS-only after the migration): the chat header kebab now
+  opens a card with Group info, Mute for 8 hours / 1 week / Unmute, Pin / Unpin, Mark as unread,
+  Archive, Clear and Delete, all through the session's `chat_actions` (`pin_chat`,
+  `mute_chat`, `archive_chat`, `mark_chat_unread`, `clear_chat`, `delete_chat`).
+- **New-chat picker**: the green FAB asks the session for the address book
+  (`Command::Contacts`), lists it in a searchable window and opens the chosen chat with its
+  history request - the native replacement for the JS contact picker.
+- README updated to the current state (official chat list, groups/communities, read sync,
+  attachments, documents, installer, pure-Rust tree).
+
+
 
 - **Read badges stay in step with the phone.** A `read`/`played` receipt or a
   `ChatReadMark` from the chat app-state clears the chat's unread count (already), and a

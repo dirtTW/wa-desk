@@ -102,6 +102,13 @@ async fn sync_batch(
     }
 }
 
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -189,6 +196,7 @@ fn main() {
         std::sync::mpsc::channel::<Result<Vec<wa_types::FavoriteStickerView>, String>>();
     let (avatar_tx, avatar_rx) = std::sync::mpsc::channel::<(String, Option<String>)>();
     let (attach_tx, attach_rx) = std::sync::mpsc::channel::<Result<String, String>>();
+    let (contacts_tx, contacts_rx) = std::sync::mpsc::channel::<Vec<(String, String)>>();
 
     let store = model::store_path();
     let media = model::media_dir();
@@ -441,6 +449,40 @@ fn main() {
                     }
                     Err(err) => app::diag(&format!("participating groups: {err}")),
                 },
+                model::Command::ChatAction { chat, action } => {
+                    let result = match action.as_str() {
+                        "pin" => session.pin_chat(&chat, true).await,
+                        "unpin" => session.pin_chat(&chat, false).await,
+                        "mute8h" => {
+                            let until = now_ms() + 8 * 60 * 60 * 1000;
+                            session.mute_chat(&chat, until).await
+                        }
+                        "mute1w" => {
+                            let until = now_ms() + 7 * 24 * 60 * 60 * 1000;
+                            session.mute_chat(&chat, until).await
+                        }
+                        "unmute" => session.mute_chat(&chat, 0).await,
+                        "archive" => session.archive_chat(&chat, true).await,
+                        "unarchive" => session.archive_chat(&chat, false).await,
+                        "unread" => session.mark_chat_unread(&chat, true).await,
+                        "clear" => session.clear_chat(&chat).await,
+                        "delete" => session.delete_chat(&chat).await,
+                        other => Err(format!("unknown chat action {other}")),
+                    };
+                    match &result {
+                        Ok(()) => app::diag(&format!("chat action {chat} {action}: ok")),
+                        Err(err) => app::diag(&format!("chat action {chat} {action}: {err}")),
+                    }
+                }
+                model::Command::Contacts => {
+                    let mut contacts: Vec<(String, String)> = session
+                        .contacts()
+                        .into_iter()
+                        .map(|(key, name)| (as_jid(&key), name))
+                        .collect();
+                    contacts.sort_by_key(|(_, name)| name.to_lowercase());
+                    let _ = contacts_tx.send(contacts);
+                }
                 model::Command::SendDocument {
                     chat,
                     path,
@@ -508,7 +550,15 @@ fn main() {
     };
 
     let app = app::NativeApp::new(
-        event_rx, command_tx, handle, media_rx, group_rx, fav_rx, avatar_rx, attach_rx,
+        event_rx,
+        command_tx,
+        handle,
+        media_rx,
+        group_rx,
+        fav_rx,
+        avatar_rx,
+        attach_rx,
+        contacts_rx,
     );
     let screenshot_path = screenshot.clone();
     if let Err(err) = eframe::run_native(

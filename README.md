@@ -1,103 +1,67 @@
 # WA Desk
 
-An unofficial WhatsApp desktop client written in **Rust**, for **Windows** and **Linux**. It
-speaks the WhatsApp Web multi-device protocol through
-[`whatsapp-rust`](https://crates.io/crates/whatsapp-rust) and draws its window with
-`eframe`/`egui` — **no WebView, no HTML, no JavaScript anywhere in the repository**.
+An unofficial WhatsApp desktop client in **Rust** for Windows and Linux. It speaks the WhatsApp
+Web multi-device protocol through [`whatsapp-rust`](https://crates.io/crates/whatsapp-rust) and
+draws its window with `eframe`/`egui` — **no WebView, no HTML, no JavaScript anywhere in the
+repository**.
 
-> **Disclaimer.** This is not affiliated with, endorsed by, or connected to WhatsApp or Meta.
-> It is an independent reimplementation of the WhatsApp Web protocol. Using a custom client can
-> violate Meta's Terms of Service and can get the linked account **banned**. Use a secondary
-> account if you care about the primary one.
+> **Disclaimer.** Not affiliated with, endorsed by, or connected to WhatsApp or Meta. Using a
+> custom client can violate Meta's Terms of Service and can get the linked account **banned**.
+> Use a secondary account if you care about the primary one.
 
 ---
 
 ## Development note
 
-**This project is 100% vibe-coded — the author does not write code.**
+**This project is 100% vibe-coded — the author does not write code.** I described what I wanted,
+looked at the result and said "no — like *this*" until it worked.
 
-I'm not a programmer. I wanted a WhatsApp desktop client that behaved the way the real thing
-does, so I built it by instructing AI coding agents: describing what I wanted, looking at the
-result, and saying "no — like *this*" until it worked. The models wrote every line of Rust; my
-part was the direction, the taste, and the patience.
+**Built with:** DeepSeek V4.1 Flash (primary) and GLM 5.3 Flash.
 
-**Built with:**
+It works, but it has **not had a security audit**. It handles end-to-end encrypted messages and
+stores credentials: read it before trusting it with anything sensitive, and use a secondary
+account. Issues and pull requests are welcome.
 
-- **DeepSeek V4.1 Flash** — primary coding model
-- **GLM 5.3 Flash** — second coding model
+## What it does
 
-What that means if you use it:
+- **Linking**: QR or phone-number pairing code, persistent SQLite session, live connection state.
+- **Chat list like the phone**: 58 px rail with unread/unseen badges and your profile photo,
+  kebab menu, green new-chat FAB, rounded search, and **All / Groups / Communities / Unread**
+  filters with live counts. Rows show avatars (real photos when available), previews, clocks and
+  unread pills, sorted by last message. The list is cached to `chats.json` and backfilled in
+  batches, so a restart keeps it.
+- **Groups and communities**: every group the account participates in, by name, with history and
+  the Communities filter. **Read badges sync both ways** with the phone.
+- **Conversation**: text, typing indicator, tails, sender colours, inline clocks; in-chat search
+  with match counter and highlight; **documents as the official card**; photos and stickers.
+- **Media viewer**: filmstrip, arrow keys, Esc, and Save copies to `Downloads\WA Desk`.
+- **Emoji and stickers**: full catalogue with search/recents, favourites and cached stickers.
+- **Message actions**: reply, react, copy, forward, edit, delete (for me / everyone), plus
+  **chat actions**: mute, pin, mark unread, archive, clear, delete.
+- **Status / stories** and **channels**, read-only for channels.
+- **Send files**: paperclip picker, or Ctrl+V a file copied in Explorer; composer text becomes
+  the caption.
+- **Settings**: Light / Dark / System, AI form, history/group/status sync, relink, auto-update
+  from GitHub releases.
+- **Official look**: WhatsApp's `--WDS-*` palette, Material Symbols rasterised with `resvg`,
+  rounded composer and card menus.
 
-- It genuinely works, but it has **not had a security audit**. It handles end-to-end encrypted
-  messages and stores credentials — read it before trusting it with anything sensitive, and use
-  a secondary account.
-- There will be bugs and rough edges. Issues and pull requests are welcome.
-- If "an AI wrote this" isn't your thing, that's a fair opinion — but the source is open
-  (AGPL-3.0-only), so you can read every line and judge it on what it does.
-
-## What it does today
-
-The native window (`wa-desk-native`) covers:
-
-- **Linking**: QR scan or phone-number pairing code, with a persistent SQLite session, and the
-  connection state always visible
-- **Chats**: the list from history sync, search, previews, clock stamps, unread badges that
-  clear when another device reads the chat
-- **Conversation**: text, send and receive, typing indicator, own/other bubbles, sender + time
-  headers, reading a history replay
-- **In-chat search**: the header's search bar with a match counter, previous/next stepping,
-  yellow highlighting inside the bubble and on the matched bubble, Esc to close
-- **Media**: photos decoded into the window (one download per message), stickers painted
-  without a bubble, placeholders for video / audio / document
-- **Media viewer**: full-window stage, filmstrip, prev/next and arrow keys, Esc to close, and
-  Save copies the file to `Downloads\WA Desk`
-- **Emoji picker**: the full catalogue with search and recents, inserting into the composer
-- **Sticker picker**: the account's favourites from app state plus the stickers already
-  cached from chats; clicking one sends it
-- **Status / stories**: poster rail with unseen/seen rings, story viewer with per-frame progress,
-  background colours, prev/next and auto-advance
-- **Channels**: followed newsletters with their follower counts and read-only posts
-- **Group info**: subject, description, member count and the member list with admin chips
-- **Message actions**: right-click a bubble for reply, react, copy, forward, edit (your own
-  text) and delete; a reply/edit card sits above the composer, deletes ask "for me" or "for
-  everyone", forwarding offers a multi-select chat picker, and reactions show as pills under
-  the bubble (ours in blue)
-- **Send files**: the composer's paperclip opens the native file picker, and Ctrl+V attaches a
-  file copied in Explorer; the composer text becomes the caption
-- **Auto-update**: checks GitHub releases on launch (pre-releases included), shows the version
-  in Settings → Updates, and downloads + swaps the platform binary on restart
-- **Settings**: theme (Light / Dark / System) and the AI form, validated by the same rules the
-  rest of the app uses
-- **The official look**: WhatsApp's `--WDS-*` palette, avatars, unread pills, bubbles with their
-  tail and inline clock, wallpaper, rounded composer and the message menu - all drawn with
-  `egui`/`Painter`, no images and no JavaScript
-
-**What is no longer in the tree** (removed in `v0.2.0-rc.57`): the Tauri shell, its
-WebView (`wry`, `webview2-com`, `webkit2gtk`), `tauri-plugin-{notification,autostart,updater}`,
-the MSI/NSIS bundling and the 13-file JavaScript front end - several thousand lines of JS
-and the whole HTML/CSS tree. `Cargo.lock` now has zero `tauri`, `wry`, `webview2` and
-`webkit2gtk` entries; the only new dependencies are `eframe`, `egui`, `resvg` (QR) and
-`image` (photo decoding). In `v0.2.0-rc.60` the last dev tooling went too: all 23
-`.mjs`/`.ps1` scripts and `package.json` were deleted, and the surviving icon generator is
-the Rust example `cargo run -p wa-ui --example gen_icons`. **The repository now has zero
-`.js`, `.mjs`, `.ps1` and `.bat` files** - Rust is the only language left.
-Planned next, in rough order: notifications + tray + autostart, the AI auto-reply loop (it
-used to live in the removed WebView shell), and calls on a native audio/video path.
+**History caveat.** WhatsApp only pushes older message history to a newly linked device. The app
+asks for the recent chats in batches and on open; Settings → Chat history can unlink so a fresh
+pair imports everything.
 
 ## How it is put together
 
 ```
-crates/wa-types/   serializable vocabulary shared by the protocol and the UI
-crates/wa-core/    the session: protocol, Signal, media, history, groups, status
-crates/wa-ui/      every decision the UI makes: strings, labels, plans, timings (+ tests)
+crates/wa-types/      serializable vocabulary shared by protocol and UI
+crates/wa-core/       the session: protocol, Signal, media, history, groups, status
+crates/wa-ui/         every UI decision: strings, labels, plans, timings (+ tests)
 apps/desktop-native/  the window: eframe/egui, driven by UiEvent and Command
+apps/windows-installer/  the setup stub that installs the app
 ```
 
-`wa-core` knows nothing about the UI and `wa-ui` knows nothing about the session, so a second
-front end (or a daemon) can reuse either. The native window is a thin painter: it receives
-`UiEvent`s from the session and asks `wa-ui` what to write.
-
-The UI is verified without a display:
+`wa-core` knows nothing about the UI and `wa-ui` knows nothing about the session, so either can
+be reused alone. The UI is verified without a display:
 
 ```bash
 cargo run -p wa-desktop-native -- --selftest
@@ -107,59 +71,43 @@ cargo run -p wa-desktop-native -- --selftest
 #  "status":"Connected","status_groups":2,"stickers":0,"theme":"light","viewer_items":1}
 ```
 
-`--selftest` folds a scripted event sequence through the same model the window uses — pairing
-gate, chats, unread, media lifecycle, status viewer, channels, settings and group info — and
-exits non-zero if anything disagrees.
-
 ## Install on Windows
 
-Download **`WA-Desk-Setup.exe`** from the [releases page](https://github.com/dirtTW/wa-desk/releases)
-and run it. It needs no admin rights and no MSI/WiX runtime:
-
-- installs per-user into `%LOCALAPPDATA%\Programs\WA Desk`
-- adds Start Menu and Desktop shortcuts
-- starts the app
-- leaves `Uninstall WA Desk.cmd` beside it (and Settings → Updates keeps it current)
-
-Linux ships the plain `wa-desk-native` binary.
+Download **`WA-Desk-Setup.exe`** from the [releases](https://github.com/dirtTW/wa-desk/releases)
+and run it — no admin, no MSI/WiX. It installs to `%LOCALAPPDATA%\Programs\WA Desk`, adds Start
+Menu and Desktop shortcuts, starts the app, and leaves `Uninstall WA Desk.cmd` behind. Linux
+ships the plain `wa-desk-native` binary.
 
 ## Requirements
 
-- Rust **1.94+** (edition 2024). Install with [rustup](https://rustup.rs/).
-- **Windows**: MSVC build tools (Visual Studio "Desktop development with C++").
-- **Linux** (Debian/Ubuntu):
-
-  ```bash
-  sudo apt install build-essential libssl-dev pkg-config \
-      libxkbcommon-dev libwayland-dev libgl1-mesa-dev
-  ```
-
-  Fedora/Arch equivalents: `openssl-devel`, `libxkbcommon-devel`, `wayland-devel`,
-  `mesa-libGL-devel`.
+- Rust **1.94+** (edition 2024) — install with [rustup](https://rustup.rs/).
+- **Windows**: MSVC build tools ("Desktop development with C++").
+- **Linux** (Debian/Ubuntu): `sudo apt install build-essential libssl-dev pkg-config
+  libxkbcommon-dev libwayland-dev libgl1-mesa-dev`. Fedora/Arch: `openssl-devel`,
+  `libxkbcommon-devel`, `wayland-devel`, `mesa-libGL-devel`.
 
 ## Run from source
 
 ```bash
 cargo run -p wa-desktop-native
-cargo run -p wa-desktop-native -- --selftest    # headless UI check
-# render a sample chat with no linked account and save a PNG
-cargo run -p wa-desktop-native -- --preview --screenshot preview.png
+cargo run -p wa-desktop-native -- --selftest                     # headless UI check
+cargo run -p wa-desktop-native -- --preview --screenshot ui.png  # sample chat, no account
 ```
 
-First launch shows a QR code. On your phone open
-**WhatsApp → Settings → Linked devices → Link a device**, then scan, or use *Link with phone
-number instead* and type the 8-character code.
+First launch shows a QR code: on the phone open **WhatsApp → Settings → Linked devices → Link a
+device**, or use *Link with phone number instead*.
 
 ## Build
 
 ```bash
 cargo build --release -p wa-desktop-native
-# Windows output: target/release/wa-desk-native.exe
+# Windows: target/release/wa-desk-native.exe
+# Windows installer: cargo run -p wa-windows-installer --bin pack-setup -- \
+#   target/release/wa-desk-setup.exe target/release/wa-desk-native.exe "WA-Desk-Setup.exe"
 ```
 
 Build each target on its own OS. The release profile favours wall time (`codegen-units = 16`,
-`lto = false`); switch to `codegen-units = 1` and `lto = "thin"` for the smallest binary at the
-cost of a slower build.
+`lto = false`).
 
 ## Where data lives
 
@@ -168,71 +116,67 @@ cost of a slower build.
 | Windows | `%APPDATA%\io.github.dirttw.wadesk-native\whatsapp.db` |
 | Linux | `~/.local/share/io.github.dirttw.wadesk-native/whatsapp.db` |
 
-Delete that file to unlink locally (any other linked device still shows this one until you
-remove it from the phone). Settings and the downloaded media live beside it.
+`chats.json`, `settings.json` and downloaded media live beside it. Delete the database to unlink
+locally (remove the device from the phone as well).
 
 ## Credits
 
-WA Desk is a thin layer on top of other people's work. Special thanks to everyone below - this
-client would not exist without them.
+WA Desk is a thin layer on other people's work; this client would not exist without them.
 
-### Protocol
+**Protocol**
 
 - **[whatsapp-rust](https://github.com/jlucaso1/whatsapp-rust)** by
-  [jlucaso1](https://github.com/jlucaso1) - the WhatsApp Web protocol client this app is built
-  on (`wacore`, `waproto`, `wacore-noise`, `wacore-appstate`, `whatsapp-rust-*`). This is the
-  single biggest dependency and the reason the project is possible at all.
-- **[Signal](https://signal.org/) / [libsignal](https://github.com/signalapp/libsignal)** - the
-  Double Ratchet, X3DH and the crypto primitives behind end-to-end encryption
-  (`wacore-libsignal`). Also the reason this app is AGPL.
+  [jlucaso1](https://github.com/jlucaso1) — the WhatsApp Web client this app is built on
+  (`wacore`, `waproto`, `wacore-noise`, `wacore-appstate`, `whatsapp-rust-*`).
+- **[Signal](https://signal.org/) / [libsignal](https://github.com/signalapp/libsignal)** — the
+  Double Ratchet, X3DH and the crypto primitives (`wacore-libsignal`); also why this app is AGPL.
 - **[whatsmeow](https://github.com/tulir/whatsmeow)** and
-  **[Baileys](https://github.com/WhiskeySockets/Baileys)** - the reference implementations that
-  `whatsapp-rust` checks its protocol behaviour against.
+  **[Baileys](https://github.com/WhiskeySockets/Baileys)** — the reference implementations
+  `whatsapp-rust` checks its behaviour against.
 
-### Window and assets
+**Window, icons and media**
 
-- **[eframe](https://github.com/emilk/egui)** / **[egui](https://github.com/emilk/egui)** by
-  [emilern](https://github.com/emilk) - the native window and everything painted in it. No
-  WebView, no HTML, no JavaScript.
-- **[resvg](https://github.com/linebender/resvg)** - rasterising the pairing QR into the window.
-- **[image](https://github.com/image-rs/image)** - decoding photos, posters and stickers.
-- **[Material Symbols](https://fonts.google.com/icons)** (Google) - every icon in the UI
-  (generated into `crates/wa-ui/src/icons_data.rs`).
-- **[Unicode emoji](https://unicode.org/emoji/)** - the picker catalogue from the Unicode
-  character database, and the fonts that draw each glyph.
+- **[eframe](https://github.com/emilk/egui) / [egui](https://github.com/emilk/egui)** by
+  [emilk](https://github.com/emilk) — the native window and everything painted in it.
+- **[resvg](https://github.com/linebender/resvg)** — the pairing QR and the Material icons.
+- **[image](https://github.com/image-rs/image)** — decoding photos, thumbnails and stickers.
+- **[Material Symbols](https://fonts.google.com/icons)** (Google) — every icon, generated into
+  `crates/wa-ui/src/icons_data.rs`.
+- **Unicode emoji** and the OS emoji font (Segoe UI Emoji / Noto) — the picker and message glyphs.
 
-### Crates
+**Crates**
 
-- **[tokio](https://tokio.rs/)** - the async runtime.
-- **[serde](https://serde.rs/)** / **[serde_json](https://serde.rs/)** - serialization.
-- **[RustCrypto](https://github.com/RustCrypto)** - `aes-gcm`, `sha2`, `hmac`, `hkdf`.
-- **[ureq](https://github.com/algesten/ureq)** - the blocking HTTP client.
-- **[qrcode](https://github.com/kennytm/qrcode-rust)** - the pairing QR code matrix.
-- **[tracing](https://tokio.rs/tokio/tracing)** - logging.
-- **[anyhow](https://github.com/dtolnay/anyhow)** - error handling.
-- **[regex](https://github.com/rust-lang/regex)**, **[chrono](https://github.com/chronotope/chrono)**,
+- **[tokio](https://tokio.rs/)** — async runtime.
+- **[serde](https://serde.rs/) / [serde_json](https://serde.rs/)** — serialization.
+- **[RustCrypto](https://github.com/RustCrypto)** — `aes-gcm`, `sha2`, `hmac`, `hkdf`.
+- **[ureq](https://github.com/algesten/ureq)** — HTTP for updates and profile photos.
+- **[qrcode](https://github.com/kennytm/qrcode-rust)** — the pairing QR matrix.
+- **[tracing](https://tokio.rs/tokio/tracing)** — logging.
+- **[anyhow](https://github.com/dtolnay/anyhow)** — error handling.
+- **[regex](https://github.com/rust-lang/regex)**,
+  **[chrono](https://github.com/chronotope/chrono)**,
   **[base64](https://github.com/marshallpierce/rust-base64)** and
-  **[async-channel](https://github.com/smol-rs/async-channel)** - text, dates, payloads and
-  channels.
-- ...and every other crate in `Cargo.lock`; `cargo tree` lists them all.
+  **[async-channel](https://github.com/smol-rs/async-channel)** — text, dates, payloads, channels.
+- **[rfd](https://github.com/PolyMeilex/rfd)** — the native file picker.
+- **[windows-sys](https://github.com/microsoft/windows-rs)** — clipboard files (Ctrl+V) and the
+  installer's shortcuts (COM). See also Microsoft's
+  [`windows-rs`](https://github.com/microsoft/windows-rs) project.
+- …and every other crate in `Cargo.lock`; `cargo tree` lists them all.
 
-### Tools
+**Tools**
 
-- **[OpenCode](https://opencode.ai)** - the agentic coding environment this was built in.
-- **[DeepSeek V4.1 Flash](https://deepseek.com)** and **[GLM 5.3 Flash](https://z.ai)** - the
-  models that wrote the code (see the [Development note](#development-note)).
+- **[OpenCode](https://opencode.ai)** — the agentic coding environment this was built in.
+- **[DeepSeek V4.1 Flash](https://deepseek.com)** and **[GLM 5.3 Flash](https://z.ai)** — the
+  models that wrote the code (see the development note above).
 
-### And
+**And**
 
-- **WhatsApp / Meta** - for the protocol this reimplements. Not affiliated, not endorsed, and
+- **WhatsApp / Meta** — for the protocol this reimplements. Not affiliated, not endorsed, and
   subject to their Terms of Service.
 
 ## License
 
 AGPL-3.0-only. The distributed binary statically links `wacore-libsignal`, whose files carry
 Signal's AGPL-3.0-only headers, so the combined work is AGPL; see [`LICENSE.md`](LICENSE.md) and
-[`SECURITY.md`](SECURITY.md). Third-party crates and their licenses are listed in the credits
-above and in `Cargo.lock`.
-
-The full feature inventory, architecture notes, design gotchas and roadmap live in
+[`SECURITY.md`](SECURITY.md). Architecture notes, gotchas and the roadmap live in
 [`AGENTS.md`](AGENTS.md); the change log is [`CHANGELOG.md`](CHANGELOG.md).

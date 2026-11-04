@@ -28,6 +28,8 @@ pub struct NativeApp {
     pub avatars: std::sync::mpsc::Receiver<(String, Option<String>)>,
     /// Attachment send results (a note or an error).
     pub attach: std::sync::mpsc::Receiver<Result<String, String>>,
+    /// The address book for the new-chat picker.
+    pub contacts: std::sync::mpsc::Receiver<Vec<(String, String)>>,
 }
 
 impl NativeApp {
@@ -41,6 +43,7 @@ impl NativeApp {
         favorites: std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
         avatars: std::sync::mpsc::Receiver<(String, Option<String>)>,
         attach: std::sync::mpsc::Receiver<Result<String, String>>,
+        contacts: std::sync::mpsc::Receiver<Vec<(String, String)>>,
     ) -> Self {
         Self {
             events,
@@ -51,6 +54,7 @@ impl NativeApp {
             favorites,
             avatars,
             attach,
+            contacts,
         }
     }
 }
@@ -133,6 +137,13 @@ pub struct WaDesk {
     groups_asked: std::collections::HashSet<String>,
     /// The Chats kebab menu is open.
     show_chat_menu: bool,
+    /// The open chat's actions menu.
+    show_chat_actions: bool,
+    /// The new-chat picker and its search.
+    show_new_chat: bool,
+    new_chat_search: String,
+    contacts: Vec<(String, String)>,
+    contacts_rx: std::sync::mpsc::Receiver<Vec<(String, String)>>,
 }
 
 impl WaDesk {
@@ -194,6 +205,11 @@ impl WaDesk {
             last_state_sync: std::time::Instant::now(),
             groups_asked: std::collections::HashSet::new(),
             show_chat_menu: std::env::var("WA_DESK_MENU").is_ok(),
+            show_chat_actions: false,
+            show_new_chat: false,
+            new_chat_search: String::new(),
+            contacts: Vec::new(),
+            contacts_rx: native.contacts,
         }
     }
 
@@ -299,6 +315,136 @@ impl WaDesk {
             });
     }
 
+    /// The open chat's actions menu (mute, pin, unread, clear, delete).
+    fn chat_actions_menu(&mut self, ctx: &egui::Context) {
+        if !self.show_chat_actions {
+            return;
+        }
+        let Some(chat) = self.model.active.clone() else {
+            self.show_chat_actions = false;
+            return;
+        };
+        if let Some(action) = self.chat_actions_window(ctx, &chat, chat.ends_with("@g.us")) {
+            if action == "info" {
+                self.show_group = true;
+                if self.model.request_group(&chat) {
+                    self.send(Command::GroupInfo { chat: chat.clone() });
+                }
+            } else {
+                self.send(Command::ChatAction {
+                    chat: chat.clone(),
+                    action,
+                });
+            }
+            self.show_chat_actions = false;
+        }
+    }
+
+    fn chat_actions_window(
+        &mut self,
+        ctx: &egui::Context,
+        chat: &str,
+        is_group: bool,
+    ) -> Option<String> {
+        let palette = self.palette.clone();
+        let mut chosen = None;
+        egui::Window::new("chat-actions")
+            .title_bar(false)
+            .resizable(false)
+            .fixed_pos(egui::pos2(ctx.screen_rect().width() - 300.0, 62.0))
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .stroke(egui::Stroke::new(1.0_f32, palette.border))
+                    .corner_radius(egui::CornerRadius::same(12))
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 8],
+                        blur: 24,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(120),
+                    })
+                    .inner_margin(egui::Margin::symmetric(6, 6)),
+            )
+            .show(ctx, |ui| {
+                ui.set_min_width(220.0);
+                if is_group && menu_row(ui, &palette, Icon::Groups, "Group info") {
+                    chosen = Some("info".to_string());
+                }
+                for (label, action) in [
+                    ("Mute for 8 hours", "mute8h"),
+                    ("Mute for 1 week", "mute1w"),
+                    ("Unmute", "unmute"),
+                    ("Pin chat", "pin"),
+                    ("Unpin chat", "unpin"),
+                    ("Mark as unread", "unread"),
+                    ("Archive chat", "archive"),
+                    ("Clear chat", "clear"),
+                    ("Delete chat", "delete"),
+                ] {
+                    if menu_row(ui, &palette, Icon::Document, label) {
+                        chosen = Some(action.to_string());
+                    }
+                }
+            });
+        let _ = chat;
+        chosen
+    }
+
+    /// The new-chat picker: the address book with a search field.
+    fn new_chat_window(&mut self, ctx: &egui::Context) {
+        if !self.show_new_chat {
+            return;
+        }
+        let palette = self.palette.clone();
+        let mut open = true;
+        egui::Window::new("New chat")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.new_chat_search)
+                        .hint_text("Search contacts")
+                        .desired_width(f32::INFINITY),
+                );
+                let needle = self.new_chat_search.trim().to_lowercase();
+                let rows: Vec<(String, String)> = self
+                    .contacts
+                    .iter()
+                    .filter(|(_, name)| needle.is_empty() || name.to_lowercase().contains(&needle))
+                    .take(80)
+                    .cloned()
+                    .collect();
+                if rows.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No contacts yet - sync the address book first")
+                            .small()
+                            .weak(),
+                    );
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(380.0)
+                    .show(ui, |ui| {
+                        for (jid, name) in rows {
+                            if ui
+                                .add(egui::Button::new(name).frame(false))
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                self.model.open_chat(&jid);
+                                self.send(Command::MarkRead { chat: jid.clone() });
+                                self.send(Command::ChatHistory { chat: jid });
+                                self.show_new_chat = false;
+                            }
+                        }
+                    });
+            });
+        let _ = palette;
+        if !open {
+            self.show_new_chat = false;
+        }
+    }
+
     /// Check the release list on a worker thread; the window never blocks.
     fn check_updates(&mut self) {
         self.update = UpdateState::Checking;
@@ -382,6 +528,10 @@ impl WaDesk {
                 if texture.is_some() { "ok" } else { "failed" }
             ));
             self.avatars.insert(jid, texture);
+            changed = true;
+        }
+        while let Ok(list) = self.contacts_rx.try_recv() {
+            self.contacts = list;
             changed = true;
         }
         while let Ok(result) = self.attach_rx.try_recv() {
@@ -542,13 +692,14 @@ impl WaDesk {
                     ui.label(egui::RichText::new("Chats").size(19.0).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if fab_button(ui, &palette).on_hover_text("New chat").clicked() {
-                            self.focus_search = true;
+                            self.show_new_chat = true;
+                            self.send(Command::Contacts);
                         }
                         if icon_button(ui, Icon::Menu, &palette)
                             .on_hover_text("Menu")
                             .clicked()
                         {
-                            self.show_chat_menu = !self.show_chat_menu;
+                            self.show_chat_actions = !self.show_chat_actions;
                         }
                         if matches!(
                             self.update,
@@ -2337,6 +2488,8 @@ impl eframe::App for WaDesk {
         }
         let _ = &self.runtime;
         self.chat_menu(ctx);
+        self.chat_actions_menu(ctx);
+        self.new_chat_window(ctx);
         self.screenshot_tick(ctx);
         // A restart only finds the chat list because it is mirrored here: the
         // phone does not replay history to an already-linked device.

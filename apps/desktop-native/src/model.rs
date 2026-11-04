@@ -116,6 +116,13 @@ pub enum Command {
     Relink,
     /// Ask the phone for every group the account participates in.
     SyncGroups,
+    /// Chat-level actions from the header menu.
+    ChatAction {
+        chat: String,
+        action: String,
+    },
+    /// The address book, for the new-chat picker.
+    Contacts,
     /// Send a file from disk as an attachment.
     SendDocument {
         chat: String,
