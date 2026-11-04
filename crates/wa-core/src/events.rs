@@ -509,6 +509,7 @@ pub(crate) fn dispatch(
                         status_quote: quotes_status(body),
                         contact: contact_view(body),
                         poll: poll_view(body),
+                        location: location_view(body),
                     }));
                 }
                 tracing::debug!(
@@ -648,6 +649,7 @@ pub(crate) fn dispatch(
                 status_quote: false,
                 contact: None,
                 poll: None,
+                location: None,
             }));
         }
         Event::Receipt(receipt) => {
@@ -998,6 +1000,7 @@ pub(crate) fn dispatch(
                         status_quote: false,
                         contact: None,
                         poll: None,
+                        location: None,
                     };
                     remember_message(
                         messages,
@@ -1047,6 +1050,7 @@ pub(crate) fn dispatch(
                     status_quote: quotes_status(&inbound.message),
                     contact: contact_view(&inbound.message),
                     poll: poll_view(&inbound.message),
+                    location: location_view(&inbound.message),
                 }));
             }
         }

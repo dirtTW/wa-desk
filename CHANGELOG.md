@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.22] - 2026-11-05
+
+- **Location messages, end to end.** `wa-types` gains `LocationView` (lat, lng, optional name and
+  address, `live`) and `MessageView.location` (serde-defaulted, so old caches still load);
+  `media_kind` maps `locationMessage` and `liveLocationMessage`, and `location_view` reads the
+  protobuf's decimal degrees (the `degrees_latitude`/`degrees_longitude` doubles) or the live
+  message's caption as its name. The bubble draws the official card: a map tile with the pin, the
+  place, the coordinates and the address - or a "Live location" line.
+- **Sending a location**: `Session::send_location(chat, lat, lng, name)` builds a
+  `locationMessage`, and the attach menu's *Location* entry opens a **Share a location** dialog
+  (place + latitude + longitude) instead of the old "not supported yet".
+- Tests: `wa-core::contact_tests::a_location_message_becomes_a_pin` (also asserts
+  `media_kind == "location"`). Capture: `target/our_location.png` (`WA_DESK_LOCATION=1`).
+- `docs/PARITY.md` records locations as ✅ receive/render + send.
+- Tests: 116 native + 42 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.21] - 2026-11-05
 
 - **Received polls and contact cards render.** The last half of the rc.17/18 work: `util::media_kind`

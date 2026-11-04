@@ -323,7 +323,11 @@ pub(crate) fn is_gif(message: &wa::Message) -> bool {
 
 pub(crate) fn media_kind(message: &wa::Message) -> Option<&'static str> {
     let base = message.get_base_message();
-    if base.poll_creation_message.as_option().is_some() {
+    if base.location_message.as_option().is_some()
+        || base.live_location_message.as_option().is_some()
+    {
+        Some("location")
+    } else if base.poll_creation_message.as_option().is_some() {
         Some("poll")
     } else if base.contact_message.as_option().is_some()
         || base.contacts_array_message.as_option().is_some()
@@ -346,6 +350,38 @@ pub(crate) fn media_kind(message: &wa::Message) -> Option<&'static str> {
             TemplateMedia::Document(_) => "document",
         })
     }
+}
+
+/// A shared location. The protobuf splits the degrees into a signed integer
+/// plus millionths of a degree, which is what `degrees()` recombines.
+pub(crate) fn location_view(message: &wa::Message) -> Option<LocationView> {
+    let base = message.get_base_message();
+    if let Some(location) = base.location_message.as_option() {
+        return Some(LocationView {
+            lat: location.degrees_latitude.unwrap_or(0.0),
+            lng: location.degrees_longitude.unwrap_or(0.0),
+            name: location
+                .name
+                .clone()
+                .filter(|value| !value.trim().is_empty()),
+            address: location
+                .address
+                .clone()
+                .filter(|value| !value.trim().is_empty()),
+            live: false,
+        });
+    }
+    let live = base.live_location_message.as_option()?;
+    Some(LocationView {
+        lat: live.degrees_latitude.unwrap_or(0.0),
+        lng: live.degrees_longitude.unwrap_or(0.0),
+        name: live
+            .caption
+            .clone()
+            .filter(|value| !value.trim().is_empty()),
+        address: None,
+        live: true,
+    })
 }
 
 /// A received poll: its question, the option names and whether the creator
@@ -1008,6 +1044,26 @@ mod contact_tests {
         let plain = "BEGIN:VCARD\nFN:Bob\nTEL;type=CELL:+62 812-3456-7890\nEND:VCARD";
         assert_eq!(phone_from_vcard(plain).as_deref(), Some("6281234567890"));
         assert_eq!(phone_from_vcard("nothing here"), None);
+    }
+
+    #[test]
+    fn a_location_message_becomes_a_pin() {
+        let message = wa::Message {
+            location_message: MessageField::some(wa::message::LocationMessage {
+                degrees_latitude: Some(-6.2088),
+                degrees_longitude: Some(106.8456),
+                name: Some("Monas".to_string()),
+                address: Some("Jakarta".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let pin = location_view(&message).expect("a pin");
+        assert!((pin.lat + 6.2088).abs() < 0.0001);
+        assert!((pin.lng - 106.8456).abs() < 0.0001);
+        assert_eq!(pin.name.as_deref(), Some("Monas"));
+        assert!(!pin.live);
+        assert_eq!(media_kind(&message), Some("location"));
     }
 
     #[test]

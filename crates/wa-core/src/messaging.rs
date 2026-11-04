@@ -569,6 +569,36 @@ impl Session {
         Ok(sent.message_id)
     }
 
+    /// Share a location pin (`locationMessage`).
+    pub async fn send_location(
+        &self,
+        chat: &str,
+        lat: f64,
+        lng: f64,
+        name: &str,
+    ) -> Result<String, String> {
+        if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+            return Err("that location is out of range".into());
+        }
+        let jid = self.resolve_chat(chat)?;
+        let name = name.trim();
+        let message = wa::Message {
+            location_message: MessageField::some(wa::message::LocationMessage {
+                degrees_latitude: Some(lat),
+                degrees_longitude: Some(lng),
+                name: (!name.is_empty()).then(|| name.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let sent = self
+            .client
+            .send_message(jid, message)
+            .await
+            .map_err(|e| format!("could not send the location: {e}"))?;
+        Ok(sent.message_id)
+    }
+
     /// Share a contact card (`contactMessage`) with a vCard 3.0 body.
     pub async fn send_contact(
         &self,

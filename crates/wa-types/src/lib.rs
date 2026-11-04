@@ -260,6 +260,20 @@ pub struct LinkPreviewView {
     pub thumb_path: Option<String>,
 }
 
+/// A shared location: the coordinates, an optional place name and whether it
+/// is a live location (which keeps updating on the sender's phone).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct LocationView {
+    pub lat: f64,
+    pub lng: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub live: bool,
+}
+
 /// A contact message: the display name and one phone number.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContactCardView {
@@ -359,6 +373,9 @@ pub struct MessageView {
     /// A shared contact card (`contactMessage` / `contactsArrayMessage`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact: Option<ContactCardView>,
+    /// A location (`locationMessage` / `liveLocationMessage`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationView>,
     /// A poll (`pollCreationMessage`): the question and its options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub poll: Option<PollView>,

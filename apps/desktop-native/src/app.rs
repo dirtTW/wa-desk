@@ -83,6 +83,7 @@ pub struct WaDesk {
     /// Poll and contact-card drafts (the attach menu's two dialogs).
     poll_draft: Option<crate::app::PollDraft>,
     contact_draft: Option<crate::app::ContactDraft>,
+    location_draft: Option<crate::app::LocationDraft>,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
@@ -266,6 +267,7 @@ impl WaDesk {
             show_attach: std::env::var("WA_DESK_ATTACH").is_ok(),
             poll_draft: None,
             contact_draft: None,
+            location_draft: None,
             status_compose: None,
             status_compose_background: 0,
             status_compose_font: 0,
@@ -418,6 +420,11 @@ impl WaDesk {
         }
         // `WA_DESK_POLL=1` / `WA_DESK_CONTACT=1` put the two new message kinds in
         // the demo group so their bubbles can be captured.
+        if std::env::var("WA_DESK_LOCATION").is_ok() {
+            self.model
+                .demo_location("1203@g.us", "location-demo", "Monas", false);
+            self.model.active = Some("1203@g.us".to_string());
+        }
         if std::env::var("WA_DESK_POLL_DIALOG").is_ok() {
             self.poll_draft = Some(PollDraft {
                 question: "Where do we eat on Friday?".to_string(),
@@ -921,6 +928,77 @@ impl WaDesk {
         }
     }
 
+    /// The location composer: a place name and the coordinates.
+    fn location_window(&mut self, ctx: &egui::Context) {
+        if self.location_draft.is_none() {
+            return;
+        }
+        let palette = self.palette.clone();
+        let viewport = ctx.screen_rect();
+        let mut send = false;
+        let mut close = false;
+        let draft = self.location_draft.as_mut().expect("draft is open");
+        dialog_card(
+            ctx,
+            "location-dialog",
+            340.0,
+            "Share a location",
+            &palette,
+            viewport,
+            |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut draft.name)
+                        .hint_text("Place name")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.lat)
+                            .hint_text("Latitude")
+                            .desired_width(120.0),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.lng)
+                            .hint_text("Longitude")
+                            .desired_width(120.0),
+                    );
+                });
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    if dialog_button(ui, &palette, "Cancel", false).clicked() {
+                        close = true;
+                    }
+                    if dialog_button(ui, &palette, "Send", true).clicked() {
+                        send = true;
+                    }
+                });
+            },
+        );
+        if send {
+            let draft = self.location_draft.clone().expect("draft is open");
+            let lat = draft.lat.trim().parse::<f64>().unwrap_or(0.0);
+            let lng = draft.lng.trim().parse::<f64>().unwrap_or(0.0);
+            if let Some(chat) = self.model.active.clone() {
+                if lat != 0.0 || lng != 0.0 {
+                    self.send(Command::SendLocation {
+                        chat,
+                        lat,
+                        lng,
+                        name: draft.name.trim().to_string(),
+                    });
+                } else {
+                    self.notice = Some((
+                        "Type a latitude and longitude".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+            self.location_draft = None;
+        } else if close {
+            self.location_draft = None;
+        }
+    }
+
     /// The attach menu: the official entries (Photos & videos, Camera,
     /// Document, Audio, Poll, Location, Contact). The ones this client can send
     /// open the file picker; the rest say where they live.
@@ -992,10 +1070,11 @@ impl WaDesk {
                 });
             }
             "location" => {
-                self.notice = Some((
-                    "Sending a location is not supported yet".to_string(),
-                    std::time::Instant::now(),
-                ));
+                self.location_draft = Some(LocationDraft {
+                    name: String::new(),
+                    lat: String::new(),
+                    lng: String::new(),
+                });
             }
             _ => {}
         }
@@ -3307,6 +3386,88 @@ fn bubble_content(
         }
 
         // A document card: file icon, name, size and pages, then the caption.
+        // A location: the pin, the place and the address, the way the official
+        // map card reads (a live location carries its own chip).
+        if message.kind == "location"
+            && let Some(place) = message.location.clone()
+        {
+            let width = max_width.min(280.0);
+            let title = place
+                .name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| "Location".to_string());
+            let coords = format!("{:.4}, {:.4}", place.lat, place.lng);
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, 84.0), egui::Sense::click());
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            let painter = ui.painter();
+            painter.rect_filled(rect, egui::CornerRadius::same(8), fill);
+            // A small map-ish tile with the pin.
+            let tile = egui::Rect::from_min_size(
+                egui::pos2(rect.left() + 6.0, rect.top() + 6.0),
+                egui::vec2(70.0, 72.0),
+            );
+            painter.rect_filled(tile, egui::CornerRadius::same(6), palette.hover);
+            draw_icon(
+                ui,
+                egui::Rect::from_center_size(tile.center(), egui::vec2(26.0, 26.0)),
+                Icon::Status,
+                palette.accent,
+            );
+            painter.text(
+                egui::pos2(rect.left() + 86.0, rect.top() + 18.0),
+                egui::Align2::LEFT_CENTER,
+                fit_text(
+                    painter,
+                    &title,
+                    egui::FontId::proportional(14.5),
+                    palette.text,
+                    rect.width() - 100.0,
+                ),
+                egui::FontId::proportional(14.5),
+                palette.text,
+            );
+            painter.text(
+                egui::pos2(rect.left() + 86.0, rect.top() + 38.0),
+                egui::Align2::LEFT_CENTER,
+                coords,
+                egui::FontId::proportional(12.5),
+                palette.secondary,
+            );
+            if place.live {
+                painter.text(
+                    egui::pos2(rect.left() + 86.0, rect.top() + 58.0),
+                    egui::Align2::LEFT_CENTER,
+                    "Live location",
+                    egui::FontId::proportional(11.5),
+                    palette.accent,
+                );
+            } else if let Some(address) = place.address.clone() {
+                painter.text(
+                    egui::pos2(rect.left() + 86.0, rect.top() + 58.0),
+                    egui::Align2::LEFT_CENTER,
+                    fit_text(
+                        painter,
+                        &address,
+                        egui::FontId::proportional(11.5),
+                        palette.secondary,
+                        rect.width() - 100.0,
+                    ),
+                    egui::FontId::proportional(11.5),
+                    palette.secondary,
+                );
+            }
+            context_menu(&response, palette, model, message, &mut action);
+            pills_row(ui, palette, model, message, rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
+            return;
+        }
+
         // A poll: the question, then one row per option with the official dot.
         if message.kind == "poll"
             && let Some(poll) = message.poll.clone()
@@ -5346,6 +5507,7 @@ fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
         status_quote: false,
         contact: None,
         poll: None,
+        location: None,
     }
 }
 
@@ -6940,6 +7102,14 @@ pub struct PollDraft {
     pub multiple: bool,
 }
 
+/// The location composer's state.
+#[derive(Clone, Default)]
+pub struct LocationDraft {
+    pub name: String,
+    pub lat: String,
+    pub lng: String,
+}
+
 /// The contact-card composer's state.
 #[derive(Clone, Default)]
 pub struct ContactDraft {
@@ -8096,6 +8266,7 @@ impl eframe::App for WaDesk {
                 self.attach_window(ctx);
                 self.poll_window(ctx);
                 self.contact_window(ctx);
+                self.location_window(ctx);
                 self.stickers_window(ctx);
                 self.delete_window(ctx);
                 self.forward_window(ctx);

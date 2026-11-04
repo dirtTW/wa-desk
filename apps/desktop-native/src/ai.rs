@@ -714,6 +714,7 @@ mod tests {
             status_quote: false,
             contact: None,
             poll: None,
+            location: None,
         };
         assert!(is_mentioned(&view, "6281234@s.whatsapp.net"));
         assert!(!is_mentioned(&view, "6289999@s.whatsapp.net"));
@@ -787,6 +788,7 @@ mod tests {
             status_quote: false,
             contact: None,
             poll: None,
+            location: None,
         };
         runtime.observe(&wa_types::UiEvent::Message(view.clone()), &tx);
 

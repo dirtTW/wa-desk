@@ -151,6 +151,13 @@ pub enum Command {
         options: Vec<String>,
         multiple: bool,
     },
+    /// Share a location pin in the open chat.
+    SendLocation {
+        chat: String,
+        lat: f64,
+        lng: f64,
+        name: String,
+    },
     /// Share a contact card in the open chat.
     SendContact {
         chat: String,
@@ -489,6 +496,25 @@ impl Model {
         self.apply(&UiEvent::Message(message));
         self.media
             .insert(id.to_string(), MediaState::Path(path.to_string()));
+    }
+
+    /// A location message for `--preview`.
+    pub fn demo_location(&mut self, chat: &str, id: &str, name: &str, live: bool) {
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let mut message = view(chat, &chat_name, id, "", self.now - 45_000, false);
+        message.kind = "location".to_string();
+        message.location = Some(wa_types::LocationView {
+            lat: -6.2088,
+            lng: 106.8456,
+            name: Some(name.to_string()),
+            address: Some("Jl. Jend. Sudirman, Jakarta".to_string()),
+            live,
+        });
+        self.apply(&UiEvent::Message(message));
     }
 
     /// A poll message for `--preview` (question + options).
@@ -1568,6 +1594,7 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 status_quote: false,
                 contact: None,
                 poll: None,
+                location: None,
             });
             added += 1;
         }
@@ -3078,6 +3105,7 @@ fn view(chat: &str, name: &str, id: &str, text: &str, ts: i64, from_me: bool) ->
         status_quote: false,
         contact: None,
         poll: None,
+        location: None,
     }
 }
 

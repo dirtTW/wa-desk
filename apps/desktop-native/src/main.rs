@@ -614,6 +614,15 @@ fn main() {
                     Ok(id) => app::diag(&format!("poll sent {id}")),
                     Err(err) => tracing::warn!(%err, "poll failed"),
                 },
+                model::Command::SendLocation {
+                    chat,
+                    lat,
+                    lng,
+                    name,
+                } => match session.send_location(&chat, lat, lng, &name).await {
+                    Ok(id) => app::diag(&format!("location sent {id}")),
+                    Err(err) => tracing::warn!(%err, "location failed"),
+                },
                 model::Command::SendContact { chat, name, phone } => {
                     match session.send_contact(&chat, &name, &phone).await {
                         Ok(id) => app::diag(&format!("contact sent {id}")),
