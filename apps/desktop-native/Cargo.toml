@@ -27,6 +27,8 @@ ogg = "0.9"
 audiopus = "0.2"
 resvg = "0.45"
 swash = "0.2"
+aes-gcm = "0.10"
+getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

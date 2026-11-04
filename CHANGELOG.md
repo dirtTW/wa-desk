@@ -4,6 +4,42 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.0-rc.82] - 2026-11-04
+
+- **The AI auto-reply loop is back** (it only existed in the removed JS shell). `ai.rs` holds the
+  decisions as pure functions: `should_reply` (never our own messages, statuses or channels; DMs
+  when AI mode is on; groups only for an @mention or a reply to us; `/ai` works with AI mode off),
+  `strip_trigger`, `endpoint`/`build_body` (persona + last ~24 messages capped at 4,000 chars),
+  `parse_reply` (plain text or `{"text","reaction"}`) and `RateLimit` (one reply per chat every
+  2 s, 5 s between sends, one reaction per chat every 3 minutes). `thinking_delay` types for
+  ~1.2-3.2 s plus 160 ms per character, capped at 7 s.
+- **Wiring**: `main.rs` now routes session events through one bridge that feeds `ai::Runtime`
+  (transcript + cooldowns + a worker thread per reply) and then the window. A reply marks the
+  chat read, shows the typing indicator, sends the text and may add a reaction. The model,
+  endpoint and optional system prompt come from Settings -> AI assistant; an empty prompt uses
+  the casual Indonesian "gw/lu" persona.
+- **The API key is encrypted at rest**: `ai::keys` stores it with AES-256-GCM under a random
+  32-byte `ai.key` beside `ai.secret` in the app data folder, written when the AI form is saved;
+  only the masked hint stays in `settings.json`.
+- Tests (17 in `ai.rs`): trigger matrix, `/ai` parsing, bounded request body, plain and
+  structured replies, endpoint joining, cooldowns, encryption round-trip, and two integration
+  tests against a local mock endpoint - one for the request/response, one that drives
+  `Runtime::observe` and asserts MarkRead -> Typing(true) -> SendText("gw cek dulu") with no
+  answer to our own message.
+- **Colour emoji inside messages.** Bubbles no longer fall back to the text font for emoji:
+  `layout_body` splits a body into words and emoji cells, wraps them at the bubble width and
+  paints the emoji as colour textures (emoji-only messages use the official 44 px size). Text
+  without emoji still goes through the normal galley, so search highlighting is unchanged.
+  Screenshot: `target/emoji_bubbles.png`.
+- **The conversation scrollbar sits at the panel edge.** The message `ScrollArea` had no
+  `auto_shrink`, so it hugged the bubble column and its handle appeared in the middle of the
+  window; it now fills the panel (`auto_shrink([false, false])`). The window's minimum size is
+  900x560 so the composer and header can never be clipped.
+- **Fixed the rc.81 Linux lint failure**: the tray stub on non-Windows platforms now marks
+  `TrayAction`/`action_for` as allowed dead code (`#[cfg_attr(not(windows), allow(dead_code))]`),
+  which is why that release was skipped.
+
+
 ## [0.2.0-rc.81] - 2026-11-04
 
 - **Desktop notifications** (JS-only since the migration). A toast fires for a message that

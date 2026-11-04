@@ -48,6 +48,9 @@ account. Issues and pull requests are welcome.
 - **Status / stories** and **channels**, read-only for channels.
 - **Send files**: paperclip picker, or Ctrl+V a file copied in Explorer; composer text becomes
   the caption.
+- **AI assistant**: bring your own OpenAI-compatible key (encrypted with AES-256-GCM), on/off and
+  `/ai` requirement toggles, the casual Indonesian "gw/lu" persona, replies to DMs and to groups
+  that @mention you, a typing indicator, human-like delays and a per-chat reply/reaction cooldown.
 - **Settings**: the official two-pane layout - profile header, General / Chats / AI / Updates /
   Help sections with icons and subtitles, Log out. The page is a set of cards with Material 3
   switches and radio rows; the chat list is replaced while it is open. Theme lives under Chats,

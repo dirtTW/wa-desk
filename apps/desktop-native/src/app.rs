@@ -1647,6 +1647,7 @@ impl WaDesk {
                 let playback = self.audio.state();
                 egui::ScrollArea::vertical()
                     .stick_to_bottom(focus.is_none())
+                    .auto_shrink([false, false])
                     .max_height(height.max(120.0))
                     .show(ui, |ui| {
                         let ctx = ui.ctx().clone();
@@ -2294,6 +2295,18 @@ fn bubble(
             ),
         };
         let text = ui.painter().layout_job(text_job);
+        // Emoji are painted as colour pictures (the text font has outlines only,
+        // which is why they used to show as boxes); emoji-only messages get the
+        // larger cell the official client uses.
+        let rich = search.is_none() && has_emoji(&body);
+        let rich_body = rich.then(|| {
+            let px = if emoji_only(&body) { 44 } else { 19 };
+            layout_body(ui, &body, palette.text, max_text, px)
+        });
+        let body_size = rich_body
+            .as_ref()
+            .map(|layout| layout.size)
+            .unwrap_or_else(|| text.size());
         let time = ui.painter().layout_no_wrap(
             model.bubble_stamp(message),
             egui::FontId::proportional(11.0),
@@ -2310,8 +2323,8 @@ fn bubble(
                 sender_color(name, palette),
             )
         });
-        let width = (text.size().x.max(time.size().x + 34.0) + padding * 2.0).min(max_width);
-        let mut height = text.size().y + time.size().y + 8.0;
+        let width = (body_size.x.max(time.size().x + 34.0) + padding * 2.0).min(max_width);
+        let mut height = body_size.y + time.size().y + 8.0;
         if let Some(galley) = &sender_galley {
             height += galley.size().y + 1.0;
         }
@@ -2332,7 +2345,12 @@ fn bubble(
             painter.galley(egui::pos2(rect.left() + padding, y), galley, palette.text);
             y += inner + 1.0;
         }
-        painter.galley(egui::pos2(rect.left() + padding, y), text, palette.text);
+        match &rich_body {
+            Some(layout) => paint_body(painter, egui::pos2(rect.left() + padding, y), layout),
+            None => {
+                painter.galley(egui::pos2(rect.left() + padding, y), text, palette.text);
+            }
+        }
         painter.galley(
             egui::pos2(
                 rect.right() - padding - time.size().x,
@@ -3477,7 +3495,19 @@ impl WaDesk {
                 match self.settings.save(&self.settings_path) {
                     Ok(()) => {
                         if !self.settings.ai.api_key.is_empty() {
-                            self.settings.ai.has_key = true;
+                            // The key is encrypted at rest (AES-256-GCM under a
+                            // random file key); only the masked hint stays in
+                            // settings.json.
+                            match crate::ai::keys::save(
+                                &crate::settings::NativeSettings::data_dir(),
+                                &self.settings.ai.api_key,
+                            ) {
+                                Ok(()) => self.settings.ai.has_key = true,
+                                Err(err) => {
+                                    self.settings_note = format!("Could not store the key: {err}");
+                                    return;
+                                }
+                            }
                         }
                         self.settings.ai.api_key.clear();
                         self.settings_note = plan.toast;
@@ -3696,6 +3726,156 @@ fn notification_body(kind: &str, text: &str) -> String {
         _ => "New message",
     }
     .to_string()
+}
+
+/// One laid-out piece of a message body: text or a colour emoji.
+enum Inline {
+    Text(std::sync::Arc<egui::Galley>),
+    Emoji(egui::TextureHandle),
+}
+
+/// A body laid out with text galleys and colour emoji side by side.
+struct BodyLayout {
+    placed: Vec<(egui::Pos2, Inline)>,
+    size: egui::Vec2,
+    emoji_px: f32,
+}
+
+/// Is this a character the official client draws as an emoji picture?
+fn is_emoji_char(ch: char) -> bool {
+    let code = ch as u32;
+    code >= 0x1F000
+        || (0x2600..=0x27BF).contains(&code)
+        || (0x2B00..=0x2BFF).contains(&code)
+        || code == 0x00A9
+        || code == 0x00AE
+}
+
+fn has_emoji(text: &str) -> bool {
+    text.chars().any(is_emoji_char)
+}
+
+/// WhatsApp paints emoji-only messages much larger.
+fn emoji_only(text: &str) -> bool {
+    let trimmed = text.trim();
+    !trimmed.is_empty()
+        && trimmed.chars().count() <= 12
+        && trimmed.chars().all(|ch| {
+            is_emoji_char(ch) || ch == '\u{FE0F}' || ch == '\u{200D}' || ch.is_whitespace()
+        })
+}
+
+/// Lay out a message body where emoji are colour textures and the rest is text.
+/// Words are wrapped at `max_width`; emoji occupy `emoji_px` square cells.
+fn layout_body(
+    ui: &egui::Ui,
+    text: &str,
+    color: egui::Color32,
+    max_width: f32,
+    emoji_px: u32,
+) -> BodyLayout {
+    enum Token {
+        Word(String),
+        Emoji(char),
+    }
+
+    let font = egui::FontId::proportional(14.0);
+    let row_height = ui.fonts(|fonts| fonts.row_height(&font));
+    let emoji_size = emoji_px as f32;
+
+    // Split into runs of emoji and text, then emoji cells and words.
+    let mut runs: Vec<(String, bool)> = Vec::new();
+    for ch in text.chars() {
+        let emoji = is_emoji_char(ch) || ch == '\u{FE0F}' || ch == '\u{200D}';
+        match runs.last_mut() {
+            Some((buffer, kind)) if *kind == emoji => buffer.push(ch),
+            _ => runs.push((ch.to_string(), emoji)),
+        }
+    }
+    let mut tokens: Vec<Token> = Vec::new();
+    for (run, emoji) in runs {
+        if emoji {
+            for ch in run.chars() {
+                if ch != '\u{FE0F}' && ch != '\u{200D}' {
+                    tokens.push(Token::Emoji(ch));
+                }
+            }
+        } else {
+            for word in run.split_inclusive(char::is_whitespace) {
+                tokens.push(Token::Word(word.to_string()));
+            }
+        }
+    }
+
+    let mut placed = Vec::new();
+    let mut x = 0.0f32;
+    let mut y = 0.0f32;
+    let mut widest = 0.0f32;
+    for token in tokens {
+        match token {
+            Token::Emoji(ch) => {
+                if x > 0.0 && x + emoji_size > max_width {
+                    x = 0.0;
+                    y += row_height;
+                }
+                let offset = (row_height - emoji_size) * 0.5;
+                match crate::emoji_glyph::texture_shared(ui.ctx(), ch, emoji_px) {
+                    Some(texture) => {
+                        placed.push((egui::pos2(x, y + offset), Inline::Emoji(texture)));
+                    }
+                    None => {
+                        let galley =
+                            ui.painter()
+                                .layout_no_wrap(ch.to_string(), font.clone(), color);
+                        placed.push((egui::pos2(x, y + offset), Inline::Text(galley)));
+                    }
+                }
+                x += emoji_size;
+                widest = widest.max(x);
+            }
+            Token::Word(word) => {
+                let galley = ui
+                    .painter()
+                    .layout_no_wrap(word.clone(), font.clone(), color);
+                let width = galley.size().x;
+                if x > 0.0 && x + width > max_width {
+                    x = 0.0;
+                    y += row_height;
+                }
+                let offset = (row_height - galley.size().y) * 0.5;
+                placed.push((egui::pos2(x, y + offset), Inline::Text(galley)));
+                x += width;
+                widest = widest.max(x);
+            }
+        }
+    }
+    BodyLayout {
+        placed,
+        size: egui::vec2(widest, y + row_height),
+        emoji_px: emoji_size,
+    }
+}
+
+/// Paint a laid-out body at `origin`.
+fn paint_body(painter: &egui::Painter, origin: egui::Pos2, body: &BodyLayout) {
+    for (pos, inline) in &body.placed {
+        let at = origin + pos.to_vec2();
+        match inline {
+            Inline::Text(galley) => {
+                painter.galley(at, galley.clone(), egui::Color32::PLACEHOLDER);
+            }
+            Inline::Emoji(texture) => {
+                let size = texture.size_vec2();
+                let scale = (body.emoji_px / size.y.max(1.0)).min(body.emoji_px / size.x.max(1.0));
+                painter.image(
+                    texture.id(),
+                    egui::Rect::from_min_size(at, size * scale),
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
+    }
 }
 
 /// One row of the settings section list.
@@ -3934,15 +4114,7 @@ fn settings_field(
 
 /// Where the native app keeps its own settings.
 fn settings_file() -> std::path::PathBuf {
-    let base = std::env::var("APPDATA")
-        .map(std::path::PathBuf::from)
-        .or_else(|_| {
-            std::env::var("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
-        })
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let dir = base.join("io.github.dirttw.wadesk-native");
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("settings.json")
+    crate::settings::NativeSettings::data_dir().join("settings.json")
 }
 
 impl WaDesk {

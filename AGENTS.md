@@ -465,6 +465,13 @@ device until you remove it from the phone).
 - **Colour emoji.** egui's text path cannot draw colour fonts, so the picker rasterises glyphs
   from the system colour emoji face with `swash` (`emoji_glyph.rs`, cached per glyph+size) and
   paints them as textures; a mask-only result falls back to text rather than a solid block.
+- **The AI loop lives in `ai.rs`.** The JS shell owned it; now `should_reply`/`strip_trigger`
+  decide, `build_body`/`parse_reply` speak the wire format, `RateLimit` enforces the cooldowns and
+  `thinking_delay` paces the answer. `main.rs` runs one bridge between the session and the window
+  that feeds `ai::Runtime` first; each reply is a worker thread that sends MarkRead, Typing,
+  SendText and an optional reaction through the normal `Command` channel. The key is encrypted at
+  rest by `ai::keys` (AES-256-GCM under `ai.key`); Settings -> AI writes it. Integration tests run
+  against a local mock endpoint (`mock_server` in the `ai` tests).
 - **The window is `egui`, not a WebView** (`apps/desktop-native`): `--preview` renders the demo
   model, `WA_DESK_SETTINGS_SECTION=n` picks a settings page and `WA_DESK_SIZE=WxH` pins the
   window; `--screenshot` saves one settled frame.

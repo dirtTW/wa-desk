@@ -4,12 +4,14 @@
 
 /// What the user asked for from the tray menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub enum TrayAction {
     Open,
     Quit,
 }
 
 /// Map a menu id back to an action (kept pure so it can be unit tested).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn action_for(id: &str) -> Option<TrayAction> {
     match id {
         "open" => Some(TrayAction::Open),

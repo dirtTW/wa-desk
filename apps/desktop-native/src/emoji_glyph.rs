@@ -5,7 +5,7 @@
 //! way the official client does.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 /// Where the colour emoji face lives.
 const CANDIDATES: &[&str] = &[
@@ -58,22 +58,14 @@ pub fn rgba(ch: char, px: u32) -> Option<(Vec<u8>, u32, u32)> {
 /// emoji over and over, and rasterising is the expensive part.
 pub fn texture(
     ctx: &egui::Context,
-    cache: &mut HashMap<(char, u32), Option<egui::TextureHandle>>,
+    cache: &mut GlyphCache,
     ch: char,
     px: u32,
 ) -> Option<egui::TextureHandle> {
     if let Some(hit) = cache.get(&(ch, px)) {
         return hit.clone();
     }
-    let texture = rgba(ch, px).map(|(data, width, height)| {
-        let image =
-            egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &data);
-        ctx.load_texture(
-            format!("emoji:{ch}:{px}"),
-            image,
-            egui::TextureOptions::LINEAR,
-        )
-    });
+    let texture = rasterise(ctx, ch, px);
     // The cache is tiny (a glyph is a few kB); drop it wholesale if a session
     // ever collects a very large number of distinct sizes.
     if cache.len() > 2_000 {
@@ -81,6 +73,41 @@ pub fn texture(
     }
     cache.insert((ch, px), texture.clone());
     texture
+}
+
+/// The texture cache key: one glyph at one size.
+type GlyphKey = (char, u32);
+/// A cached emoji texture (or the knowledge that this glyph has none).
+type GlyphCache = HashMap<GlyphKey, Option<egui::TextureHandle>>;
+
+/// The shared cache: message bubbles are painted by free functions that have no
+/// access to the window state, and they need the same textures.
+pub fn texture_shared(ctx: &egui::Context, ch: char, px: u32) -> Option<egui::TextureHandle> {
+    static CACHE: OnceLock<Mutex<GlyphCache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(cache) = cache.lock()
+        && let Some(hit) = cache.get(&(ch, px))
+    {
+        return hit.clone();
+    }
+    let texture = rasterise(ctx, ch, px);
+    if let Ok(mut cache) = cache.lock() {
+        if cache.len() > 2_000 {
+            cache.clear();
+        }
+        cache.insert((ch, px), texture.clone());
+    }
+    texture
+}
+
+fn rasterise(ctx: &egui::Context, ch: char, px: u32) -> Option<egui::TextureHandle> {
+    let (data, width, height) = rgba(ch, px)?;
+    let image = egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &data);
+    Some(ctx.load_texture(
+        format!("emoji:{ch}:{px}"),
+        image,
+        egui::TextureOptions::LINEAR,
+    ))
 }
 
 #[cfg(test)]

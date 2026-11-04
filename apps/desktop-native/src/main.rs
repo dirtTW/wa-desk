@@ -13,6 +13,7 @@
 // builds keep the console so `--selftest` and the update checks stay readable.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod ai;
 mod app;
 mod audio;
 mod autostart;
@@ -234,8 +235,21 @@ fn main() {
     } else {
         let slot = session_slot.clone();
         let startup_events = events_out.clone();
+        // Session events pass through one bridge: it feeds the AI auto-reply
+        // loop and forwards the same event to the window.
+        let (core_tx, mut core_rx) = tokio::sync::mpsc::unbounded_channel::<wa_types::UiEvent>();
+        let ui_tx = events_out.clone();
+        let ai_commands = command_tx.clone();
+        let ai_dir = settings::NativeSettings::data_dir();
         handle.spawn(async move {
-            match wa_core::Session::start(&store, media.into(), event_tx).await {
+            let mut ai = ai::Runtime::new(ai_dir);
+            while let Some(event) = core_rx.recv().await {
+                ai.observe(&event, &ai_commands);
+                let _ = ui_tx.send(event);
+            }
+        });
+        handle.spawn(async move {
+            match wa_core::Session::start(&store, media.into(), core_tx).await {
                 Ok(session) => {
                     // Tell the UI who we are, so the sidebar avatar and the
                     // self-chat label have a JID to work with.
@@ -654,7 +668,7 @@ fn main() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(size)
-            .with_min_inner_size([720.0, 480.0])
+            .with_min_inner_size([900.0, 560.0])
             .with_title("WA Desk")
             .with_icon(icon::window_icon()),
         ..Default::default()

@@ -75,6 +75,21 @@ impl Default for NativeSettings {
 }
 
 impl NativeSettings {
+    /// The folder beside the settings file: the AI key, its encryption key and
+    /// the chat cache all live here.
+    pub fn data_dir() -> std::path::PathBuf {
+        let base = std::env::var("APPDATA")
+            .map(std::path::PathBuf::from)
+            .or_else(|_| {
+                std::env::var("HOME")
+                    .map(|home| std::path::PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let dir = base.join("io.github.dirttw.wadesk-native");
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
     pub fn load(path: &std::path::Path) -> Self {
         std::fs::read_to_string(path)
             .ok()
