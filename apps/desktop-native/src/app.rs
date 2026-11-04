@@ -74,6 +74,8 @@ pub struct WaDesk {
     communities_active: Option<String>,
     /// The voice note being recorded from the composer's microphone button.
     voice: Option<crate::voicenote::Recording>,
+    /// The attach menu is open.
+    show_attach: bool,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
@@ -254,6 +256,7 @@ impl WaDesk {
             show_communities: false,
             communities_active: None,
             voice: None,
+            show_attach: std::env::var("WA_DESK_ATTACH").is_ok(),
             status_compose: None,
             status_compose_background: 0,
             status_compose_font: 0,
@@ -736,6 +739,82 @@ impl WaDesk {
             });
         let _ = chat;
         chosen
+    }
+
+    /// The attach menu: the official entries (Photos & videos, Camera,
+    /// Document, Audio, Poll, Location, Contact). The ones this client can send
+    /// open the file picker; the rest say where they live.
+    fn attach_window(&mut self, ctx: &egui::Context) {
+        if !self.show_attach {
+            return;
+        }
+        let palette = self.palette.clone();
+        let mut chosen: Option<&'static str> = None;
+        egui::Window::new("attach-menu")
+            .title_bar(false)
+            .resizable(false)
+            .fixed_pos(egui::pos2(
+                ctx.screen_rect().left() + 74.0,
+                ctx.screen_rect().bottom() - 470.0,
+            ))
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .stroke(egui::Stroke::new(1.0_f32, palette.border))
+                    .corner_radius(egui::CornerRadius::same(12))
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 8],
+                        blur: 24,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(120),
+                    })
+                    .inner_margin(egui::Margin::symmetric(3, 6)),
+            )
+            .show(ctx, |ui| {
+                ui.set_min_width(228.0);
+                for (icon, label, action) in [
+                    (Icon::Document, "Photos & videos", "photos"),
+                    (Icon::VideoCall, "Camera", "camera"),
+                    (Icon::Document, "Document", "document"),
+                    (Icon::Volume, "Audio", "audio"),
+                    (Icon::SelectChats, "Poll", "poll"),
+                    (Icon::Status, "Location", "location"),
+                    (Icon::PersonAdd, "Contact", "contact"),
+                ] {
+                    if menu_row(ui, &palette, icon, label) {
+                        chosen = Some(action);
+                    }
+                }
+            });
+        let Some(action) = chosen else { return };
+        self.show_attach = false;
+        match action {
+            "photos" => self.pick_attachment(),
+            "document" => self.pick_attachment(),
+            "audio" => self.pick_attachment(),
+            "camera" => {
+                self.notice = Some((
+                    "The camera capture is not in this build".to_string(),
+                    std::time::Instant::now(),
+                ));
+            }
+            "poll" | "location" | "contact" => {
+                self.notice = Some((
+                    format!(
+                        "Sending a {} is not supported yet",
+                        if action == "poll" {
+                            "poll"
+                        } else if action == "location" {
+                            "location"
+                        } else {
+                            "contact card"
+                        }
+                    ),
+                    std::time::Instant::now(),
+                ));
+            }
+            _ => {}
+        }
     }
 
     /// The new-chat picker: the address book with a search field.
@@ -2314,10 +2393,10 @@ impl WaDesk {
                             // rounded field with emoji + stickers inside it on
                             // the right, then the green send button.
                             if icon_button(ui, Icon::Attach, &palette)
-                                .on_hover_text("Attach a file")
+                                .on_hover_text("Attach")
                                 .clicked()
                             {
-                                self.pick_attachment();
+                                self.show_attach = !self.show_attach;
                             }
                             let send_width = 46.0;
                             let input_width = ui.available_width() - send_width;
@@ -7772,6 +7851,7 @@ impl eframe::App for WaDesk {
             } else {
                 self.conversation(ctx);
                 self.emoji_window(ctx);
+                self.attach_window(ctx);
                 self.stickers_window(ctx);
                 self.delete_window(ctx);
                 self.forward_window(ctx);

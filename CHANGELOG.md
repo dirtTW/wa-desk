@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.15] - 2026-11-04
+
+- **The composer's attach button opens the official menu** instead of jumping straight to a file
+  dialog: a rounded card with the seven entries — **Photos & videos, Camera, Document, Audio, Poll,
+  Location, Contact** — each with its icon. Photos/videos, Document and Audio open the picker; Camera
+  and the last three answer honestly ("not in this build" / "not supported yet") rather than
+  pretending. Capture: `target/our_attach.png` (`WA_DESK_ATTACH=1`). The filter pills in that
+  capture also show the official order with live counts.
+  Note: the live `web.whatsapp.com` attach menu could not be sampled - the page kept returning to
+  the chat list instead of keeping a chat open - so the entry list is the official one from the
+  desktop client, and the capture is our rendering of it.
+- `docs/PARITY.md` records the attach menu (✅) and keeps poll/location/contact sending ❌.
+- Tests: 116 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.14] - 2026-11-04
 
 - **Status composer gained the official controls.** Sampled the composer row of `web.whatsapp.com`
