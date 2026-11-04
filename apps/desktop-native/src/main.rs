@@ -13,6 +13,7 @@ mod app;
 mod login;
 mod model;
 mod settings;
+mod updates;
 
 use std::sync::Arc;
 
@@ -35,6 +36,49 @@ fn main() {
                 std::process::exit(1);
             }
         }
+    }
+
+    // The updater is verified from the command line too: `--check-updates`
+    // prints the newest release, `--download-update` proves the asset downloads.
+    // `WA_DESK_UPDATE_FROM` overrides the installed version for testing.
+    if std::env::args().any(|arg| arg == "--check-updates")
+        || std::env::args().any(|arg| arg == "--download-update")
+    {
+        let current = std::env::var("WA_DESK_UPDATE_FROM")
+            .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
+        match updates::check(&current) {
+            Ok(Some(release)) => {
+                println!(
+                    "{} ({} bytes) {} — {:?}",
+                    release.tag, release.size, release.url, release.notes_url
+                );
+                if std::env::args().any(|arg| arg == "--download-update") {
+                    match updates::download(&release, &updates::staging_path()) {
+                        Ok(path) => println!(
+                            "downloaded {} bytes to {}",
+                            std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0),
+                            path.display()
+                        ),
+                        Err(err) => {
+                            eprintln!("download failed: {err}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            }
+            Ok(None) => println!("up to date ({current})"),
+            Err(err) => {
+                eprintln!("check failed: {err}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Right after an update the old process is still releasing the database
+    // and the single-instance mutex; give it a moment before opening the store.
+    if std::env::args().any(|arg| arg == "--restarted") {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
     }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()

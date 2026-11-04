@@ -4,7 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.60] — 2026-11-04
+## [0.2.0-rc.61] — 2026-11-04
+
+- **Fixed: the updater could not find or download a release.** Two things were wrong. The
+  native app had no updater at all, and the obvious GitHub endpoint cannot work here: **every
+  WA Desk release is a pre-release**, so `/releases/latest` answers 404. The new
+  `apps/desktop-native/src/updates.rs` lists `/releases?per_page=20` instead, skips drafts,
+  keeps the highest tag newer than `CARGO_PKG_VERSION` that actually ships this platform's
+  asset (`wa-desk-native.exe` / `wa-desk-native`), and downloads it with `ureq`. Version order
+  is the numeric core first - a bigger core always updates (`0.2.0-rc.60` → `0.3.0-rc.1`, →
+  `1.0.0`) - then a final release above any pre-release of the same core, then the `rc.N`
+  number compared numerically (`rc.10` beats `rc.9`). Tests cover all of those cases.
+  - Installing renames the running exe to `.old`, moves the download into place, spawns it
+    with `--restarted` and exits; the new process waits 1.5 s so the old one releases the
+    database and the single-instance mutex.
+  - The check runs once after pairing and on demand from **Settings → Updates**, which shows
+    the installed version, the available tag and size, a notes link, download progress and
+    the restart button; the sidebar shows an `⬆ Update` shortcut when one is waiting.
+- Verified against the live repository: `--check-updates` reports `up to date (0.2.0-rc.61)`,
+  `WA_DESK_UPDATE_FROM=0.2.0-rc.59 --check-updates` reports
+  `v0.2.0-rc.60 (45161472 bytes) …/wa-desk-native.exe`, and `--download-update` downloaded
+  `45161472 bytes`, matching the asset size exactly.
+- 24 native tests (four new: pre-release ordering, newest-release-with-asset selection,
+  up-to-date/no-asset handling, asset naming); clippy `-D warnings` clean.
+
+
 
 - **Message actions in the native window.** Right-clicking a bubble opens WhatsApp's menu:
   the six quick reactions, Reply, Copy, Forward, Edit (only your own text), Delete (only for

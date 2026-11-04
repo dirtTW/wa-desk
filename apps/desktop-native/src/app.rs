@@ -11,6 +11,7 @@ use wa_types::{MessageView, UiEvent};
 use crate::login::LoginState;
 use crate::model::{BubbleAction, ChatRow, Command, Model};
 use crate::settings::NativeSettings;
+use crate::updates::{self, Release, UpdateMsg, UpdateState};
 
 /// What `main` assembles before the window exists.
 pub struct NativeApp {
@@ -80,10 +81,17 @@ pub struct WaDesk {
     scrolled_hit: i64,
     /// A short status line for the viewer (saved path, failures).
     note: String,
+    /// Self-update state and its worker replies.
+    update: UpdateState,
+    update_tx: std::sync::mpsc::Sender<UpdateMsg>,
+    update_rx: std::sync::mpsc::Receiver<UpdateMsg>,
+    /// The automatic check has already run once.
+    update_checked: bool,
 }
 
 impl WaDesk {
     pub fn new(_cc: &eframe::CreationContext<'_>, native: NativeApp) -> Self {
+        let (update_tx, update_rx) = std::sync::mpsc::channel();
         Self {
             model: Model::new(),
             events: native.events,
@@ -105,7 +113,31 @@ impl WaDesk {
             favorites_rx: native.favorites,
             scrolled_hit: -1,
             note: String::new(),
+            update: UpdateState::Idle,
+            update_tx: update_tx.clone(),
+            update_rx,
+            update_checked: false,
         }
+    }
+
+    /// Check the release list on a worker thread; the window never blocks.
+    fn check_updates(&mut self) {
+        self.update = UpdateState::Checking;
+        let tx = self.update_tx.clone();
+        std::thread::spawn(move || {
+            let reply = updates::check(env!("CARGO_PKG_VERSION"));
+            let _ = tx.send(UpdateMsg::Checked(reply));
+        });
+    }
+
+    /// Download the release binary on a worker thread.
+    fn download_update(&mut self, release: Release) {
+        self.update = UpdateState::Downloading(release.clone());
+        let tx = self.update_tx.clone();
+        std::thread::spawn(move || {
+            let reply = updates::download(&release, &updates::staging_path());
+            let _ = tx.send(UpdateMsg::Downloaded(reply));
+        });
     }
 
     fn drain_events(&mut self, ctx: &egui::Context) {
@@ -127,6 +159,16 @@ impl WaDesk {
                 Ok(favorites) => self.model.favorites_loaded(favorites),
                 Err(err) => self.model.favorites_failed(&err),
             }
+            changed = true;
+        }
+        while let Ok(message) = self.update_rx.try_recv() {
+            self.update = match message {
+                UpdateMsg::Checked(Ok(Some(release))) => UpdateState::Available(release),
+                UpdateMsg::Checked(Ok(None)) => UpdateState::UpToDate,
+                UpdateMsg::Checked(Err(err)) => UpdateState::Failed(err),
+                UpdateMsg::Downloaded(Ok(path)) => UpdateState::Ready(path),
+                UpdateMsg::Downloaded(Err(err)) => UpdateState::Failed(err),
+            };
             changed = true;
         }
         while let Ok((id, reply)) = self.media_rx.try_recv() {
@@ -154,6 +196,21 @@ impl WaDesk {
                 ui.horizontal(|ui| {
                     ui.heading("Chats");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if matches!(
+                            self.update,
+                            UpdateState::Available(_) | UpdateState::Ready(_)
+                        ) && ui
+                            .button(
+                                egui::RichText::new("⬆ Update")
+                                    .color(egui::Color32::from_rgb(37, 211, 102)),
+                            )
+                            .clicked()
+                        {
+                            self.show_settings = true;
+                            self.show_channels = false;
+                            self.show_status = false;
+                            self.model.close_status();
+                        }
                         if ui.button("Status").clicked() {
                             self.show_status = !self.show_status;
                             self.show_channels = false;
@@ -1232,6 +1289,79 @@ impl WaDesk {
             ui.add_space(14.0);
             ui.separator();
             ui.add_space(6.0);
+            ui.label(egui::RichText::new("Updates").strong());
+            ui.label(
+                egui::RichText::new(format!(
+                    "Installed v{} · published on GitHub releases",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .small()
+                .weak(),
+            );
+            let state = self.update.clone();
+            let busy = matches!(state, UpdateState::Checking | UpdateState::Downloading(_));
+            ui.horizontal(|ui| {
+                if !busy && ui.button("Check for updates").clicked() {
+                    self.check_updates();
+                }
+                match state {
+                    UpdateState::Idle => {}
+                    UpdateState::Checking => {
+                        ui.label(egui::RichText::new("Checking…").small().weak());
+                    }
+                    UpdateState::UpToDate => {
+                        ui.label(
+                            egui::RichText::new("You are on the newest release.")
+                                .small()
+                                .weak(),
+                        );
+                    }
+                    UpdateState::Available(release) => {
+                        let megabytes = release.size as f64 / 1_048_576.0;
+                        ui.label(egui::RichText::new(format!(
+                            "{} is available ({megabytes:.1} MB)",
+                            release.tag
+                        )));
+                        if !release.notes_url.is_empty() {
+                            ui.hyperlink_to("notes", &release.notes_url);
+                        }
+                        if ui.button("Download & install").clicked() {
+                            self.download_update(release);
+                        }
+                    }
+                    UpdateState::Downloading(release) => {
+                        ui.label(
+                            egui::RichText::new(format!("Downloading {}…", release.tag))
+                                .small()
+                                .weak(),
+                        );
+                    }
+                    UpdateState::Ready(path) => {
+                        if ui.button("Restart now").clicked() {
+                            match updates::install(&path) {
+                                Ok(()) => std::process::exit(0),
+                                Err(err) => self.update = UpdateState::Failed(err),
+                            }
+                        }
+                        ui.label(
+                            egui::RichText::new("Downloaded — restarting finishes the update.")
+                                .small()
+                                .weak(),
+                        );
+                    }
+                    UpdateState::Failed(err) => {
+                        ui.label(
+                            egui::RichText::new(err)
+                                .small()
+                                .color(egui::Color32::from_rgb(251, 80, 97)),
+                        );
+                    }
+                }
+            });
+
+            ui.add_space(14.0);
+            ui.separator();
+            ui.add_space(6.0);
             ui.label(egui::RichText::new("AI assistant").strong());
             ui.label(egui::RichText::new(self.settings.key_hint()).small().weak());
             ui.checkbox(&mut self.settings.ai.enabled, "AI mode");
@@ -1384,6 +1514,11 @@ impl eframe::App for WaDesk {
         if !self.model.login.is_linked() {
             self.gate(ctx);
         } else {
+            // Check for a newer release once, quietly, after the gate.
+            if !self.update_checked {
+                self.update_checked = true;
+                self.check_updates();
+            }
             self.sidebar(ctx);
             if self.show_group {
                 self.group_panel(ctx);

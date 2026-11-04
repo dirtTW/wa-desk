@@ -499,8 +499,18 @@ device until you remove it from the phone).
   the crate's default feature set, so stable Rust works. If you want the extra
   throughput, build with `RUSTC_BOOTSTRAP=1` or a nightly toolchain and re-enable it.
 
-- **In-app updates** were a Tauri plugin and are not wired into the native app
-  yet: releases are published by CI and installed from GitHub by hand.
+- **In-app updates are native now** (`apps/desktop-native/src/updates.rs`). Every WA Desk
+  release is a **pre-release**, so GitHub's `/releases/latest` 404s - the updater lists
+  `/releases?per_page=20`, ignores drafts, keeps the highest tag that is newer than
+  `CARGO_PKG_VERSION` and ships this platform's asset (`wa-desk-native.exe` / `wa-desk-native`),
+  then downloads it with `ureq`. Version order is the numeric core first - so a bigger core
+  always updates (`0.2.0-rc.60` → `0.3.0-rc.1`, → `1.0.0`) - then a final release above any
+  pre-release of the same core, then the `rc.N` number compared as a number (`rc.10` beats
+  `rc.9`). Installing renames the running exe to `.old`, moves the download into place, spawns
+  it with `--restarted` and exits; the new process sleeps
+  1.5 s so the old one releases the database and the instance mutex. The check runs once on
+  launch and on demand from Settings → Updates; `--check-updates` / `--download-update` verify
+  the network path from the CLI (`WA_DESK_UPDATE_FROM` overrides the installed version).
 - **The security posture is audited in [`SECURITY.md`](SECURITY.md).** CI runs
   `cargo audit`; accepted advisories live with their rationale in
   `.cargo/audit.toml`. `security.csp` is set (it used to be `null`) — if you add
