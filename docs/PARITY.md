@@ -18,6 +18,12 @@ The live client is reached through the browser MCP. Two things matter:
   `Channels`, `Communities`, `You`; the composer's attach button is `Attach`; the settings rows and
   the attach entries are plain `role=button` rows with their label as inner text.
 
+Opened on 2026-11-05: the **Account** pane (behind `You` then `Account`) lists exactly
+**Security notifications · Request account info · How to delete my account**. Our Account page now
+carries those three beside the account info, linked devices, startup and log-out cards
+(`target/our_settings_account.png`). The recipe is the one from the chat row: find the section label,
+walk up until the element carries `role="button"`, then dispatch the `PointerEvent` sequence.
+
 Re-confirmed on 2026-11-05: the Settings screen (behind `You`) lists **Profile · Account · Privacy ·
 Chats · Notifications · Keyboard shortcuts · Help** with the subtitles "Name, profile picture,
 username", "Security notifications, account info", "Blocked contacts, disappearing messages",

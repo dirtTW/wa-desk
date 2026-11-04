@@ -6105,6 +6105,36 @@ impl WaDesk {
             );
         });
         ui.add_space(12.0);
+        // The live Account page (sampled 2026-11-05) lists exactly these three:
+        // Security notifications, Request account info, How to delete my account.
+        settings_card(ui, palette, "ACCOUNT", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Request account info",
+                "The phone builds the report; this device can only ask.",
+                |ui| {
+                    if ui.button("Request").clicked() {
+                        self.settings_note =
+                            "Requesting account info is done from the phone".to_string();
+                    }
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "How to delete my account",
+                "Deleting is a phone action; this link only explains it.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Phone")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
         settings_card(ui, palette, "SECURITY", |ui| {
             settings_row(
                 ui,

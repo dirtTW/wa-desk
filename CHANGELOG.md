@@ -4,6 +4,16 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.28] - 2026-11-05
+
+- **A Settings sub-page was opened on the live client.** Walking up from the "Account" label to the
+  element carrying `role="button"` and dispatching the same `PointerEvent` sequence as the chat row
+  opened the pane; it lists exactly **Security notifications · Request account info · How to delete
+  my account**. Our Account page now carries those three rows (Request/Phone, with honest copy) next
+  to the account info, linked devices, startup and log-out cards - `target/our_settings_account.png`.
+- `docs/PARITY.md` records the sample, the pane's rows and the working recipe for section panes.
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.27] - 2026-11-05
 
 - **`docs/PARITY.md` now documents the sampling recipe** that unblocked the live work: the
