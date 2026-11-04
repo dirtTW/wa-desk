@@ -1772,40 +1772,58 @@ impl WaDesk {
             .default_width(368.0)
             .show(ctx, |ui| {
                 let palette = self.palette.clone();
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
-                    let own_avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
-                    paint_avatar(ui, &self.model.own_name(), 34.0, own_avatar.as_ref());
-                    ui.add_space(2.0);
-                    ui.label(egui::RichText::new("Chats").size(19.0).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if fab_button(ui, &palette).on_hover_text("New chat").clicked() {
-                            self.show_new_chat = true;
-                            self.send(Command::Contacts);
-                        }
-                        if icon_button(ui, Icon::Menu, &palette)
-                            .on_hover_text("Menu")
-                            .clicked()
-                        {
-                            // The sidebar kebab opens the Chats menu - not the
-                            // open chat's menu (that one lives in the header).
-                            self.show_chat_actions = false;
-                            self.show_chat_menu = !self.show_chat_menu;
-                        }
-                        if matches!(
-                            self.update,
-                            UpdateState::Available(_) | UpdateState::Ready(_)
-                        ) {
-                            ui.label(egui::RichText::new("⬆").color(palette.accent).size(16.0))
-                                .on_hover_text("An update is ready - see Settings → Updates");
-                        }
+                // The official list header is a 64 px bar in the rail colour
+                // with the avatar and title inset by 12 px (measured on
+                // web.whatsapp.com: header 64 px tall, padding 10/12).
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .inner_margin(egui::Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.set_min_height(44.0);
+                        ui.horizontal(|ui| {
+                            self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
+                            let own_avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
+                            paint_avatar(ui, &self.model.own_name(), 40.0, own_avatar.as_ref());
+                            ui.add_space(4.0);
+                            ui.label(egui::RichText::new("Chats").size(20.0).strong());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if fab_button(ui, &palette).on_hover_text("New chat").clicked()
+                                    {
+                                        self.show_new_chat = true;
+                                        self.send(Command::Contacts);
+                                    }
+                                    if icon_button(ui, Icon::Menu, &palette)
+                                        .on_hover_text("Menu")
+                                        .clicked()
+                                    {
+                                        // The sidebar kebab opens the Chats menu - not the
+                                        // open chat's menu (that one lives in the header).
+                                        self.show_chat_actions = false;
+                                        self.show_chat_menu = !self.show_chat_menu;
+                                    }
+                                    if matches!(
+                                        self.update,
+                                        UpdateState::Available(_) | UpdateState::Ready(_)
+                                    ) {
+                                        ui.label(
+                                            egui::RichText::new("⬆")
+                                                .color(palette.accent)
+                                                .size(16.0),
+                                        )
+                                        .on_hover_text(
+                                            "An update is ready - see Settings → Updates",
+                                        );
+                                    }
+                                },
+                            );
+                        });
                     });
-                });
                 ui.add_space(8.0);
                 // The rounded search field.
                 egui::Frame::new()
-                    .fill(palette.rail)
+                    .fill(palette.raised)
                     .corner_radius(egui::CornerRadius::same(9))
                     .inner_margin(egui::Margin::symmetric(10, 4))
                     .show(ui, |ui| {
@@ -2223,17 +2241,19 @@ impl WaDesk {
                             }
                             let send_width = 46.0;
                             let input_width = ui.available_width() - send_width;
-                            let field_width = (input_width - 64.0).max(80.0);
+                            let field_width = (input_width - 98.0).max(80.0);
+                            // The official field is 38 px tall inside a 62 px bar.
+                            let field_height = 38.0;
                             let mut edit_response = None;
                             egui::Frame::new()
                                 .fill(palette.raised)
                                 .corner_radius(egui::CornerRadius::same(8))
-                                .inner_margin(egui::Margin::symmetric(12, 4))
+                                .inner_margin(egui::Margin::symmetric(12, 6))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         edit_response = Some(
                                             ui.add_sized(
-                                                [field_width, 30.0],
+                                                [field_width, field_height],
                                                 egui::TextEdit::singleline(
                                                     &mut self.model.composer,
                                                 )
@@ -8284,10 +8304,12 @@ fn chat_row(
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 72.0), egui::Sense::click());
     let painter = ui.painter();
+    // Official rows are rounded 12 px cards inset from the panel edge.
+    let card = rect.shrink2(egui::vec2(6.0, 0.0));
     if selected {
-        painter.rect_filled(rect, 0.0, palette.selected);
+        painter.rect_filled(card, egui::CornerRadius::same(12), palette.selected);
     } else if response.hovered() {
-        painter.rect_filled(rect, 0.0, palette.hover);
+        painter.rect_filled(card, egui::CornerRadius::same(12), palette.hover);
     }
 
     let center = egui::pos2(rect.left() + 40.0, rect.center().y);

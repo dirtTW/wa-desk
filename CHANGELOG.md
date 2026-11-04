@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.6] - 2026-11-04
+
+Measured against the live client through the browser MCP
+(`web.whatsapp.com`, dark): the list header is **64 px** tall with `10px 12px` padding, a chat row
+is **583x72 with a 12 px radius**, and the conversation column is 613 px wide. Applied:
+
+- **Chat-list header is a 64 px bar** in `Palette::elevated` (it used to be an 8 px-spaced row of
+  widgets on the panel), with a 40 px avatar, a 20 px "Chats" and 12 px side padding.
+- **Rows are rounded 12 px cards inset 6 px** for both selection and hover, instead of a
+  full-width square highlight (`target\list_parity2.png`).
+- **The search field is `Palette::raised`** (`#2A3942`), so it reads as a field on the panel.
+- **The chat header is 64 px** (12 px vertical padding around a 40 px row).
+- **The composer field is 38 px tall** inside the raised rounded container, with the emoji and
+  sticker buttons inside it and the send arrow after it. The width budget was recomputed
+  (`field_width = available - 98`) because the frame's own margins pushed the send button off the
+  window edge (`target\composer_crop2.png`).
+- Tests: 110 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.5] - 2026-11-04
 
 - **Animated WebP stickers actually animate now.** They never did: this machine's `ffmpeg` has no
