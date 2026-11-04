@@ -36,12 +36,20 @@ account. Issues and pull requests are welcome.
   with match counter and highlight; **documents as the official card**; photos and stickers.
 - **Voice notes and audio**: official-style player bubble (play/pause, waveform, elapsed/total)
   with OGG/Opus decoded through libopus, so phone recordings play in the window
-- **Media viewer**: filmstrip, arrow keys, Esc, and Save copies to `Downloads\WA Desk`; **videos
-  play** in it (decoded with `ffmpeg`) with the official transport bar - play/pause, seek line,
-  elapsed/total, mute and fullscreen.
+- **Media viewer, rebuilt against the official screen**: sender avatar, name and "Today at 7:16 am"
+  in the header, the reply/star/forward/download/menu/close toolbar, prev/next arrows in the
+  gutters, the transport bar **inside** the frame (play/pause, draggable seek line, `1.0x`, mute,
+  fullscreen), a `1 of 2` counter and a filmstrip with the open item ringed green. Arrows page,
+  Esc closes, Space plays; Save copies to `Downloads\WA Desk`.
+- **Video that plays smoothly**: the clip's own frame rate is read with `ffprobe` (12-30 fps), the
+  frames are extracted at that rate and decoded **ahead of the playhead on a worker thread**, so
+  the paint loop only uploads ready frames and never blocks on the disk (the class of bug behind
+  egui#7860). `ffmpeg` runs with `CREATE_NO_WINDOW`, so no console window flashes.
 - **Emoji and stickers**: full catalogue with search/recents, favourites and cached stickers, in
-  the official picker (category tabs, rounded search, colour emoji rasterised from the system
-  colour font).
+  the official picker (40 px cells, 30 px glyphs, category tabs, rounded search). Every emoji is a
+  colour glyph rasterised from the system colour font (`swash`) into a padded square cell, so text
+  and emoji line up and neighbours never touch. **Animated WebP stickers animate** (their RIFF
+  `ANIM` chunk is detected and the frames are looped like a GIF), and GIFs animate inline.
 - **Message actions**: reply, react, copy, forward, edit, delete (for me / everyone) and
   **star**; plus **chat actions**: mute, pin, mark unread, archive, clear, delete. Starred
   messages have their own screen, and the Chats menu can create a group or save a contact.
@@ -65,11 +73,20 @@ account. Issues and pull requests are welcome.
   video is decoded into the stage, and your own camera is captured, encoded and sent with a
   mirrored self-view thumbnail.
 - **Tray and notifications** (Windows): the WA Desk icon in the system tray with an Open / Quit
-  menu, plus a desktop toast for messages that arrive while the window is in the background
-  (a Settings switch, `--test-notification` from the CLI, session-bus notifications on Linux).
-- **Official look**: WhatsApp's `--WDS-*` palette, Material Symbols rasterised with `resvg`,
-  rounded composer and card menus, the green speech-bubble app icon in the window/taskbar/exe,
-  and OS font fallbacks so Chinese (simplified and traditional), Japanese and Korean render.
+  menu, written on `Shell_NotifyIcon` directly (no GTK in the dependency graph), plus a desktop
+  toast for messages that arrive while the window is in the background (a Settings switch,
+  `--test-notification` from the CLI, session-bus notifications on Linux).
+- **Official look**: WhatsApp's palette sampled live from `web.whatsapp.com` (`#0B141A` wallpaper,
+  `#111B21` panels, `#202C33` headers and incoming bubbles, `#005C4B` outgoing), the faint doodle
+  wallpaper tiled behind the messages, Material Symbols rasterised with `resvg`, the rounded
+  composer with emoji/stickers inside the field, reactions straddling the bubble's edge, and OS
+  font fallbacks (symbols, Chinese simplified + traditional, Japanese, Korean) so a nickname like
+  `𝕋𝕒𝕦𝕗𝕚𝕢` renders instead of six boxes.
+- **Unsaved participants**: a group bubble's sender row reads `~ Name` with their number beside it;
+  the chat list and header keep plain names.
+- **Bounded memory**: media and sticker textures decode at the size they paint at and are pruned
+  by least-recently-painted use, video frames are capped and released when the viewer closes, and
+  `WA_DESK_DIAG=1` logs a `memory:` line every ten seconds so a session can be watched.
 
 **History caveat.** WhatsApp only pushes older message history to a newly linked device. The app
 asks for the recent chats in batches and on open; Settings → Chat history can unlink so a fresh
@@ -134,8 +151,9 @@ cargo build --release -p wa-desktop-native
 #   target/release/wa-desk-setup.exe target/release/wa-desk-native.exe "WA-Desk-Setup.exe"
 ```
 
-Build each target on its own OS. The release profile favours wall time (`codegen-units = 16`,
-`lto = false`).
+Build each target on its own OS. The release profile favours **size**: fat LTO, one codegen unit,
+stripped symbols and `panic = "abort"` take the exe to ~25 MB. CI builds with `--profile ci`, which
+skips the optimisation so lint and test runs stay fast.
 
 ## Where data lives
 
@@ -147,60 +165,99 @@ Build each target on its own OS. The release profile favours wall time (`codegen
 `chats.json`, `settings.json` and downloaded media live beside it. Delete the database to unlink
 locally (remove the device from the phone as well).
 
+## Versioning
+
+Releases are pre-releases: `0.2.1-rc.4` is the fourth release candidate of `0.2.1`. Every entry in
+[`CHANGELOG.md`](CHANGELOG.md) names the mechanism and how it was verified (tests, screenshots,
+`--selftest` output). The in-app updater compares the numeric core first, then the `rc.N` number,
+so `0.2.2-rc.1` is offered over `0.2.1-rc.9`.
+
 ## Credits
 
-WA Desk is a thin layer on other people's work; this client would not exist without them.
+WA Desk is a thin layer on other people's work. Every project below is used by the shipped client;
+thank you to all of them.
 
-**Protocol**
+**Protocol and crypto**
 
 - **[whatsapp-rust](https://github.com/jlucaso1/whatsapp-rust)** by
-  [jlucaso1](https://github.com/jlucaso1) — the WhatsApp Web client this app is built on
-  (`wacore`, `waproto`, `wacore-noise`, `wacore-appstate`, `whatsapp-rust-*`).
+  [jlucaso1](https://github.com/jlucaso1) — the WhatsApp Web multi-device client this app is built
+  on: `whatsapp-rust` (patched in `vendor/whatsapp-rust`), `wacore`, `waproto`, `wacore-noise`,
+  `wacore-appstate` (patched in `vendor/wacore-appstate`), `wacore-binary`, `wacore-libsignal` and
+  the `whatsapp-rust-*` helpers.
 - **[Signal](https://signal.org/) / [libsignal](https://github.com/signalapp/libsignal)** — the
-  Double Ratchet, X3DH and the crypto primitives (`wacore-libsignal`); also why this app is AGPL.
+  Double Ratchet, X3DH and the primitives behind the end-to-end encryption; also why this app is
+  AGPL.
 - **[whatsmeow](https://github.com/tulir/whatsmeow)** and
   **[Baileys](https://github.com/WhiskeySockets/Baileys)** — the reference implementations
-  `whatsapp-rust` checks its behaviour against.
+  `whatsapp-rust` checks itself against.
+- **[SQLite](https://sqlite.org/)** through `rusqlite` — where the linked session lives.
 
-**Window, icons and media**
+**Window, text and pictures**
 
 - **[eframe](https://github.com/emilk/egui) / [egui](https://github.com/emilk/egui)** by
-  [emilk](https://github.com/emilk) — the native window and everything painted in it.
-- **[resvg](https://github.com/linebender/resvg)** — the pairing QR and the Material icons.
-- **[image](https://github.com/image-rs/image)** — decoding photos, thumbnails and stickers.
-- **[Material Symbols](https://fonts.google.com/icons)** (Google) — every icon, generated into
-  `crates/wa-ui/src/icons_data.rs`.
-- **Unicode emoji** and the OS emoji font (Segoe UI Emoji / Noto) — the picker and message glyphs.
+  [emilk](https://github.com/emilk) — the native window and everything painted in it, plus
+  `epaint` and `ecolor`.
+- **[resvg](https://github.com/linebender/resvg) / [tiny-skia](https://github.com/linebender/tiny-skia)**
+  — rasterising the pairing QR code and the Material icons.
+- **[swash](https://github.com/dfrg/swash)** — turns colour-emoji glyphs (COLR/CPAL, CBDT) into
+  RGBA textures.
+- **[image](https://github.com/image-rs/image)** — decoding photos, posters, GIFs and stickers.
+- **[Material Symbols](https://fonts.google.com/icons)** by Google — every icon, generated into
+  `crates/wa-ui/src/icons_data.rs` (`cargo run -p wa-ui --example gen_icons`).
+- **Unicode emoji** and the OS colour emoji face (Segoe UI Emoji, Noto Color Emoji, Apple Color
+  Emoji) — the picker and message glyphs; **Segoe UI Symbol / Cambria Math / DejaVu / Noto Sans
+  Math** for mathematical and symbol text.
+- **[Noto Sans CJK / Microsoft YaHei / Yu Gothic / Malgun Gothic](https://github.com/notofonts)**
+  (via the OS) — Chinese, Japanese and Korean text.
 
-**Crates**
+**Audio, video and calls**
 
-- **[tokio](https://tokio.rs/)** — async runtime.
-- **[serde](https://serde.rs/) / [serde_json](https://serde.rs/)** — serialization.
-- **[RustCrypto](https://github.com/RustCrypto)** — `aes-gcm`, `sha2`, `hmac`, `hkdf`.
-- **[ureq](https://github.com/algesten/ureq)** — HTTP for updates and profile photos.
+- **[FFmpeg](https://ffmpeg.org/)** (external binary) — video frame extraction, animated stickers,
+  the AI's video frames, camera capture and H.264 encode/decode for calls.
+- **[rodio](https://github.com/RustAudio/rodio)** and **[cpal](https://github.com/RustAudio/cpal)**
+  — audio playback (voice notes, video tracks, call audio) and microphone capture.
+- **[libopus](https://opus-codec.org/)** through `audiopus` and **[ogg](https://github.com/RustAudio/ogg)**
+  — decoding voice notes and encoding call audio.
+- **[Web Audio / WebCodecs](https://www.w3.org/TR/webcodecs/)**-style PCM plumbing is ours, but the
+  jitter buffer and AEC were written against the WebRTC literature.
+
+**Rust crates**
+
+- **[tokio](https://tokio.rs/)** — the async runtime; **[async-channel](https://github.com/smol-rs/async-channel)**
+  for the session's event pipe.
+- **[serde](https://serde.rs/) / [serde_json](https://serde.rs/)** — every wire and cache format.
+- **[RustCrypto](https://github.com/RustCrypto)** — `aes-gcm` (the AI key at rest), `sha2`, `hmac`,
+  `hkdf`, `getrandom`.
+- **[ureq](https://github.com/algesten/ureq)** — HTTP for updates, profile photos and media.
 - **[qrcode](https://github.com/kennytm/qrcode-rust)** — the pairing QR matrix.
-- **[tracing](https://tokio.rs/tokio/tracing)** — logging.
-- **[anyhow](https://github.com/dtolnay/anyhow)** — error handling.
-- **[regex](https://github.com/rust-lang/regex)**,
-  **[chrono](https://github.com/chronotope/chrono)**,
-  **[base64](https://github.com/marshallpierce/rust-base64)** and
-  **[async-channel](https://github.com/smol-rs/async-channel)** — text, dates, payloads, channels.
+- **[zip](https://github.com/zip-rs/zip2)** — sticker-pack archives.
+- **[tracing](https://tokio.rs/tokio/tracing)** and **[anyhow](https://github.com/dtolnay/anyhow)**
+  — logging and error plumbing.
+- **[regex](https://github.com/rust-lang/regex)**, **[chrono](https://github.com/chronotope/chrono)**,
+  **[base64](https://github.com/marshallpierce/rust-base64)** — text, dates, payloads.
 - **[rfd](https://github.com/PolyMeilex/rfd)** — the native file picker.
-- **[windows-sys](https://github.com/microsoft/windows-rs)** — clipboard files (Ctrl+V) and the
-  installer's shortcuts (COM). See also Microsoft's
-  [`windows-rs`](https://github.com/microsoft/windows-rs) project.
+- **[windows-sys](https://github.com/microsoft/windows-rs)** and
+  **[tauri-winrt-notification](https://github.com/tauri-apps/winrt-notification)** — clipboard file
+  drops, the Win32 tray (`Shell_NotifyIcon`), toasts, and the installer's shortcuts.
+- **[notify-rust](https://github.com/hoodie/notify-rust)** — Linux desktop notifications.
+- **[windows](https://github.com/microsoft/windows-rs)** (the `windows` crate) — the installer's
+  shortcut and uninstall entries through `IShellLink`/`IPersistFile` COM.
+- **[winresource](https://github.com/nabijaczleweli/winresource)** — embeds `icon.ico` in the exe.
 - …and every other crate in `Cargo.lock`; `cargo tree` lists them all.
 
 **Tools**
 
+- **[Rust](https://www.rust-lang.org/)** and **[Cargo](https://doc.rust-lang.org/cargo/)**.
 - **[OpenCode](https://opencode.ai)** — the agentic coding environment this was built in.
 - **[DeepSeek V4.1 Flash](https://deepseek.com)** and **[GLM 5.3 Flash](https://z.ai)** — the
   models that wrote the code (see the development note above).
+- **[GitHub Actions](https://github.com/features/actions)** and **[cargo-audit](https://github.com/rustsec/rustsec)**
+  — the CI that builds, lints, tests and audits every release.
 
 **And**
 
-- **WhatsApp / Meta** — for the protocol this reimplements. Not affiliated, not endorsed, and
-  subject to their Terms of Service.
+- **WhatsApp / Meta** — for the protocol this reimplements and the design language it matches. Not
+  affiliated, not endorsed, and subject to their Terms of Service.
 
 ## License
 
