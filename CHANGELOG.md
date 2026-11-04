@@ -4,6 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.7] - 2026-11-04
+
+- **Status screen rebuilt to the official two-pane layout.** Sampled the live Status drawer through
+  the browser MCP (614 px wide, 64 px header on the rail colour, 72 px rows, radius 12) and applied
+  it: the screen is now the rail plus a list with a 64 px header ("Status" + text-status camera and
+  close), a "My status" row ringed like the phone's, a "No recent updates" empty state, and the
+  320 px **"Share statuses"** pane with the *Text status* and *Photo and video* tiles
+  (`target/our_status3.png`). Settings, Status and Channels now replace the chat list instead of
+  stacking beside it, matching the official navigation.
+- **Sharing a status works again.** The window had no command for it (a leftover of the JS port):
+  `Command::PostStatusText` (text + background + font) and `Command::PostStatusMedia` (file path)
+  run `Session::post_status_text` / `post_status_media`, and the tiles send them. Text stays inline
+  in the pane with a green Send pill.
+- **`docs/PARITY.md`**: a written inventory of the official client - shell/navigation, conversation,
+  status, channels, communities, calls and settings - with ✅/🟡/❌ per item and the evidence hook
+  used for each screen. It lists what is still missing (Calls panel, Communities screen, custom
+  lists/Favorites, polls/location/contact cards, voice-note recording, linked devices, two-step
+  verification, block list, account/privacy/storage settings).
+- **New screenshot hook** `WA_DESK_SCREEN=status|channels|group`, so the secondary screens can be
+  captured and compared the same way as the chat list.
+- Tests: 110 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.6] - 2026-11-04
 
 Measured against the live client through the browser MCP

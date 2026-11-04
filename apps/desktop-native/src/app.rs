@@ -67,6 +67,8 @@ pub struct WaDesk {
     typing_sent: bool,
     /// The status panel is showing instead of a conversation.
     show_status: bool,
+    /// Text being typed into the share-status box.
+    status_compose: Option<String>,
     /// The settings screen is showing instead of a conversation.
     show_settings: bool,
     settings: NativeSettings,
@@ -238,6 +240,7 @@ impl WaDesk {
             runtime: native.runtime,
             typing_sent: false,
             show_status: false,
+            status_compose: None,
             show_channels: false,
             show_settings: false,
             settings,
@@ -357,6 +360,20 @@ impl WaDesk {
         self.show_group = false;
         self.show_status = false;
         self.show_channels = false;
+        // `WA_DESK_SCREEN=status|channels|group` opens one of the secondary
+        // screens for a screenshot, so each can be compared with the official
+        // client (the settings screen has its own hook below).
+        if let Ok(screen) = std::env::var("WA_DESK_SCREEN") {
+            match screen.as_str() {
+                "status" => self.show_status = true,
+                "channels" => self.show_channels = true,
+                "group" => {
+                    self.model.active = Some("1203@g.us".to_string());
+                    self.show_group = true;
+                }
+                _ => {}
+            }
+        }
         // `WA_DESK_SETTINGS=1` renders the Settings screen for a screenshot, and
         // `WA_DESK_SETTINGS_SECTION=n` picks the page shown.
         self.show_settings = std::env::var("WA_DESK_SETTINGS").is_ok();
@@ -1761,9 +1778,9 @@ impl WaDesk {
                 });
             });
 
-        // Settings replaces the chat list, like the official client: the section
-        // list takes this column instead.
-        if self.show_settings {
+        // Settings, Status and Channels replace the chat list, like the official
+        // client: their own pane takes this column instead of stacking next to it.
+        if self.show_settings || self.show_status || self.show_channels {
             return;
         }
 
@@ -4133,55 +4150,162 @@ impl WaDesk {
 
 impl WaDesk {
     /// Status: the poster rail, or the story viewer when one is open.
+    /// The Status screen: the official list on the left (a 64 px header, the
+    /// "My status" row, then Recent/Viewed) and the "Share statuses" pane on the
+    /// right with the Text / Photo-and-video tiles.
     fn status_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.model.viewer.is_some() {
+        let palette = self.palette.clone();
+        if self.model.viewer.is_some() {
+            egui::CentralPanel::default().show(ctx, |ui| {
                 self.status_viewer(ui, ctx);
-                return;
-            }
-            ui.horizontal(|ui| {
-                ui.heading("Status");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Back to chats").clicked() {
-                        self.show_status = false;
-                    }
+            });
+            return;
+        }
+
+        // Right: the share pane, 320 px, the official empty-state card.
+        egui::SidePanel::right("status-share")
+            .resizable(false)
+            .exact_width(320.0)
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                ui.add_space(22.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(20.0);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("Share statuses")
+                                .size(20.0)
+                                .color(palette.text),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Share photos, videos and text that disappear after 24 hours.",
+                            )
+                            .size(13.5)
+                            .color(palette.secondary),
+                        );
+                        ui.add_space(18.0);
+                        // Two tiles: text first, then photo/video, as official.
+                        if status_share_tile(ui, &palette, Icon::Edit, "Text status") {
+                            self.status_compose = Some(String::new());
+                        }
+                        ui.add_space(10.0);
+                        if status_share_tile(ui, &palette, Icon::Document, "Photo and video")
+                            && let Some(path) = rfd::FileDialog::new()
+                                .add_filter("Photo or video", &["jpg", "jpeg", "png", "mp4"])
+                                .pick_file()
+                        {
+                            self.send(Command::PostStatusMedia {
+                                path: path.to_string_lossy().into_owned(),
+                                caption: String::new(),
+                            });
+                        }
+                        if let Some(draft) = self.status_compose.clone() {
+                            ui.add_space(16.0);
+                            ui.label(
+                                egui::RichText::new("Text status")
+                                    .size(13.0)
+                                    .color(palette.accent),
+                            );
+                            let response = ui.add_sized(
+                                [260.0, 70.0],
+                                egui::TextEdit::multiline(
+                                    &mut self.status_compose.clone().unwrap_or_default(),
+                                )
+                                .hint_text("Type a status"),
+                            );
+                            if response.changed()
+                                && let Some(buffer) = &mut self.status_compose
+                            {
+                                let _ = buffer;
+                            }
+                            ui.add_space(8.0);
+                            if status_send_button(ui, &palette) && !draft.trim().is_empty() {
+                                self.send(Command::PostStatusText {
+                                    text: draft.trim().to_string(),
+                                    background: 0xFF00_A884,
+                                    font: "system".to_string(),
+                                });
+                                self.status_compose = None;
+                            }
+                        }
+                    });
                 });
             });
-            ui.separator();
 
-            let groups = self.model.status_groups();
-            if groups.is_empty() {
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new("No status updates").weak());
-                return;
-            }
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    for group in &groups {
-                        let ring = if group.unseen {
-                            egui::Color32::from_rgb(37, 211, 102)
-                        } else {
-                            egui::Color32::from_gray(120)
-                        };
+        // Left: the list.
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        ui.set_min_height(40.0);
                         ui.horizontal(|ui| {
-                            // The ring: unseen green, seen grey.
-                            let (rect, _) = ui
-                                .allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
-                            ui.painter().circle_stroke(
-                                rect.center(),
-                                7.0,
-                                egui::Stroke::new(2.5_f32, ring),
+                            ui.label(egui::RichText::new("Status").size(20.0).color(palette.text));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if icon_button(ui, Icon::Close, &palette)
+                                        .on_hover_text("Back to chats")
+                                        .clicked()
+                                    {
+                                        self.show_status = false;
+                                    }
+                                    if icon_button(ui, Icon::Edit, &palette)
+                                        .on_hover_text("Text status")
+                                        .clicked()
+                                    {
+                                        self.status_compose = Some(String::new());
+                                    }
+                                },
                             );
-                            let label = format!("{}  ·  {} update(s)", group.name, group.count);
-                            if ui.button(label).clicked() {
+                        });
+                    });
+
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        // My status: the own avatar with a dashed "add" ring.
+                        let own = self.model.own_name();
+                        self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
+                        let avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
+                        if status_row(ui, &palette, &own, "", avatar.as_ref(), false, true) {
+                            self.status_compose = Some(String::new());
+                        }
+                        let groups = self.model.status_groups();
+                        if groups.is_empty() {
+                            ui.add_space(26.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    egui::RichText::new("No recent updates")
+                                        .size(14.0)
+                                        .color(palette.secondary),
+                                );
+                            });
+                            return;
+                        }
+                        for group in &groups {
+                            self.ensure_avatar(ui.ctx(), &group.jid);
+                            let avatar = self.avatar_for(&group.jid).cloned();
+                            let stamp = format!("{} update(s)", group.count);
+                            if status_row(
+                                ui,
+                                &palette,
+                                &group.name,
+                                &stamp,
+                                avatar.as_ref(),
+                                group.unseen,
+                                false,
+                            ) {
                                 let jid = group.jid.clone();
                                 self.model.open_status(&jid);
                             }
-                        });
-                    }
-                });
-        });
+                        }
+                    });
+            });
     }
 
     /// One story frame: progress segments, the body, and prev/next/close.
@@ -5438,6 +5562,128 @@ fn draw_laptop(ui: &egui::Ui, rect: egui::Rect, palette: &crate::theme::Palette)
         egui::vec2(rect.width() * 0.88, 5.0),
     );
     painter.rect_filled(base, egui::CornerRadius::same(3), green);
+}
+
+/// One "Share statuses" tile: a rounded card with an icon and a label.
+fn status_share_tile(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    icon: Icon,
+    label: &str,
+) -> bool {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(260.0, 46.0), egui::Sense::click());
+    let fill = if response.hovered() {
+        palette.hover
+    } else {
+        palette.raised
+    };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(10), fill);
+    draw_icon(
+        ui,
+        egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 24.0, rect.center().y),
+            egui::vec2(20.0, 20.0),
+        ),
+        icon,
+        palette.text,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 46.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(14.0),
+        palette.text,
+    );
+    response.clicked()
+}
+
+/// The green "Send" pill under the text-status box.
+fn status_send_button(ui: &mut egui::Ui, palette: &crate::theme::Palette) -> bool {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(96.0, 34.0), egui::Sense::click());
+    ui.painter().rect_filled(
+        rect,
+        egui::CornerRadius::same(17),
+        if response.hovered() {
+            palette.accent.gamma_multiply(0.9)
+        } else {
+            palette.accent
+        },
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "Send",
+        egui::FontId::proportional(14.0),
+        egui::Color32::from_rgb(11, 20, 26),
+    );
+    response.clicked()
+}
+
+/// One 72 px status row: ring avatar, name, meta line.
+fn status_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    name: &str,
+    meta: &str,
+    avatar: Option<&egui::TextureHandle>,
+    unseen: bool,
+    mine: bool,
+) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 72.0), egui::Sense::click());
+    let card = rect.shrink2(egui::vec2(8.0, 0.0));
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(card, egui::CornerRadius::same(12), palette.hover);
+    }
+    let center = egui::pos2(rect.left() + 44.0, rect.center().y);
+    let ring = if mine {
+        palette.secondary
+    } else if unseen {
+        palette.accent
+    } else {
+        egui::Color32::from_gray(120)
+    };
+    ui.painter()
+        .circle_stroke(center, 26.0, egui::Stroke::new(2.5_f32, ring));
+    if let Some(texture) = avatar {
+        ui.painter().image(
+            texture.id(),
+            egui::Rect::from_center_size(center, egui::vec2(46.0, 46.0)),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        ui.painter().circle_filled(center, 23.0, avatar_color(name));
+        ui.painter().text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            initials(name),
+            egui::FontId::proportional(16.0),
+            egui::Color32::WHITE,
+        );
+    }
+    ui.painter().text(
+        egui::pos2(rect.left() + 82.0, rect.top() + 24.0),
+        egui::Align2::LEFT_CENTER,
+        name,
+        egui::FontId::proportional(15.0),
+        palette.text,
+    );
+    let meta_text = if mine && meta.is_empty() {
+        "Click to add status update"
+    } else {
+        meta
+    };
+    ui.painter().text(
+        egui::pos2(rect.left() + 82.0, rect.top() + 46.0),
+        egui::Align2::LEFT_CENTER,
+        meta_text,
+        egui::FontId::proportional(13.0),
+        palette.secondary,
+    );
+    response.clicked()
 }
 
 /// The chat wallpaper: WhatsApp's faint doodle sheet, drawn once into a tile

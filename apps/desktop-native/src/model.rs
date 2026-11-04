@@ -138,6 +138,17 @@ pub enum Command {
     Avatar {
         jid: String,
     },
+    /// Share a text status (the official "Text status" tile).
+    PostStatusText {
+        text: String,
+        background: u32,
+        font: String,
+    },
+    /// Share a photo or video as a status (the "Photo and video" tile).
+    PostStatusMedia {
+        path: String,
+        caption: String,
+    },
     /// Ask the linked session for older status updates.
     StatusHistory,
     /// Ask the phone for one chat's latest messages (opening a chat).

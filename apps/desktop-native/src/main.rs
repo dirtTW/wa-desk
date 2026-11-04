@@ -603,6 +603,39 @@ fn main() {
                     ));
                     let _ = avatar_tx.send((jid, url));
                 }
+                model::Command::PostStatusText {
+                    text,
+                    background,
+                    font,
+                } => match session.post_status_text(&text, background, &font).await {
+                    Ok(id) => app::diag(&format!("status posted {id}")),
+                    Err(err) => tracing::warn!(%err, "status post failed"),
+                },
+                model::Command::PostStatusMedia { path, caption } => {
+                    // The window hands over a file path; the session wants the
+                    // bytes, the mime and a small thumbnail.
+                    let result = match std::fs::read(&path) {
+                        Ok(bytes) => {
+                            use base64::Engine as _;
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                            let mime = if path.to_lowercase().ends_with(".mp4")
+                                || path.to_lowercase().ends_with(".mov")
+                            {
+                                "video/mp4"
+                            } else {
+                                "image/jpeg"
+                            };
+                            session
+                                .post_status_media(&encoded, mime, &caption, "", 0)
+                                .await
+                        }
+                        Err(err) => Err(format!("could not read the status media: {err}")),
+                    };
+                    match result {
+                        Ok(()) => app::diag(&format!("status media posted from {path}")),
+                        Err(err) => tracing::warn!(%err, "status media post failed"),
+                    }
+                }
                 model::Command::StatusHistory => {
                     if let Err(err) = session.fetch_status_history().await {
                         tracing::warn!(%err, "status history failed");
