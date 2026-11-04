@@ -14,7 +14,7 @@ use crate::settings::NativeSettings;
 use crate::updates::{self, Release, UpdateMsg, UpdateState};
 use crate::widgets::{
     avatar_color, dialog_button, dialog_card, fit_text, hex_colour, initials, paint_avatar,
-    status_send_button, status_share_tile,
+    single_line, status_send_button, status_share_tile,
 };
 
 /// What `main` assembles before the window exists.
@@ -2119,11 +2119,9 @@ impl WaDesk {
                     .show(ui, |ui| {
                         ui.set_min_height(44.0);
                         ui.horizontal(|ui| {
-                            self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
-                            let own_avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
-                            paint_avatar(ui, &self.model.own_name(), 40.0, own_avatar.as_ref());
-                            ui.add_space(4.0);
-                            ui.label(egui::RichText::new("Chats").size(20.0).strong());
+                            // The desktop header carries no avatar (it lives at
+                            // the bottom of the rail) and a larger title.
+                            ui.label(egui::RichText::new("Chats").size(26.0).strong());
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -2186,24 +2184,25 @@ impl WaDesk {
                 let (groups, communities, unread, favourites) = self.model.filter_counts();
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    // The official order: All, Unread, Favorites, Communities, Groups.
+                    // The desktop client's order: All, Groups, Communities,
+                    // Unread, then a caret for the rest (Favorites).
                     for (filter, label) in [
                         (crate::model::ChatFilter::All, "All".to_string()),
-                        (crate::model::ChatFilter::Unread, format!("Unread {unread}")),
-                        (
-                            crate::model::ChatFilter::Favourites,
-                            format!("Favorites {favourites}"),
-                        ),
+                        (crate::model::ChatFilter::Groups, format!("Groups {groups}")),
                         (
                             crate::model::ChatFilter::Communities,
                             format!("Communities {communities}"),
                         ),
-                        (crate::model::ChatFilter::Groups, format!("Groups {groups}")),
+                        (crate::model::ChatFilter::Unread, format!("Unread {unread}")),
                     ] {
                         let selected = self.model.chat_filter == filter;
                         if pill_button(ui, &palette, &label, selected) {
                             self.model.chat_filter = filter;
                         }
+                    }
+                    // Favorites hides behind the caret, as on the desktop.
+                    if pill_button(ui, &palette, &format!("v {favourites}"), false) {
+                        self.model.chat_filter = crate::model::ChatFilter::Favourites;
                     }
                 });
                 ui.add_space(2.0);
@@ -10090,7 +10089,7 @@ fn chat_row(
         egui::Align2::LEFT_CENTER,
         fit_text(
             painter,
-            title,
+            &single_line(title),
             egui::FontId::proportional(15.0),
             palette.text,
             right - left - stamp_width,
@@ -10117,7 +10116,7 @@ fn chat_row(
         egui::Align2::LEFT_CENTER,
         fit_text(
             painter,
-            preview,
+            &single_line(preview),
             egui::FontId::proportional(13.0),
             palette.secondary,
             right - left,

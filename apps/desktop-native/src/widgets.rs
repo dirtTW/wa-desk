@@ -155,6 +155,26 @@ pub(crate) fn status_send_button(ui: &mut egui::Ui, palette: &crate::theme::Pale
     response.clicked()
 }
 
+/// Collapse a body onto one line: chat previews and titles are painted with
+/// `layout_no_wrap`, which still honours explicit newlines - a multi-line
+/// preview (a "Breafing QC" caption, for example) drew over the row below.
+pub(crate) fn single_line(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut space = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            space = true;
+            continue;
+        }
+        if space && !out.is_empty() {
+            out.push(' ');
+        }
+        space = false;
+        out.push(ch);
+    }
+    out
+}
+
 /// Trim `text` until it measures inside `max_width`, adding an ellipsis.
 pub(crate) fn fit_text(
     painter: &egui::Painter,

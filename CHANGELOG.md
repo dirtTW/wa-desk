@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.19] - 2026-11-05
+
+- **Fixed the overlapping chat rows** (the "seem broken" screenshot): a preview with newlines - a
+  group caption like "Breafing QC / Senin, 02 November 2026 / Sift : 2 / Materi : ..." - was painted
+  with `layout_no_wrap`, which honours explicit line breaks, so it spilled over the row below.
+  Titles and previews now go through `widgets::single_line`, which collapses every run of whitespace
+  into one space, and `fit_text` clips the result. Verified on the linked session with the
+  **Test group** chat (no message sent): the QC DIVISI row is one line again
+  (`target/real_testgroup.png`).
+- **Chat-list header matches the desktop client**: no avatar in the header (it lives at the bottom
+  of the rail), "Chats" at 26 px, kebab and green FAB on the right.
+- **Filter pills in the desktop order**: All, Groups N, Communities N, Unread N, then the caret
+  (Favorites, with its count). The pills previously followed the web order.
+- **The demo chat carries a long lorem-ipsum message** (two paragraphs) so wrapping, the bubble
+  width cap and the one-line preview can be inspected in `--preview` (`target/lorem_chat2.png`).
+- Tests: 116 native + 39 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.18] - 2026-11-04
 
 - **Bubbles no longer touch the window edge.** The message list is wrapped in a frame with a 20 px

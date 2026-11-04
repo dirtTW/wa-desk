@@ -579,6 +579,8 @@ impl Model {
             is_announce: false,
         });
 
+        // A long body, so wrapping, the bubble width limit and the list preview
+        // can be inspected in `--preview`.
         // Two stories for the Status screen: one unseen (Recent) and one that
         // has been watched (Viewed).
         for (jid, name, id, viewed) in [
@@ -661,6 +663,15 @@ impl Model {
             }
             model.apply(&UiEvent::Message(message));
         };
+
+        let long = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor \
+incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation \
+ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in \
+voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non \
+proident, sunt in culpa qui officia deserunt mollit anim id est laborum.\n\nSed ut perspiciatis \
+unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, \
+eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.";
+        group("2@s.whatsapp.net", "Budi", "d21", long, now - 30_000, false);
         group(
             "1@s.whatsapp.net",
             "Ada",
