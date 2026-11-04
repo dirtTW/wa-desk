@@ -118,6 +118,13 @@ pub struct WaDesk {
     /// Attachment results, and the short note under the composer.
     attach_rx: std::sync::mpsc::Receiver<Result<String, String>>,
     attach_note: Option<(String, std::time::Instant)>,
+    /// True in `--preview`: never write the demo chats to the real cache.
+    preview: bool,
+    /// Progressive history sync: batches left and when the last one went out.
+    sync_rounds: u8,
+    last_sync: std::time::Instant,
+    /// The "new chat" FAB asked the search box to take focus.
+    focus_search: bool,
 }
 
 impl WaDesk {
@@ -171,6 +178,10 @@ impl WaDesk {
             avatar_img_rx,
             attach_rx: native.attach,
             attach_note: None,
+            preview: false,
+            sync_rounds: 6,
+            last_sync: std::time::Instant::now(),
+            focus_search: false,
         }
     }
 
@@ -178,6 +189,7 @@ impl WaDesk {
     /// session (`--preview`, used for screenshots).
     pub fn preview_mode(&mut self) {
         self.model = Model::demo();
+        self.preview = true;
         self.show_group = false;
         self.show_settings = false;
         self.show_status = false;
@@ -376,6 +388,69 @@ impl WaDesk {
     }
 
     fn sidebar(&mut self, ctx: &egui::Context) {
+        let palette = self.palette.clone();
+
+        // The navigation rail, like the official client.
+        egui::SidePanel::left("rail")
+            .resizable(false)
+            .exact_width(58.0)
+            .frame(egui::Frame::new().fill(palette.rail))
+            .show(ctx, |ui| {
+                ui.add_space(10.0);
+                ui.vertical_centered(|ui| {
+                    let chats = !self.show_status && !self.show_channels && !self.show_settings;
+                    if rail_button(ui, &palette, Icon::Chats, chats, self.model.total_unread())
+                        .on_hover_text("Chats")
+                        .clicked()
+                    {
+                        self.show_status = false;
+                        self.show_channels = false;
+                        self.show_settings = false;
+                        self.model.close_status();
+                    }
+                    let unseen = self
+                        .model
+                        .status_groups()
+                        .iter()
+                        .filter(|group| group.unseen)
+                        .count() as i64;
+                    if rail_button(ui, &palette, Icon::Status, self.show_status, unseen)
+                        .on_hover_text("Status")
+                        .clicked()
+                    {
+                        self.show_status = true;
+                        self.show_channels = false;
+                        self.show_settings = false;
+                        self.model.close_status();
+                        self.send(Command::StatusHistory);
+                    }
+                    if rail_button(ui, &palette, Icon::Channels, self.show_channels, 0)
+                        .on_hover_text("Channels")
+                        .clicked()
+                    {
+                        self.show_channels = true;
+                        self.show_status = false;
+                        self.show_settings = false;
+                        self.model.close_status();
+                    }
+                    if rail_button(ui, &palette, Icon::Settings, self.show_settings, 0)
+                        .on_hover_text("Settings")
+                        .clicked()
+                    {
+                        self.show_settings = true;
+                        self.show_channels = false;
+                        self.show_status = false;
+                        self.model.close_status();
+                    }
+                });
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.add_space(10.0);
+                    self.ensure_avatar(&self.model.me_jid.clone());
+                    let own_avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
+                    paint_avatar(ui, &self.model.own_name(), 30.0, own_avatar.as_ref());
+                });
+            });
+
         egui::SidePanel::left("chats")
             .resizable(true)
             .default_width(300.0)
@@ -389,35 +464,14 @@ impl WaDesk {
                     ui.add_space(2.0);
                     ui.label(egui::RichText::new("Chats").size(19.0).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icon_button(ui, Icon::Settings, &palette)
-                            .on_hover_text("Settings")
+                        if fab_button(ui, &palette).on_hover_text("New chat").clicked() {
+                            self.focus_search = true;
+                        }
+                        if icon_button(ui, Icon::Menu, &palette)
+                            .on_hover_text("Menu")
                             .clicked()
                         {
                             self.show_settings = true;
-                            self.show_channels = false;
-                            self.show_status = false;
-                            self.model.close_status();
-                        }
-                        if icon_button(ui, Icon::Status, &palette)
-                            .on_hover_text("Status")
-                            .clicked()
-                        {
-                            self.show_status = true;
-                            self.show_channels = false;
-                            self.show_settings = false;
-                            self.model.close_status();
-                            // Statuses are only pushed while the app is open;
-                            // ask for the recent window when the panel opens.
-                            self.send(Command::StatusHistory);
-                        }
-                        if icon_button(ui, Icon::Channels, &palette)
-                            .on_hover_text("Channels")
-                            .clicked()
-                        {
-                            self.show_channels = true;
-                            self.show_status = false;
-                            self.show_settings = false;
-                            self.model.close_status();
                         }
                         if matches!(
                             self.update,
@@ -435,13 +489,44 @@ impl WaDesk {
                     .corner_radius(egui::CornerRadius::same(9))
                     .inner_margin(egui::Margin::symmetric(10, 4))
                     .show(ui, |ui| {
-                        ui.add(
+                        let edit = ui.add(
                             egui::TextEdit::singleline(&mut self.model.search)
                                 .hint_text("Search or start a new chat")
                                 .frame(false)
                                 .desired_width(f32::INFINITY),
                         );
+                        if self.focus_search {
+                            edit.request_focus();
+                            self.focus_search = false;
+                        }
                     });
+                ui.add_space(6.0);
+                // The filter pills with their counts.
+                let (groups, communities, unread) = self.model.filter_counts();
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
+                    for (filter, label) in [
+                        (crate::model::ChatFilter::All, "All".to_string()),
+                        (crate::model::ChatFilter::Groups, format!("Groups {groups}")),
+                        (
+                            crate::model::ChatFilter::Communities,
+                            format!("Communities {communities}"),
+                        ),
+                        (crate::model::ChatFilter::Unread, format!("Unread {unread}")),
+                    ] {
+                        let selected = self.model.chat_filter == filter;
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(label).size(12.0))
+                                    .selected(selected),
+                            )
+                            .clicked()
+                        {
+                            self.model.chat_filter = filter;
+                        }
+                    }
+                });
                 ui.add_space(2.0);
                 ui.label(
                     egui::RichText::new(&self.model.status)
@@ -493,8 +578,24 @@ impl WaDesk {
             .frame(egui::Frame::new().fill(palette.wallpaper))
             .show(ctx, |ui| {
                 let Some(jid) = self.model.active.clone() else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(egui::RichText::new("Pick a chat").color(palette.secondary));
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(70.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space((ui.available_width() / 2.0 - 120.0).max(0.0));
+                            if action_button(ui, &palette, Icon::Document, "Send document") {
+                                self.focus_search = true;
+                            }
+                            if action_button(ui, &palette, Icon::Add, "New chat") {
+                                self.focus_search = true;
+                            }
+                            if action_button(ui, &palette, Icon::Settings, "Settings") {
+                                self.show_settings = true;
+                            }
+                        });
+                        ui.add_space(14.0);
+                        ui.label(
+                            egui::RichText::new("Pick a chat on the left").color(palette.secondary),
+                        );
                     });
                     return;
                 };
@@ -1859,6 +1960,10 @@ impl WaDesk {
                 self.send(Command::InitialSync);
                 self.settings_note = "Asking the phone for history…".to_string();
             }
+            if ui.button("Sync more chats").clicked() {
+                self.send(Command::SyncMore);
+                self.settings_note = "Asking for the next chats…".to_string();
+            }
             if ui.button("Refresh statuses").clicked() {
                 self.send(Command::StatusHistory);
                 self.settings_note = "Asking the phone for recent statuses…".to_string();
@@ -2141,7 +2246,10 @@ impl eframe::App for WaDesk {
         self.screenshot_tick(ctx);
         // A restart only finds the chat list because it is mirrored here: the
         // phone does not replay history to an already-linked device.
-        if self.cache_dirty && self.cache_saved.elapsed() >= std::time::Duration::from_secs(2) {
+        if !self.preview
+            && self.cache_dirty
+            && self.cache_saved.elapsed() >= std::time::Duration::from_secs(2)
+        {
             self.cache_dirty = false;
             self.cache_saved = std::time::Instant::now();
             self.model.save_cache_file(&self.cache_path);
@@ -2151,6 +2259,17 @@ impl eframe::App for WaDesk {
         if self.model.needs_history && self.model.login.is_linked() {
             self.model.needs_history = false;
             self.send(Command::InitialSync);
+            // Keep pulling batches so the recent chats surface, like the phone.
+            self.sync_rounds = 6;
+            self.last_sync = std::time::Instant::now();
+        }
+        if self.model.login.is_linked()
+            && self.sync_rounds > 0
+            && self.last_sync.elapsed() >= std::time::Duration::from_secs(8)
+        {
+            self.sync_rounds -= 1;
+            self.last_sync = std::time::Instant::now();
+            self.send(Command::SyncMore);
         }
         // The session runs on other threads and pushes into a channel; without a
         // timer egui would only repaint on mouse/keyboard input, so the chat list
@@ -2161,7 +2280,9 @@ impl eframe::App for WaDesk {
 
 impl Drop for WaDesk {
     fn drop(&mut self) {
-        self.model.save_cache_file(&self.cache_path);
+        if !self.preview {
+            self.model.save_cache_file(&self.cache_path);
+        }
     }
 }
 
@@ -2607,6 +2728,8 @@ enum Icon {
     Delete,
     Document,
     Attach,
+    Chats,
+    Add,
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
@@ -2656,8 +2779,122 @@ impl Icon {
             Icon::Delete => "delete",
             Icon::Document => "description",
             Icon::Attach => "attach_file",
+            Icon::Chats => "chat_bubble",
+            Icon::Add => "add",
         }
     }
+}
+
+/// One rail button, with an optional badge for unread counts.
+fn rail_button(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    icon: Icon,
+    selected: bool,
+    badge: i64,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::click());
+    if selected || response.hovered() {
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(12),
+            if selected {
+                palette.selected
+            } else {
+                palette.hover
+            },
+        );
+    }
+    let color = if selected {
+        palette.accent
+    } else {
+        palette.secondary
+    };
+    draw_icon(
+        ui,
+        egui::Rect::from_center_size(rect.center(), egui::vec2(24.0, 24.0)),
+        icon,
+        color,
+    );
+    if badge > 0 {
+        let label = if badge > 99 {
+            "99+".to_string()
+        } else {
+            badge.to_string()
+        };
+        let width = 14.0 + label.len() as f32 * 3.5;
+        let pill = egui::Rect::from_center_size(
+            egui::pos2(rect.right() - 4.0, rect.top() + 10.0),
+            egui::vec2(width, 16.0),
+        );
+        ui.painter().rect_filled(pill, 8.0, palette.unread);
+        ui.painter().text(
+            pill.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(10.0),
+            egui::Color32::WHITE,
+        );
+    }
+    response
+}
+
+/// The green "new chat" floating button in the Chats header.
+fn fab_button(ui: &mut egui::Ui, palette: &crate::theme::Palette) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::click());
+    let fill = if response.hovered() {
+        palette.accent.linear_multiply(1.15)
+    } else {
+        palette.accent
+    };
+    ui.painter().circle_filled(rect.center(), 20.0, fill);
+    let ink = if palette.dark {
+        egui::Color32::from_rgb(11, 20, 26)
+    } else {
+        egui::Color32::WHITE
+    };
+    draw_icon(
+        ui,
+        egui::Rect::from_center_size(rect.center(), egui::vec2(20.0, 20.0)),
+        Icon::Add,
+        ink,
+    );
+    response
+}
+
+/// One of the round empty-state actions (circle + caption).
+fn action_button(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    icon: Icon,
+    label: &str,
+) -> bool {
+    ui.vertical(|ui| {
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(72.0, 64.0), egui::Sense::click());
+        let fill = if response.hovered() {
+            palette.hover
+        } else {
+            palette.elevated
+        };
+        ui.painter().circle_filled(rect.center(), 28.0, fill);
+        draw_icon(
+            ui,
+            egui::Rect::from_center_size(
+                egui::pos2(rect.center().x, rect.center().y - 2.0),
+                egui::vec2(22.0, 22.0),
+            ),
+            icon,
+            palette.secondary,
+        );
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(label)
+                .size(11.5)
+                .color(palette.secondary),
+        );
+        response.clicked()
+    })
+    .inner
 }
 
 /// A round initials avatar, like WhatsApp's default profile photo.

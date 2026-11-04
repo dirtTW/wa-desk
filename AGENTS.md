@@ -210,6 +210,20 @@ device until you remove it from the phone).
   filmstrip, arrow keys, Esc, and Save copying the cached file into `Downloads\WA Desk` in
   Rust - the window never opens a second process.
 
+### The chat list (v147)
+
+- The sidebar is three pieces: a 58 px **rail** (`rail_button`) with unread/unseen badges and the
+  own avatar, the **Chats** panel (kebab + green FAB, rounded search, filter pills) and the rows.
+  `Model::filter_counts()` drives `All / Groups N / Communities N / Unread N`; the pill filters
+  `visible_chats`, and `total_unread` feeds the rail badge.
+- The own avatar needs `Model::me_jid`: `UiEvent::SelfIdentity` is emitted once the session
+  starts (`own_jid()` or the LID, plus `push_name()`), so `contact_photo` has a real JID.
+- History arrives in batches: `InitialSync` seeds the address book (bare numbers normalised to
+  `@s.whatsapp.net`) and asks for eight chats; the window sends `SyncMore` every eight seconds
+  for six rounds so the recent chats and groups surface like the phone's list. Opening a chat
+  with no history asks for that chat alone.
+- `--preview` never writes `chats.json`, so the demo rows cannot pollute a real account.
+
 ### The native look (v146)
 
 - `apps/desktop-native/src/theme.rs` holds the official `--WDS-*` tokens as a `Palette`

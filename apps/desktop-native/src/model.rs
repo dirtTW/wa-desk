@@ -96,6 +96,8 @@ pub enum Command {
     },
     /// Seed the chat list from the address book and request a history batch.
     InitialSync,
+    /// Request the next batch of chat history (the phone caps each batch).
+    SyncMore,
     /// Fetch a contact's profile photo URL.
     Avatar {
         jid: String,
@@ -168,6 +170,18 @@ pub struct ChatRow {
     pub messages: Vec<MessageView>,
     pub unread: i64,
     pub last_ts: i64,
+    /// The chat is a community (from its group metadata).
+    pub community: bool,
+}
+
+/// The sidebar's filter pills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChatFilter {
+    #[default]
+    All,
+    Groups,
+    Communities,
+    Unread,
 }
 
 #[derive(Debug, Default)]
@@ -200,6 +214,8 @@ pub struct Model {
     pub search: String,
     pub composer: String,
     pub now: i64,
+    /// The sidebar's active filter pill.
+    pub chat_filter: ChatFilter,
     /// In-chat search: the header bar, its query and the hit being shown.
     pub search_open: bool,
     pub chat_search: String,
@@ -452,6 +468,14 @@ impl Model {
                     row.name = name.clone();
                 }
             }
+            UiEvent::SelfIdentity { jid, name } => {
+                if !jid.is_empty() {
+                    self.me_jid = jid.clone();
+                }
+                if !name.is_empty() {
+                    self.me_name = name.clone();
+                }
+            }
             UiEvent::Message(message) | UiEvent::HistoryMessage(message) => {
                 self.upsert(message.clone());
             }
@@ -523,6 +547,12 @@ impl Model {
     }
 
     pub fn group_loaded(&mut self, info: GroupInfoView) {
+        if let Some(row) = self.chats.get_mut(&info.jid) {
+            row.community = info.is_community;
+            if !info.subject.is_empty() {
+                row.name = info.subject.clone();
+            }
+        }
         self.group = Some(info);
     }
 
@@ -969,7 +999,7 @@ impl Model {
         }
     }
 
-    /// Chat rows for the sidebar, filtered by the search box.
+    /// Chat rows for the sidebar, filtered by the search box and the pill.
     pub fn visible_chats(&self) -> Vec<&ChatRow> {
         let needle = self.search.trim().to_lowercase();
         let mut rows: Vec<&ChatRow> = self
@@ -977,6 +1007,12 @@ impl Model {
             .values()
             .filter(|row| !row.jid.ends_with("@newsletter"))
             .filter(|row| !row.messages.is_empty() || !row.name.is_empty())
+            .filter(|row| match self.chat_filter {
+                ChatFilter::All => true,
+                ChatFilter::Groups => row.jid.ends_with("@g.us"),
+                ChatFilter::Communities => row.community,
+                ChatFilter::Unread => row.unread > 0,
+            })
             .filter(|row| {
                 needle.is_empty()
                     || row.name.to_lowercase().contains(&needle)
@@ -985,6 +1021,30 @@ impl Model {
             .collect();
         rows.sort_by_key(|row| std::cmp::Reverse(row.last_ts));
         rows
+    }
+
+    /// Counts for the filter pills: (groups, communities, unread chats).
+    pub fn filter_counts(&self) -> (usize, usize, usize) {
+        let rows = self
+            .chats
+            .values()
+            .filter(|row| !row.jid.ends_with("@newsletter"));
+        let groups = rows
+            .clone()
+            .filter(|row| row.jid.ends_with("@g.us"))
+            .count();
+        let communities = rows.clone().filter(|row| row.community).count();
+        let unread = rows.filter(|row| row.unread > 0).count();
+        (groups, communities, unread)
+    }
+
+    /// Unread messages across every chat, for the rail badge.
+    pub fn total_unread(&self) -> i64 {
+        self.chats
+            .values()
+            .filter(|row| !row.jid.ends_with("@newsletter"))
+            .map(|row| row.unread)
+            .sum()
     }
 
     /// Apply the restart action's outcome (a fresh QR replaces the state).
@@ -1263,6 +1323,8 @@ struct CachedChat {
     #[serde(default)]
     last_ts: i64,
     #[serde(default)]
+    community: bool,
+    #[serde(default)]
     messages: Vec<MessageView>,
 }
 
@@ -1278,6 +1340,7 @@ impl Model {
                 name: row.name.clone(),
                 unread: row.unread,
                 last_ts: row.last_ts,
+                community: row.community,
                 // Keep the file small: the newest 80 bubbles per chat.
                 messages: row.messages.iter().rev().take(80).rev().cloned().collect(),
             })
@@ -1311,6 +1374,7 @@ impl Model {
                     messages: row.messages,
                     unread: row.unread,
                     last_ts: row.last_ts,
+                    community: row.community,
                 },
             );
         }

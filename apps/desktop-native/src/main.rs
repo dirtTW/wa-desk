@@ -64,6 +64,44 @@ fn mime_for(path: &str) -> &'static str {
     }
 }
 
+/// Request the next batch of chats from the seeded address book.
+async fn sync_batch(
+    session: &wa_core::Session,
+    contacts: &std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    cursor: &std::sync::Arc<std::sync::Mutex<usize>>,
+    step: usize,
+) {
+    let snapshot = contacts.lock().expect("sync contacts").clone();
+    if snapshot.is_empty() {
+        return;
+    }
+    let start = {
+        let mut cursor = cursor.lock().expect("sync cursor");
+        let start = *cursor;
+        *cursor = (*cursor + step).min(snapshot.len());
+        start
+    };
+    let requests: Vec<wa_types::HistoryRequest> = snapshot
+        .iter()
+        .skip(start)
+        .take(8)
+        .map(|(jid, _)| wa_types::HistoryRequest {
+            chat: jid.clone(),
+            oldest_id: String::new(),
+            oldest_from_me: false,
+            oldest_timestamp: 0,
+            count: 20,
+        })
+        .collect();
+    if requests.is_empty() {
+        return;
+    }
+    match session.sync_chat_history(&requests).await {
+        Ok(sent) => app::diag(&format!("history batch from {start}: sent {sent}")),
+        Err(err) => app::diag(&format!("history batch from {start}: {err}")),
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -166,9 +204,19 @@ fn main() {
         drop(event_tx);
     } else {
         let slot = session_slot.clone();
+        let startup_events = events_out.clone();
         handle.spawn(async move {
             match wa_core::Session::start(&store, media.into(), event_tx).await {
                 Ok(session) => {
+                    // Tell the UI who we are, so the sidebar avatar and the
+                    // self-chat label have a JID to work with.
+                    let jid = session
+                        .own_jid()
+                        .or_else(|| session.own_lid())
+                        .unwrap_or_default();
+                    let name = session.push_name();
+                    app::diag(&format!("identity {jid} {name}"));
+                    let _ = startup_events.send(wa_types::UiEvent::SelfIdentity { jid, name });
                     *slot.lock().expect("session slot") = Some(session);
                 }
                 Err(err) => tracing::error!(%err, "session start failed"),
@@ -176,6 +224,12 @@ fn main() {
         });
     }
 
+    // The appointment list, seeded once and walked in batches.
+    let sync_contacts: Arc<std::sync::Mutex<Vec<(String, String)>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sync_cursor: Arc<std::sync::Mutex<usize>> = Arc::new(std::sync::Mutex::new(0));
+    let command_contacts = sync_contacts.clone();
+    let command_cursor = sync_cursor.clone();
     // Commands from the UI thread are executed on the runtime.
     let slot = session_slot.clone();
     handle.spawn(async move {
@@ -281,11 +335,12 @@ fn main() {
                 model::Command::InitialSync => {
                     // The address book is keyed by bare phone numbers; WhatsApp
                     // needs `<number>@s.whatsapp.net`.
-                    let contacts: Vec<(String, String)> = session
+                    let mut contacts: Vec<(String, String)> = session
                         .contacts()
                         .into_iter()
                         .map(|(key, name)| (as_jid(&key), name))
                         .collect();
+                    contacts.sort_by(|a, b| a.1.cmp(&b.1));
                     app::diag(&format!("initial sync: {} contacts", contacts.len()));
                     for (jid, name) in contacts.iter().take(80) {
                         let _ = events_out.send(wa_types::UiEvent::Chat {
@@ -295,21 +350,12 @@ fn main() {
                             timestamp: 0,
                         });
                     }
-                    let requests: Vec<wa_types::HistoryRequest> = contacts
-                        .iter()
-                        .take(8)
-                        .map(|(jid, _)| wa_types::HistoryRequest {
-                            chat: jid.clone(),
-                            oldest_id: String::new(),
-                            oldest_from_me: false,
-                            oldest_timestamp: 0,
-                            count: 20,
-                        })
-                        .collect();
-                    match session.sync_chat_history(&requests).await {
-                        Ok(sent) => app::diag(&format!("initial sync: history sent {sent}")),
-                        Err(err) => app::diag(&format!("initial sync history failed: {err}")),
-                    }
+                    *command_contacts.lock().expect("sync contacts") = contacts;
+                    *command_cursor.lock().expect("sync cursor") = 0;
+                    sync_batch(&session, &command_contacts, &command_cursor, 0).await;
+                }
+                model::Command::SyncMore => {
+                    sync_batch(&session, &command_contacts, &command_cursor, 8).await;
                 }
                 model::Command::Avatar { jid } => {
                     let url = match session.contact_photo(&jid).await {

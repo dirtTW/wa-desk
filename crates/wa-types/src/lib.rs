@@ -100,7 +100,10 @@ pub enum UiEvent {
     },
     /// A saved-contact name synced from the phone's address book.
     ContactName { jid: String, name: String },
-    /// The chat's pinned state changed — ours (a pin action we sent) or
+    /// The linked account's own identity (JID and push name), for avatars and
+    /// the self-chat label.
+    SelfIdentity { jid: String, name: String },
+    /// The chat's pinned state changed - ours (a pin action we sent) or
     /// another device's, or a full-sync replay of an existing pin.
     ChatPin {
         chat: String,
@@ -183,6 +186,7 @@ impl UiEvent {
             UiEvent::MessageDeleted { .. } => "message_deleted",
             UiEvent::MessageEdited { .. } => "message_edited",
             UiEvent::ContactName { .. } => "contact_name",
+            UiEvent::SelfIdentity { .. } => "self_identity",
             UiEvent::ChatPin { .. } => "chat_pin",
             UiEvent::ChatArchive { .. } => "chat_archive",
             UiEvent::ChatMute { .. } => "chat_mute",

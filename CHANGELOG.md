@@ -4,7 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.67] — 2026-11-04
+## [0.2.0-rc.68] — 2026-11-04
+
+- **The chat list layout now matches the official client**: a 58 px navigation rail with unread
+  and unseen-status badges and your own photo at the bottom, a "Chats" header with the kebab and
+  the green new-chat FAB, the rounded search field, and the **All / Groups N / Communities N /
+  Unread N** filter pills (they filter the list and the counts are live). Selecting no chat shows
+  the round empty-state actions instead of a bare label.
+- **Your own identity**: `UiEvent::SelfIdentity` carries `own_jid` + push name at session start,
+  so the sidebar avatar loads your profile photo (it was blank because `me_jid` was never set)
+  and the self chat shows your name.
+- **History sync runs in batches**, like the phone: after the address-book pass the app keeps
+  requesting the next eight chats every eight seconds (six rounds), and Settings → Chat history
+  has "Sync more chats". Groups and communities appear as their history arrives.
+- **Fixed: preview runs wrote the demo chats into the real cache.** `--preview` no longer saves
+  `chats.json` (update or exit), so the sample "Team/Ada/Budi" rows cannot leak into a real
+  account.
+- Emoji fall back to the OS font (Segoe UI Emoji / Noto), so 🙏 👍 🎉 render as glyphs.
+- The last two vendored Python CI scripts were deleted: **the repository contains no code in any
+  language other than Rust** (Cargo manifests, docs and CI YAML aside).
+- 35 native tests, clippy `-D warnings` clean, selftest green.
+
+
 
 - **Fixed: the chat list was empty after a restart.** WhatsApp only replays history to a newly
   linked device, and the native app never kept a local chat list, so a linked account opened to
