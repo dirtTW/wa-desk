@@ -5533,6 +5533,9 @@ fn layout_body(
                 match crate::emoji_glyph::texture_shared(ui.ctx(), ch, emoji_px) {
                     Some(texture) => {
                         placed.push((egui::pos2(x, y + offset), Inline::Emoji(texture)));
+                        // Advance the cell: two emoji in a row used to paint on
+                        // top of each other.
+                        x += emoji_size;
                     }
                     None => {
                         // No colour glyph for this codepoint: draw it as text
@@ -5547,7 +5550,6 @@ fn layout_body(
                         x += width.max(1.0);
                     }
                 }
-                widest = widest.max(x);
                 widest = widest.max(x);
             }
             Token::Word(word) => {
@@ -6528,7 +6530,8 @@ impl WaDesk {
         palette: &crate::theme::Palette,
         emoji: &str,
     ) -> bool {
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::click());
+        // 40 px cell with a 30 px glyph: the official grid breathes.
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::click());
         if response.hovered() {
             ui.painter()
                 .rect_filled(rect, egui::CornerRadius::same(8), palette.hover);
@@ -6536,7 +6539,7 @@ impl WaDesk {
         let glyph = emoji.chars().next().unwrap_or('?');
         if let Some(texture) = self.emoji_texture(ui.ctx(), glyph, 30) {
             let size = texture.size_vec2();
-            let scale = (28.0 / size.x.max(1.0)).min(28.0 / size.y.max(1.0));
+            let scale = (30.0 / size.x.max(1.0)).min(30.0 / size.y.max(1.0));
             ui.painter().image(
                 texture.id(),
                 egui::Rect::from_center_size(rect.center(), size * scale),
@@ -6564,7 +6567,7 @@ impl WaDesk {
     ) -> Option<String> {
         let mut clicked = None;
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(1.0, 1.0);
+            ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
             for emoji in chars {
                 if self.emoji_cell(ui, palette, emoji) {
                     clicked = Some(emoji.clone());
@@ -6943,6 +6946,7 @@ impl WaDesk {
                         ui.add_space(6.0);
                         ui.separator();
                         ui.horizontal(|ui| {
+                            ui.add_space(10.0);
                             ui.spacing_mut().item_spacing.x = 18.0;
                             if ui
                                 .add(

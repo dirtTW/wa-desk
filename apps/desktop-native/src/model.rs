@@ -2093,15 +2093,10 @@ impl Model {
         }
     }
 
-    /// The sidebar and header title: `~ name` for a person who is not in the
-    /// address book, exactly like the official client.
+    /// The sidebar and header title: the plain name. The `~` mark belongs to
+    /// the group bubbles only - the chat list stays clean, as the user asked.
     pub fn row_title(&self, row: &ChatRow) -> String {
-        let name = self.title(row);
-        if self.is_unsaved_person(&row.jid) {
-            format!("~ {name}")
-        } else {
-            name
-        }
+        self.title(row)
     }
 
     /// The sender row a group bubble carries: the name (`~` when the sender is
@@ -2781,9 +2776,10 @@ mod tests {
         assert_eq!(model.visible_chats()[0].unread, 1);
     }
 
-    /// An unsaved person is titled `~ name`; a saved contact is not.
+    /// The chat list keeps plain names even when the person is not saved - the
+    /// `~` mark is for the group bubbles only.
     #[test]
-    fn unsaved_people_are_marked_with_a_tilde() {
+    fn the_chat_list_keeps_plain_names() {
         let mut model = Model::new();
         model.apply(&UiEvent::Chat {
             jid: "628123@s.whatsapp.net".into(),
@@ -2792,11 +2788,11 @@ mod tests {
             timestamp: 0,
         });
         let jid = "628123@s.whatsapp.net".to_string();
-        assert!(model.is_unsaved_person(&jid));
+        assert!(model.is_unsaved_person(&jid), "still unsaved");
         assert_eq!(
             model.row_title(&model.chats[&jid].clone()),
-            "~ Budi",
-            "an unsaved push name is marked"
+            "Budi",
+            "the list never prefixes the mark"
         );
 
         model.apply(&UiEvent::ContactName {

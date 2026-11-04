@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.2] - 2026-11-04
+
+- **Emoji in bubbles are the official size again, with padding.** Two bugs were stacked:
+  `layout_body` stopped advancing the pen after a colour glyph (two emoji painted on top of each
+  other) and the rasteriser returned the raw ink box, so a wide glyph like 👀 came out clipped and
+  touching its neighbours. Every glyph is now blitted into a square `px x px` cell, centred, and
+  the pen advances one cell per emoji. Evidence: `target/zoom_multi.png` (three 👀, 👍 and 🎉 in one
+  bubble, evenly spaced) and the regression test `emoji_glyph::tests::glyphs_fill_their_cell`
+  (`assert_eq!((width, height), (19, 19))`).
+- **The chat list has plain contact names again.** The `~` mark is only drawn on a group bubble's
+  sender row (with the number beside it), never on the right-hand list or the chat header, as
+  requested. `Model::row_title` returns the title unchanged; `sender_row` keeps the mark.
+  Test: `model::tests::the_chat_list_keeps_plain_names`.
+- The emoji picker grid is 40 px cells with a 30 px glyph and 2 px gaps, matching the official
+  sheet (`target/emoji_fixed.png`).
+- Tests: 108 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.1] - 2026-11-04
 
 - **The chat has the official wallpaper again.** WhatsApp's faint doodle sheet is drawn once into
