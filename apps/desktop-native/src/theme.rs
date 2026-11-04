@@ -18,6 +18,8 @@ pub struct Palette {
     pub wallpaper: Color32,
     /// Menus, popovers and inputs.
     pub elevated: Color32,
+    /// The message field: `#2A3942` dark, white on the light bar.
+    pub raised: Color32,
     pub hover: Color32,
     pub selected: Color32,
     pub text: Color32,
@@ -53,6 +55,7 @@ pub fn palette(theme: &str, system_dark: bool) -> Palette {
             rail: hex(0x111B21),
             wallpaper: hex(0x0B141A),
             elevated: hex(0x202C33),
+            raised: hex(0x2A3942),
             hover: Color32::from_rgba_unmultiplied(255, 255, 255, 16),
             selected: hex(0x2A3942),
             text: hex(0xE9EDEF),
@@ -73,6 +76,7 @@ pub fn palette(theme: &str, system_dark: bool) -> Palette {
             rail: hex(0xF7F5F3),
             wallpaper: hex(0xF5F1EB),
             elevated: hex(0xFFFFFF),
+            raised: hex(0xFFFFFF),
             hover: hex(0xF5F6F6),
             selected: hex(0xF0F2F5),
             text: hex(0x111B21),

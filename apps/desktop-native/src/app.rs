@@ -2197,46 +2197,57 @@ impl WaDesk {
                             self.send_document(&jid, path, caption);
                         }
                         ui.horizontal(|ui| {
+                            // Official composer: attach on the left, then the
+                            // rounded field with emoji + stickers inside it on
+                            // the right, then the green send button.
                             if icon_button(ui, Icon::Attach, &palette)
                                 .on_hover_text("Attach a file")
                                 .clicked()
                             {
                                 self.pick_attachment();
                             }
-                            if icon_button(ui, Icon::Emoji, &palette)
-                                .on_hover_text("Emoji")
-                                .clicked()
-                            {
-                                self.model.emoji_open = !self.model.emoji_open;
-                                self.model.stickers_open = false;
-                            }
-                            if icon_button(ui, Icon::Sticker, &palette)
-                                .on_hover_text("Stickers")
-                                .clicked()
-                            {
-                                self.model.stickers_open = !self.model.stickers_open;
-                                self.model.emoji_open = false;
-                                if self.model.favorites.is_empty()
-                                    && self.model.favorites_error.is_none()
-                                {
-                                    self.send(Command::FavoriteStickers);
-                                }
-                            }
-                            let send_width = 44.0;
+                            let send_width = 46.0;
                             let input_width = ui.available_width() - send_width;
-                            let edit = egui::Frame::new()
-                                .fill(palette.elevated)
-                                .corner_radius(egui::CornerRadius::same(18))
-                                .inner_margin(egui::Margin::symmetric(10, 3))
+                            let field_width = (input_width - 64.0).max(80.0);
+                            let mut edit_response = None;
+                            egui::Frame::new()
+                                .fill(palette.raised)
+                                .corner_radius(egui::CornerRadius::same(8))
+                                .inner_margin(egui::Margin::symmetric(12, 4))
                                 .show(ui, |ui| {
-                                    ui.add_sized(
-                                        [(input_width - 20.0).max(80.0), 28.0],
-                                        egui::TextEdit::singleline(&mut self.model.composer)
-                                            .frame(false)
-                                            .hint_text("Type a message"),
-                                    )
-                                })
-                                .inner;
+                                    ui.horizontal(|ui| {
+                                        edit_response = Some(
+                                            ui.add_sized(
+                                                [field_width, 30.0],
+                                                egui::TextEdit::singleline(
+                                                    &mut self.model.composer,
+                                                )
+                                                .frame(false)
+                                                .hint_text("Type a message"),
+                                            ),
+                                        );
+                                        if icon_button(ui, Icon::Emoji, &palette)
+                                            .on_hover_text("Emoji")
+                                            .clicked()
+                                        {
+                                            self.model.emoji_open = !self.model.emoji_open;
+                                            self.model.stickers_open = false;
+                                        }
+                                        if icon_button(ui, Icon::Sticker, &palette)
+                                            .on_hover_text("Stickers")
+                                            .clicked()
+                                        {
+                                            self.model.stickers_open = !self.model.stickers_open;
+                                            self.model.emoji_open = false;
+                                            if self.model.favorites.is_empty()
+                                                && self.model.favorites_error.is_none()
+                                            {
+                                                self.send(Command::FavoriteStickers);
+                                            }
+                                        }
+                                    });
+                                });
+                            let edit = edit_response.expect("the composer field is created above");
                             if edit.changed() {
                                 let typing = !self.model.composer.trim().is_empty();
                                 if typing != self.typing_sent {

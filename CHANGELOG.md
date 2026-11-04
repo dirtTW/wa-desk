@@ -4,6 +4,17 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.4] - 2026-11-04
+
+- **Composer matches the official bar.** The message field is one rounded 8 px container in
+  `#2A3942` (new `Palette::raised`) with the emoji and sticker buttons *inside* it on the right,
+  the attach button on the left and the green send button after it - instead of three icons
+  stacked left of a pill (`target/composer_new.png`).
+- The `opencode.json` workspace file is gone again: it configured a local agent MCP server
+  (`rust-docs`) and does not belong to the client repo. It now lives in the user's global
+  OpenCode config, and `.gitignore` keeps it out.
+- Tests: 108 native + 38 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.3] - 2026-11-04
 
 - **CI fix:** `spawn::quiet` kept a `mut command` that only Windows uses, so the Linux lint job

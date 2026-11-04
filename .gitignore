@@ -15,3 +15,6 @@ media/
 .DS_Store
 .playwright-mcp/
 .opencode/
+
+# Local agent workspace config (MCP servers), not part of the client.
+opencode.json
