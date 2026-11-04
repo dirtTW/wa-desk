@@ -114,6 +114,61 @@ fn main() {
                         tracing::warn!(%err, "sticker forward failed");
                     }
                 }
+                model::Command::SendReply {
+                    chat,
+                    text,
+                    reply_id,
+                    quoted,
+                } => {
+                    if let Err(err) = session
+                        .send_text_reply(&chat, &text, &reply_id, quoted.as_deref())
+                        .await
+                    {
+                        tracing::warn!(%err, "reply failed");
+                    }
+                }
+                model::Command::React {
+                    chat,
+                    id,
+                    from_me,
+                    participant,
+                    emoji,
+                } => {
+                    if let Err(err) = session
+                        .send_reaction(&chat, &id, from_me, participant.as_deref(), &emoji)
+                        .await
+                    {
+                        tracing::warn!(%err, "reaction failed");
+                    }
+                }
+                model::Command::EditMessage { chat, id, text } => {
+                    if let Err(err) = session.edit_message(&chat, &id, &text).await {
+                        tracing::warn!(%err, "edit failed");
+                    }
+                }
+                model::Command::DeleteForMe {
+                    chat,
+                    id,
+                    from_me,
+                    participant,
+                } => {
+                    if let Err(err) = session
+                        .delete_for_me(&chat, &id, from_me, participant.as_deref())
+                        .await
+                    {
+                        tracing::warn!(%err, "delete for me failed");
+                    }
+                }
+                model::Command::DeleteForEveryone { chat, id } => {
+                    if let Err(err) = session.delete_for_everyone(&chat, &id).await {
+                        tracing::warn!(%err, "delete for everyone failed");
+                    }
+                }
+                model::Command::Forward { chats, id } => {
+                    if let Err(err) = session.forward_message(&chats, &id).await {
+                        tracing::warn!(%err, "forward failed");
+                    }
+                }
                 model::Command::Restart => {
                     // The session reconnects itself; a reconnect is what asks
                     // WhatsApp for a fresh QR.

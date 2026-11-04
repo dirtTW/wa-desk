@@ -9,7 +9,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use wa_types::{MessageView, UiEvent};
 
 use crate::login::LoginState;
-use crate::model::{ChatRow, Command, Model};
+use crate::model::{BubbleAction, ChatRow, Command, Model};
 use crate::settings::NativeSettings;
 
 /// What `main` assembles before the window exists.
@@ -328,7 +328,7 @@ impl WaDesk {
             let focus = current.filter(|_| self.scrolled_hit != self.model.search_hit);
 
             let height = ui.available_height() - 40.0;
-            let mut clicked: Option<String> = None;
+            let mut chosen: Option<BubbleAction> = None;
             egui::ScrollArea::vertical()
                 .stick_to_bottom(focus.is_none())
                 .max_height(height.max(120.0))
@@ -336,7 +336,7 @@ impl WaDesk {
                     let ctx = ui.ctx().clone();
                     for (index, message) in row.messages.iter().enumerate() {
                         let is_hit = hits.contains(&index);
-                        if bubble(
+                        if let Some(action) = bubble(
                             ui,
                             &self.model,
                             message,
@@ -345,12 +345,12 @@ impl WaDesk {
                             if is_hit { Some(query.as_str()) } else { None },
                             focus == Some(index),
                         ) {
-                            clicked = Some(message.id.clone());
+                            chosen = Some(action);
                         }
                     }
                 });
-            if let Some(id) = clicked {
-                self.model.open_viewer(&id);
+            if let Some(action) = chosen {
+                self.run_action(&row, action);
             }
             if focus.is_some() {
                 self.scrolled_hit = self.model.search_hit;
@@ -364,6 +364,10 @@ impl WaDesk {
             }
 
             ui.separator();
+
+            // The reply / edit card above the composer.
+            self.composer_banner(ui);
+
             ui.horizontal(|ui| {
                 if ui.button("Emoji").clicked() {
                     self.model.emoji_open = !self.model.emoji_open;
@@ -394,16 +398,39 @@ impl WaDesk {
                 }
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if ui
-                    .add_sized([send_width, 30.0], egui::Button::new("Send"))
+                    .add_sized(
+                        [send_width, 30.0],
+                        egui::Button::new(self.model.send_label()),
+                    )
                     .clicked()
                     || enter
                 {
                     let text = self.model.composer.trim().to_string();
                     if !text.is_empty() {
-                        self.send(Command::SendText {
-                            chat: jid.clone(),
-                            text: text.clone(),
-                        });
+                        if let Some(editing) = self.model.editing.take() {
+                            self.send(Command::EditMessage {
+                                chat: jid.clone(),
+                                id: editing.id,
+                                text,
+                            });
+                        } else if let Some(reply) = self.model.reply_to.take() {
+                            let quoted = if reply.text.trim().is_empty() {
+                                None
+                            } else {
+                                Some(reply.text.clone())
+                            };
+                            self.send(Command::SendReply {
+                                chat: jid.clone(),
+                                text,
+                                reply_id: reply.id,
+                                quoted,
+                            });
+                        } else {
+                            self.send(Command::SendText {
+                                chat: jid.clone(),
+                                text,
+                            });
+                        }
                         self.model.composer.clear();
                         self.send(Command::Typing {
                             chat: jid.clone(),
@@ -415,11 +442,117 @@ impl WaDesk {
             });
         });
     }
+
+    /// Run what a bubble's context menu asked for.
+    fn run_action(&mut self, row: &ChatRow, action: BubbleAction) {
+        let id = match &action {
+            BubbleAction::OpenMedia(id)
+            | BubbleAction::Reply(id)
+            | BubbleAction::Edit(id)
+            | BubbleAction::Delete(id)
+            | BubbleAction::Forward(id) => id.clone(),
+            BubbleAction::React(id, _) => id.clone(),
+        };
+        let message = row.messages.iter().find(|item| item.id == id).cloned();
+        match action {
+            BubbleAction::OpenMedia(id) => {
+                self.model.open_viewer(&id);
+            }
+            BubbleAction::Reply(_) => {
+                if let Some(message) = message {
+                    self.model.start_reply(&message);
+                }
+            }
+            BubbleAction::React(_, emoji) => {
+                if let Some(message) = message {
+                    self.send(Command::React {
+                        chat: message.chat.clone(),
+                        id: message.id.clone(),
+                        from_me: message.from_me,
+                        participant: if message.from_me {
+                            None
+                        } else {
+                            message.sender.clone()
+                        },
+                        emoji: emoji.clone(),
+                    });
+                    // Show our own pill straight away; the echo replaces it.
+                    self.model.apply_own_reaction(&message.id, &emoji);
+                }
+            }
+            BubbleAction::Edit(_) => {
+                if let Some(message) = message {
+                    self.model.start_edit(&message);
+                }
+            }
+            BubbleAction::Delete(_) => {
+                if let Some(message) = message {
+                    self.model.start_delete(&message);
+                }
+            }
+            BubbleAction::Forward(_) => {
+                if let Some(message) = message {
+                    self.model.start_forward(&message);
+                }
+            }
+        }
+    }
+
+    /// The reply / edit card above the composer, with its cancel button.
+    fn composer_banner(&mut self, ui: &mut egui::Ui) {
+        if let Some(preview) = self.model.reply_preview() {
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgb(32, 34, 34))
+                .inner_margin(egui::Margin::symmetric(8, 4))
+                .corner_radius(egui::CornerRadius::same(6))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(
+                                egui::RichText::new(preview.name)
+                                    .small()
+                                    .color(egui::Color32::from_rgb(83, 189, 235)),
+                            );
+                            ui.label(egui::RichText::new(preview.preview).small().weak());
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("✕").clicked() {
+                                self.model.reply_to = None;
+                            }
+                        });
+                    });
+                });
+            return;
+        }
+        if let Some(editing) = self.model.editing.clone() {
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgb(32, 34, 34))
+                .inner_margin(egui::Margin::symmetric(8, 4))
+                .corner_radius(egui::CornerRadius::same(6))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(
+                                egui::RichText::new("Editing message")
+                                    .small()
+                                    .color(egui::Color32::from_rgb(240, 200, 60)),
+                            );
+                            ui.label(egui::RichText::new(&editing.text).small().weak());
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("✕").clicked() {
+                                self.model.cancel_composer_mode();
+                            }
+                        });
+                    });
+                });
+        }
+    }
 }
 
-/// Paint one message. Returns true when its media was clicked, which opens the
-/// viewer. `search` marks a hit (and highlights the query), `scroll` brings the
-/// bubble into view.
+/// Paint one message. Returns the action its context menu chose, or a viewer
+/// request when its media was clicked. `search` marks a hit (and highlights the
+/// query), `scroll` brings the bubble into view.
 fn bubble(
     ui: &mut egui::Ui,
     model: &Model,
@@ -428,13 +561,13 @@ fn bubble(
     ctx: &egui::Context,
     search: Option<&str>,
     scroll: bool,
-) -> bool {
+) -> Option<BubbleAction> {
     let align = if message.from_me {
         egui::Align::Max
     } else {
         egui::Align::Min
     };
-    let mut clicked = false;
+    let mut action: Option<BubbleAction> = None;
     ui.with_layout(egui::Layout::top_down(align), |ui| {
         let mut header = String::new();
         if let Some(name) = message.sender_name.as_ref().filter(|_| !message.from_me) {
@@ -456,7 +589,11 @@ fn bubble(
             if scroll {
                 response.scroll_to_me(Some(egui::Align::Center));
             }
-            clicked = response.clicked();
+            if response.clicked() {
+                action = Some(BubbleAction::OpenMedia(message.id.clone()));
+            }
+            context_menu(&response, model, message, &mut action);
+            pills_row(ui, model, message);
             ui.add_space(3.0);
             return;
         }
@@ -475,10 +612,14 @@ fn bubble(
             if scroll {
                 response.scroll_to_me(Some(egui::Align::Center));
             }
-            clicked = response.clicked();
+            if response.clicked() {
+                action = Some(BubbleAction::OpenMedia(message.id.clone()));
+            }
+            context_menu(&response, model, message, &mut action);
             if !message.text.trim().is_empty() {
                 ui.label(egui::RichText::new(&message.text).color(egui::Color32::from_gray(235)));
             }
+            pills_row(ui, model, message);
             ui.add_space(3.0);
             return;
         }
@@ -515,9 +656,86 @@ fn bubble(
         if scroll {
             response.scroll_to_me(Some(egui::Align::Center));
         }
+        // A frame only senses hover, so give its rect a click sense of its own
+        // before asking for the context menu.
+        let hit = ui.interact(
+            response.rect,
+            response.id.with("msg-menu"),
+            egui::Sense::click(),
+        );
+        context_menu(&hit, model, message, &mut action);
+        pills_row(ui, model, message);
         ui.add_space(3.0);
     });
-    clicked
+    action
+}
+
+/// WhatsApp's message menu: the quick reaction bar, then the rows `wa-ui`
+/// allows for this message.
+fn context_menu(
+    response: &egui::Response,
+    model: &Model,
+    message: &MessageView,
+    action: &mut Option<BubbleAction>,
+) {
+    response.context_menu(|ui| {
+        ui.horizontal(|ui| {
+            for emoji in ["👍", "❤️", "😂", "😮", "😢", "🙏"] {
+                if ui
+                    .add(egui::Button::new(egui::RichText::new(emoji).size(18.0)).frame(false))
+                    .clicked()
+                {
+                    *action = Some(BubbleAction::React(message.id.clone(), emoji.to_string()));
+                    ui.close();
+                }
+            }
+        });
+        ui.separator();
+        let menu = model.message_menu(message);
+        if menu.reply && ui.button("Reply").clicked() {
+            *action = Some(BubbleAction::Reply(message.id.clone()));
+            ui.close();
+        }
+        if menu.copy && ui.button("Copy").clicked() {
+            ui.ctx().copy_text(message.text.clone());
+            ui.close();
+        }
+        if menu.forward && ui.button("Forward").clicked() {
+            *action = Some(BubbleAction::Forward(message.id.clone()));
+            ui.close();
+        }
+        if menu.edit && ui.button("Edit").clicked() {
+            *action = Some(BubbleAction::Edit(message.id.clone()));
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Delete").clicked() {
+            *action = Some(BubbleAction::Delete(message.id.clone()));
+            ui.close();
+        }
+    });
+}
+
+/// The reaction pills under a message, ours in blue like WhatsApp.
+fn pills_row(ui: &mut egui::Ui, model: &Model, message: &MessageView) {
+    let pills = model.reactions_for(&message.id);
+    if pills.is_empty() {
+        return;
+    }
+    ui.horizontal(|ui| {
+        for (emoji, count, mine) in pills {
+            let label = if count > 1 {
+                format!("{emoji} {count}")
+            } else {
+                emoji
+            };
+            let mut text = egui::RichText::new(label).size(13.0);
+            if mine {
+                text = text.color(egui::Color32::from_rgb(83, 189, 235));
+            }
+            ui.label(text);
+        }
+    });
 }
 
 /// Decode a media file into a texture, once. Absent until the file exists —
@@ -1179,6 +1397,8 @@ impl eframe::App for WaDesk {
                 self.conversation(ctx);
                 self.emoji_window(ctx);
                 self.stickers_window(ctx);
+                self.delete_window(ctx);
+                self.forward_window(ctx);
             }
             if self.model.media_viewer.is_some() {
                 self.media_overlay(ctx);
@@ -1322,6 +1542,105 @@ impl WaDesk {
             });
         if !open {
             self.model.stickers_open = false;
+        }
+    }
+
+    /// The delete dialog: for me, and for everyone when `wa-ui` allows it.
+    fn delete_window(&mut self, ctx: &egui::Context) {
+        if self.model.delete_target.is_none() {
+            return;
+        }
+        let (title, can_everyone) = self.model.delete_question();
+        let target = self.model.delete_target.clone();
+        let mut open = true;
+        egui::Window::new("Delete message")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(280.0)
+            .show(ctx, |ui| {
+                ui.label(title);
+                let Some(target) = target.clone() else { return };
+                if ui.button("Delete for me").clicked() {
+                    self.send(Command::DeleteForMe {
+                        chat: target.chat.clone(),
+                        id: target.id.clone(),
+                        from_me: target.from_me,
+                        participant: if target.from_me {
+                            None
+                        } else {
+                            target.sender.clone()
+                        },
+                    });
+                    self.model.remove_message(&target.chat, &target.id);
+                    self.model.delete_target = None;
+                }
+                if can_everyone && ui.button("Delete for everyone").clicked() {
+                    self.send(Command::DeleteForEveryone {
+                        chat: target.chat.clone(),
+                        id: target.id.clone(),
+                    });
+                    self.model.delete_target = None;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.model.delete_target = None;
+                }
+            });
+        if !open {
+            self.model.delete_target = None;
+        }
+    }
+
+    /// The forward picker: search, multi-select, then one send for all chats.
+    fn forward_window(&mut self, ctx: &egui::Context) {
+        let Some(target) = self.model.forward_target.clone() else {
+            return;
+        };
+        let mut open = true;
+        egui::Window::new("Forward to")
+            .open(&mut open)
+            .default_width(320.0)
+            .show(ctx, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.model.forward_search)
+                        .hint_text("Search chats")
+                        .desired_width(f32::INFINITY),
+                );
+                let rows: Vec<(String, String)> = self
+                    .model
+                    .forward_rows()
+                    .iter()
+                    .map(|row| (row.jid.clone(), self.model.title(row)))
+                    .collect();
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        for (jid, name) in rows {
+                            let mut chosen = self.model.forward_chosen.contains(&jid);
+                            if ui.checkbox(&mut chosen, name).changed() {
+                                self.model.toggle_forward(&jid);
+                            }
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    let count = self.model.forward_chosen.len();
+                    if ui
+                        .add_enabled(count > 0, egui::Button::new(format!("Send to {count}")))
+                        .clicked()
+                    {
+                        self.send(Command::Forward {
+                            chats: self.model.forward_chosen.clone(),
+                            id: target.id.clone(),
+                        });
+                        self.model.forward_target = None;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.model.forward_target = None;
+                    }
+                });
+            });
+        if !open {
+            self.model.forward_target = None;
         }
     }
 

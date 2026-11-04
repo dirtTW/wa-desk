@@ -4,7 +4,39 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.59] — 2026-11-04
+## [0.2.0-rc.60] — 2026-11-04
+
+- **Message actions in the native window.** Right-clicking a bubble opens WhatsApp's menu:
+  the six quick reactions, Reply, Copy, Forward, Edit (only your own text), Delete (only for
+  gone messages is Delete kept out). The rows come from `wa_ui::menus::message_menu`, so the
+  native window applies the same rules as the old shell.
+  - **Reply** shows a preview card above the composer (`wa_ui::actions::reply_preview`) and
+    sends through `send_text_reply` with the quoted body.
+  - **Edit** loads your text into the composer, relabels the button `Edit`, and sends
+    `edit_message`; cancelling drops the draft. `MessageEdited` events rewrite the bubble.
+  - **Delete** asks "Delete message?" via `wa_ui::menus::delete_confirm`, offering
+    *for everyone* only when the message is yours and the chat is not "Message yourself";
+    *for me* removes it locally as well. `MessageDeleted` events follow the same path.
+  - **Forward** opens a searchable, multi-select chat picker and sends `forward_message`
+    once for every chosen chat.
+  - **React** sends `send_reaction` with the sender's participant id, shows our pill
+    immediately and folds `Reaction` events (`reactions_for`), ours in blue.
+- **The last non-Rust files are gone.** All 23 `.mjs`/`.ps1` dev scripts (CDP harnesses, theme
+  audit, window capture, icon/emoji generators, the WebView dev server) and `package.json`
+  were deleted; the icon generator is now the Rust example
+  `cargo run -p wa-ui --example gen_icons`, which reproduces `icons_data.rs` byte-for-byte
+  from `scripts/material-paths.json`. The repository now contains **0** `.js`, `.mjs`, `.ps1`
+  and `.bat` files.
+- **CI runs on release tags only.** `build.yml` no longer triggers on pushes to `main` or on
+  pull requests - only `push: tags: ["v*"]` and a manual `workflow_dispatch` - so a normal
+  commit does not spend a runner. The `check` job (fmt, clippy, tests, native `--selftest`)
+  still gates every release tag, and the `release` job still publishes the binaries.
+- 20 native tests (four new: reply/edit composer state, delete ownership + removal, forward
+  picker/edits/revokes, reaction pill replacement); clippy `-D warnings` clean;
+  selftest prints `{"delete":"Delete message?","delete_everyone":true,...,"forward":1,
+  "reactions":2,...}`.
+
+
 
 - **In-chat search in the native window.** The conversation header's `Search` button opens a
   bar with the `2/5` counter, `▲`/`▼` stepping and `✕`/`Esc` to close. Matching comes from

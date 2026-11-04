@@ -160,9 +160,12 @@ settings      -> wa-ui::settings (theme, AI form plan)
 
 - `crates/wa-ui` has no UI-framework or protocol dependency: it is pure serde
   in / values out, and every module is unit-tested (`cargo test -p wa-ui`).
-- Data that used to ship as JavaScript is generated into Rust by
-  `scripts/gen-ui-data.mjs` (`icons_data.rs`, `emoji_data.rs`). Regenerate after
-  a new Material icon set or emoji dataset.
+- The data tables are checked-in Rust. `icons_data.rs` regenerates from
+  `scripts/material-paths.json` with `cargo run -p wa-ui --example gen_icons`
+  (then `cargo fmt`); `emoji_data.rs` is a one-off generated catalogue whose
+  upstream dataset is no longer in the tree, so it is hand-edited if it ever
+  needs to change. **There are no Node, `.mjs`, `.ps1` or `.bat` files left in
+  the repository** - the icon generator is the Rust example above.
 - `wa-ui` still carries the HTML renderers; they are the shared source of truth
   for markup decisions and their tests. The native window does not consume the
   HTML — it paints with `egui`.
@@ -206,6 +209,23 @@ device until you remove it from the phone).
 - **Media viewer** pages the open chat's photos and videos (`Model::media_items`), with a
   filmstrip, arrow keys, Esc, and Save copying the cached file into `Downloads\WA Desk` in
   Rust - the window never opens a second process.
+
+### Message actions (v145)
+
+- Right-click is the whole entry point: `bubble()` returns a `BubbleAction` and the
+  conversation runs it, so painting never sends a command itself. The menu rows are
+  `wa_ui::menus::message_menu` flags (edit only your own text, reply/copy/forward/star off
+  for a gone message), the delete question is `wa_ui::menus::delete_confirm` (for-everyone
+  only when the message is ours and the chat is not "Message yourself"), and the reply card
+  is `wa_ui::actions::reply_preview`.
+- Reply/edit share the composer: `Model::send_label()` relabels the button, `editing` loads
+  the body in, and cancelling drops an abandoned edit's draft. Sends go through
+  `send_text_reply` / `edit_message`; `MessageEdited` rewrites the stored bubble.
+- Reactions are optimistic (`apply_own_reaction`) and then folded from `Reaction` events;
+  ours replaces our previous emoji rather than stacking, and an empty emoji removes it.
+  Pills render under the bubble, ours in the read-receipt blue.
+- Forward is a searchable multi-select picker (`forward_rows`), one `forward_message` call
+  for every chosen chat.
 
 ### Official-client parity pass (v140)
 
@@ -264,9 +284,9 @@ device until you remove it from the phone).
   `styles.css`'s `:root` blocks carry the values of WhatsApp Web's `--WDS-*`
   tokens, read live from `web.whatsapp.com` (the browser MCP's `eval` on the
   real page; the stylesheet is
-  `static.whatsapp.net/rsrc.php/v5/y7/l/0,cross/…css`, and
-  `scripts/waweb-fetch-css.mjs` + `waweb-theme-tokens.mjs` extract the dark and
-  light theme blocks offline). Dark: surface `#161717`, rail `#1D1F1F`,
+  `static.whatsapp.net/rsrc.php/v5/y7/l/0,cross/…css`; the one-off extraction
+  scripts that read the dark and light theme blocks offline were removed with
+  the WebView shell). Dark: surface `#161717`, rail `#1D1F1F`,
   elevated `#242626`, hover/selected `rgba(255,255,255,.1)`, text `#FAFAFA`,
   secondary `rgba(255,255,255,.6)`, accent `#21C063`, pill selected `#103529`,
   outgoing bubble `#144D37`, link `#21C063`, read `#53BDEB`, danger `#FB5061`.
@@ -274,19 +294,19 @@ device until you remove it from the phone).
   `#1DAA61`, outgoing bubble `#D9FDD3`, link `#1B8755`, read `#007BFC`.
   Sender-name colours and default avatars use the official
   `--WDS-components-profile-photo-content-*` / `-surface-*` palettes.
-  Verified by capturing both windows and sampling the same elements
-  (`scripts/win-capture.ps1` / `win-sample.ps1` / `win-scan.ps1`; the capture
-  path is trustworthy because it reproduces our own known CSS values exactly):
+  Verified at the time by capturing both windows and sampling the same elements
+  (the capture/sample scripts were removed with the WebView shell; the capture
+  path was trustworthy because it reproduced our own known CSS values exactly):
   panel `#161717`, rail `#1D1F1F`, chat `#161717`, header `#161717`, search
   `#2E2F2F`, selected row `#2E2F2F`, incoming bubble `#242626`, FAB `#21C063`
   — identical in both clients.
   Secondary screens: every screen container is `#161717`, every menu/popover is
   `#242626`, the media-viewer backdrop is `#161717`, the status-viewer stage is
   `#0B141A` (the official `--status-background-rgb`), and the status composer
-  palette is the official 20-colour array. `scripts/theme-audit.mjs` checks every
-  colour literal in the UI against the 1,222 values parsed from the official
-  stylesheet — the only ones left are document/file-type icon colours, HTML
-  entities that look like hex, and alpha variants of official hexes.
+  palette is the official 20-colour array. The former `theme-audit.mjs` check
+  compared every colour literal in the UI against the 1,222 values parsed from
+  the official stylesheet; it went with the WebView shell, and the native
+  colours are the tokens listed above.
 - Verified on the live dev instance via CDP: `shownTime:
   "10:02 am✓"`, kebab items `[info, voice, video, import]`,
   `callBtnHidden: true`, pills `All/Unread/Favourites/Communities/caret`.
@@ -489,7 +509,6 @@ device until you remove it from the phone).
 
 ## Roadmap (native app)
 
-1. Message actions: reply, react, edit, delete, forward
-2. Notifications, tray and autostart
-3. AI auto-reply loop (port it out of the removed shell)
-4. Voice/video calls on a native audio/video path
+1. Notifications, tray and autostart
+2. AI auto-reply loop (port it out of the removed shell)
+3. Voice/video calls on a native audio/video path

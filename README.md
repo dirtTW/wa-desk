@@ -58,18 +58,24 @@ The native window (`wa-desk-native`) covers:
   background colours, prev/next and auto-advance
 - **Channels**: followed newsletters with their follower counts and read-only posts
 - **Group info**: subject, description, member count and the member list with admin chips
+- **Message actions**: right-click a bubble for reply, react, copy, forward, edit (your own
+  text) and delete; a reply/edit card sits above the composer, deletes ask "for me" or "for
+  everyone", forwarding offers a multi-select chat picker, and reactions show as pills under
+  the bubble (ours in blue)
 - **Settings**: theme (Light / Dark / System) and the AI form, validated by the same rules the
   rest of the app uses
 
 **What is no longer in the tree** (removed in `v0.2.0-rc.57`): the Tauri shell, its
 WebView (`wry`, `webview2-com`, `webkit2gtk`), `tauri-plugin-{notification,autostart,updater}`,
-the MSI/NSIS bundling and the 13-file JavaScript front end — several thousand lines of JS
+the MSI/NSIS bundling and the 13-file JavaScript front end - several thousand lines of JS
 and the whole HTML/CSS tree. `Cargo.lock` now has zero `tauri`, `wry`, `webview2` and
 `webkit2gtk` entries; the only new dependencies are `eframe`, `egui`, `resvg` (QR) and
-`image` (photo decoding).
-Planned next, in rough order: message actions (reply / react / edit / delete / forward),
-notifications + tray + autostart, the AI auto-reply loop (it used to live in the removed
-WebView shell), and calls on a native audio/video path.
+`image` (photo decoding). In `v0.2.0-rc.60` the last dev tooling went too: all 23
+`.mjs`/`.ps1` scripts and `package.json` were deleted, and the surviving icon generator is
+the Rust example `cargo run -p wa-ui --example gen_icons`. **The repository now has zero
+`.js`, `.mjs`, `.ps1` and `.bat` files** - Rust is the only language left.
+Planned next, in rough order: notifications + tray + autostart, the AI auto-reply loop (it
+used to live in the removed WebView shell), and calls on a native audio/video path.
 
 ## How it is put together
 
@@ -88,8 +94,9 @@ The UI is verified without a display:
 
 ```bash
 cargo run -p wa-desktop-native -- --selftest
-# {"channels":1,"chats":3,"emoji":160,"first":"Team","group_members":2,"linked":true,
-#  "photo_body":"Photo","preview":"ok","search":"1/1","stamp":"9:40 am",
+# {"channels":1,"chats":3,"delete":"Delete message?","delete_everyone":true,"emoji":160,
+#  "first":"Team","forward":1,"group_members":2,"linked":true,"photo_body":"Photo",
+#  "preview":"ok","reactions":2,"reply":false,"search":"1/1","stamp":"9:40 am",
 #  "status":"Connected","status_groups":2,"stickers":0,"theme":"light","viewer_items":1}
 ```
 

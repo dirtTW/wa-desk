@@ -56,6 +56,56 @@ pub enum Command {
         chat: String,
         message_id: String,
     },
+    /// Send text as a reply to an existing message.
+    SendReply {
+        chat: String,
+        text: String,
+        reply_id: String,
+        quoted: Option<String>,
+    },
+    /// React to a message (an empty emoji removes our reaction).
+    React {
+        chat: String,
+        id: String,
+        from_me: bool,
+        participant: Option<String>,
+        emoji: String,
+    },
+    /// Rewrite one of our own messages.
+    EditMessage {
+        chat: String,
+        id: String,
+        text: String,
+    },
+    /// Delete on this device only.
+    DeleteForMe {
+        chat: String,
+        id: String,
+        from_me: bool,
+        participant: Option<String>,
+    },
+    /// Revoke a message for everyone.
+    DeleteForEveryone {
+        chat: String,
+        id: String,
+    },
+    /// Forward one message into every chosen chat.
+    Forward {
+        chats: Vec<String>,
+        id: String,
+    },
+}
+
+/// What a message's context menu asks the window to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BubbleAction {
+    /// Open this message's media in the viewer.
+    OpenMedia(String),
+    Reply(String),
+    React(String, String),
+    Edit(String),
+    Delete(String),
+    Forward(String),
 }
 
 /// A followed channel and its (read-only) posts.
@@ -144,6 +194,17 @@ pub struct Model {
     pub favorites_error: Option<String>,
     /// The media viewer's position among the open chat's photos and videos.
     pub media_viewer: Option<usize>,
+    /// The message the composer is replying to, and the one being edited.
+    pub reply_to: Option<MessageView>,
+    pub editing: Option<MessageView>,
+    /// The message whose delete dialog is open.
+    pub delete_target: Option<MessageView>,
+    /// The message being forwarded, its chat search and chosen chats.
+    pub forward_target: Option<MessageView>,
+    pub forward_search: String,
+    pub forward_chosen: Vec<String>,
+    /// Reactions per message id: emoji -> (count, ours).
+    pub reactions: BTreeMap<String, BTreeMap<String, (usize, bool)>>,
 }
 
 impl Model {
@@ -274,6 +335,21 @@ impl Model {
             }
             UiEvent::ChatDeleted { chat } if self.active.as_deref() == Some(chat.as_str()) => {
                 self.active = None;
+            }
+            UiEvent::MessageDeleted { chat, id } => {
+                self.remove_message(chat, id);
+            }
+            UiEvent::MessageEdited { chat, id, text } => {
+                if let Some(row) = self.chats.get_mut(chat)
+                    && let Some(message) = row.messages.iter_mut().find(|m| &m.id == id)
+                {
+                    message.text = text.clone();
+                }
+            }
+            UiEvent::Reaction {
+                id, from_me, emoji, ..
+            } => {
+                self.apply_reaction(id, *from_me, emoji);
             }
             _ => {}
         }
@@ -442,6 +518,165 @@ impl Model {
         let insertion = wa_ui::emoji::insert_text(&self.composer, caret, caret, ch);
         self.composer = insertion.value;
         self.emoji_recents = wa_ui::emoji::remember_recent(&self.emoji_recents, ch);
+    }
+
+    // ------------------------------------------------------- message actions ---
+
+    /// The menu rules for one message, straight from `wa-ui`.
+    pub fn message_menu(&self, message: &MessageView) -> wa_ui::menus::MessageMenuOutput {
+        wa_ui::menus::message_menu(&wa_ui::menus::MessageMenuInput {
+            from_me: message.from_me,
+            kind: message.kind.clone(),
+            deleted: false,
+            deleted_for_me: false,
+            text: message.text.clone(),
+            sender_label: message
+                .sender_name
+                .clone()
+                .or_else(|| message.sender_phone.clone())
+                .unwrap_or_else(|| "this contact".to_string()),
+            chat_is_group: message.is_group,
+            has_sender: message.sender.is_some(),
+            starred: false,
+        })
+    }
+
+    /// The pending reply's name and preview, from `wa-ui`.
+    pub fn reply_preview(&self) -> Option<wa_ui::actions::ReplyPreview> {
+        let source = self.reply_to.as_ref()?;
+        Some(wa_ui::actions::reply_preview(
+            &wa_ui::actions::ReplySource {
+                from_me: source.from_me,
+                kind: source.kind.clone(),
+                text: source.text.clone(),
+                sender: source.sender.clone().unwrap_or_default(),
+                sender_name: source.sender_name.clone().unwrap_or_default(),
+                contact_name: source.sender_name.clone().unwrap_or_default(),
+            },
+        ))
+    }
+
+    pub fn start_reply(&mut self, message: &MessageView) {
+        self.reply_to = Some(message.clone());
+        self.editing = None;
+    }
+
+    /// Edit mode loads the message into the composer.
+    pub fn start_edit(&mut self, message: &MessageView) {
+        self.editing = Some(message.clone());
+        self.reply_to = None;
+        self.composer = message.text.clone();
+    }
+
+    /// Leave reply/edit mode; an abandoned edit drops its draft.
+    pub fn cancel_composer_mode(&mut self) {
+        if self.editing.take().is_some() {
+            self.composer.clear();
+        }
+        self.reply_to = None;
+    }
+
+    /// The send button's label while editing.
+    pub fn send_label(&self) -> &'static str {
+        if self.editing.is_some() {
+            "Edit"
+        } else {
+            "Send"
+        }
+    }
+
+    pub fn start_delete(&mut self, message: &MessageView) {
+        self.delete_target = Some(message.clone());
+    }
+
+    /// The delete dialog's question and whether "for everyone" is offered.
+    pub fn delete_question(&self) -> (String, bool) {
+        let Some(message) = self.delete_target.as_ref() else {
+            return (String::new(), false);
+        };
+        let output = wa_ui::menus::delete_confirm(
+            &[wa_ui::menus::DeleteItem {
+                from_me: message.from_me,
+                deleted: false,
+                chat: message.chat.clone(),
+            }],
+            message.chat == self.me_jid,
+        );
+        (output.title, output.can_everyone)
+    }
+
+    pub fn start_forward(&mut self, message: &MessageView) {
+        self.forward_target = Some(message.clone());
+        self.forward_search.clear();
+        self.forward_chosen.clear();
+    }
+
+    /// Chats the forward picker lists, filtered by its search box.
+    pub fn forward_rows(&self) -> Vec<&ChatRow> {
+        let needle = self.forward_search.trim().to_lowercase();
+        let mut rows: Vec<&ChatRow> = self
+            .chats
+            .values()
+            .filter(|row| !row.jid.ends_with("@newsletter"))
+            .filter(|row| needle.is_empty() || row.name.to_lowercase().contains(&needle))
+            .collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(row.last_ts));
+        rows
+    }
+
+    pub fn toggle_forward(&mut self, jid: &str) {
+        if let Some(index) = self.forward_chosen.iter().position(|chosen| chosen == jid) {
+            self.forward_chosen.remove(index);
+        } else {
+            self.forward_chosen.push(jid.to_string());
+        }
+    }
+
+    /// The reaction pills under a message: (emoji, count, ours).
+    pub fn reactions_for(&self, id: &str) -> Vec<(String, usize, bool)> {
+        self.reactions
+            .get(id)
+            .map(|entry| {
+                entry
+                    .iter()
+                    .map(|(emoji, (count, mine))| (emoji.clone(), *count, *mine))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Fold one reaction: ours replaces our previous emoji, and an empty one
+    /// removes it, like `wa_ui::reactions` does for the WebView shell.
+    fn apply_reaction(&mut self, id: &str, from_me: bool, emoji: &str) {
+        let entry = self.reactions.entry(id.to_string()).or_default();
+        let emoji = emoji.trim();
+        if from_me {
+            entry.retain(|_, (_, mine)| !*mine);
+        }
+        if emoji.is_empty() {
+            if entry.is_empty() {
+                self.reactions.remove(id);
+            }
+            return;
+        }
+        let slot = entry.entry(emoji.to_string()).or_insert((0, false));
+        slot.0 += 1;
+        if from_me {
+            slot.1 = true;
+        }
+    }
+
+    /// Show our own reaction straight away; the server echo replaces it.
+    pub fn apply_own_reaction(&mut self, id: &str, emoji: &str) {
+        self.apply_reaction(id, true, emoji);
+    }
+
+    /// Drop a message and its reactions (delete-for-me is local only).
+    pub fn remove_message(&mut self, chat: &str, id: &str) {
+        if let Some(row) = self.chats.get_mut(chat) {
+            row.messages.retain(|message| message.id != id);
+        }
+        self.reactions.remove(id);
     }
 
     // ---------------------------------------------------------------- stickers ---
@@ -804,6 +1039,10 @@ impl Model {
         self.chat_search.clear();
         self.search_hit = -1;
         self.media_viewer = None;
+        self.reply_to = None;
+        self.editing = None;
+        self.delete_target = None;
+        self.forward_target = None;
     }
 
     pub fn active_row(&self) -> Option<&ChatRow> {
@@ -1239,6 +1478,71 @@ pub fn selftest() -> Result<String, String> {
         return Err("stepping past the last photo closes the viewer".to_string());
     }
 
+    // Message actions: reply banner, edit mode, delete dialog and the forward
+    // picker all follow wa-ui's rules.
+    model.apply(&UiEvent::Message(view(
+        "1@s.whatsapp.net",
+        "Ada",
+        "mine1",
+        "asli",
+        now + 6_000,
+        true,
+    )));
+    let incoming = view("1@s.whatsapp.net", "Ada", "in1", "halo", now + 7_000, false);
+    model.apply(&UiEvent::Message(incoming.clone()));
+
+    model.start_reply(&incoming);
+    if model.reply_preview().is_none() {
+        return Err("a pending reply should preview".to_string());
+    }
+    model.cancel_composer_mode();
+
+    let mine = model.chats["1@s.whatsapp.net"]
+        .messages
+        .iter()
+        .find(|message| message.id == "mine1")
+        .cloned()
+        .ok_or("the sent message should be stored")?;
+    model.start_edit(&mine);
+    if model.composer != "asli" || model.send_label() != "Edit" {
+        return Err(format!(
+            "edit mode wrong: {:?} / {}",
+            model.composer,
+            model.send_label()
+        ));
+    }
+    model.cancel_composer_mode();
+
+    model.start_delete(&mine);
+    let (delete_title, delete_everyone) = model.delete_question();
+    if delete_title.is_empty() || !delete_everyone {
+        return Err(format!(
+            "delete dialog wrong: {delete_title} / {delete_everyone}"
+        ));
+    }
+
+    model.start_forward(&incoming);
+    if model.forward_rows().is_empty() {
+        return Err("the forward picker should offer chats".to_string());
+    }
+    model.toggle_forward("1@s.whatsapp.net");
+
+    model.apply_own_reaction("in1", "👍");
+    model.apply(&UiEvent::Reaction {
+        chat: "1@s.whatsapp.net".into(),
+        id: "in1".into(),
+        sender: "1@s.whatsapp.net".into(),
+        from_me: false,
+        emoji: "❤️".into(),
+        timestamp: now,
+    });
+    if model.reactions_for("in1").len() != 2 {
+        return Err(format!(
+            "two reaction pills expected, got {:?}",
+            model.reactions_for("in1")
+        ));
+    }
+
     Ok(serde_json::json!({
         "chats": model.visible_chats().len(),
         "first": first,
@@ -1255,6 +1559,11 @@ pub fn selftest() -> Result<String, String> {
         "emoji": model.emoji_items().len(),
         "viewer_items": model.media_items().len(),
         "stickers": model.sticker_collection().len(),
+        "reply": model.reply_preview().is_some(),
+        "delete": delete_title,
+        "delete_everyone": delete_everyone,
+        "forward": model.forward_chosen.len(),
+        "reactions": model.reactions_for("in1").len(),
     })
     .to_string())
 }
@@ -1525,6 +1834,153 @@ mod tests {
         model.favorites_failed("no app-state yet");
         assert!(model.favorites.is_empty());
         assert_eq!(model.favorites_error.as_deref(), Some("no app-state yet"));
+    }
+
+    #[test]
+    fn reply_and_edit_drive_the_composer() {
+        let mut model = Model::new();
+        let mut mine = view("1@s.whatsapp.net", "Ada", "m1", "hello", 1, true);
+        mine.from_me = true;
+        let mut theirs = view("2@g.us", "Team", "m2", "yo", 2, false);
+        theirs.is_group = true;
+
+        // Reply: the banner names the sender and previews the body.
+        model.start_reply(&theirs);
+        let preview = model.reply_preview().expect("a pending reply");
+        assert!(!preview.preview.is_empty());
+        assert_eq!(model.send_label(), "Send");
+        model.cancel_composer_mode();
+        assert!(model.reply_preview().is_none(), "cancel drops the reply");
+
+        // Edit: our own text loads into the composer and the button changes.
+        model.start_edit(&mine);
+        assert_eq!(model.composer, "hello");
+        assert_eq!(model.send_label(), "Edit");
+        // Editing is only offered for our own text, per wa-ui.
+        assert!(model.message_menu(&mine).edit);
+        assert!(!model.message_menu(&theirs).edit);
+        model.cancel_composer_mode();
+        assert!(
+            model.composer.is_empty(),
+            "an abandoned edit drops its draft"
+        );
+        assert_eq!(model.send_label(), "Send");
+    }
+
+    #[test]
+    fn the_delete_dialog_follows_message_ownership() {
+        let mut model = Model::new();
+        model.me_jid = "9@s.whatsapp.net".into();
+        let mut mine = view("1@s.whatsapp.net", "Ada", "m1", "hello", 1, true);
+        mine.from_me = true;
+        let theirs = view("1@s.whatsapp.net", "Ada", "m2", "yo", 2, false);
+        model.apply(&UiEvent::Message(mine.clone()));
+        model.apply(&UiEvent::Message(theirs.clone()));
+
+        model.start_delete(&mine);
+        let (title, everyone) = model.delete_question();
+        assert_eq!(title, "Delete message?");
+        assert!(everyone, "our own message can go for everyone");
+
+        model.start_delete(&theirs);
+        let (_, everyone) = model.delete_question();
+        assert!(!everyone, "someone else's message is only ours to hide");
+
+        // Deleted messages leave the list and take their reactions with them.
+        model.apply_own_reaction("m2", "👍");
+        model.remove_message("1@s.whatsapp.net", "m2");
+        assert!(
+            model.chats["1@s.whatsapp.net"]
+                .messages
+                .iter()
+                .all(|message| message.id != "m2"),
+            "the deleted message is gone, the other stays"
+        );
+        assert_eq!(model.chats["1@s.whatsapp.net"].messages.len(), 1);
+        assert!(model.reactions_for("m2").is_empty());
+    }
+
+    #[test]
+    fn forwards_pick_chats_and_edits_revoke_live() {
+        let mut model = Model::new();
+        for (jid, name, ts) in [
+            ("1@s.whatsapp.net", "Ada", 10),
+            ("2@s.whatsapp.net", "Budi", 20),
+        ] {
+            model.apply(&UiEvent::Message(view(
+                jid,
+                name,
+                &format!("{jid}-m"),
+                "hi",
+                ts,
+                false,
+            )));
+        }
+        model.start_forward(&model.chats["1@s.whatsapp.net"].messages[0].clone());
+        assert_eq!(model.forward_rows().len(), 2, "every chat is offered");
+        model.forward_search = "bud".into();
+        assert_eq!(model.forward_rows().len(), 1, "search filters the picker");
+        model.forward_search.clear();
+        model.toggle_forward("1@s.whatsapp.net");
+        model.toggle_forward("2@s.whatsapp.net");
+        assert_eq!(model.forward_chosen.len(), 2, "multi-select");
+        model.toggle_forward("1@s.whatsapp.net");
+        assert_eq!(model.forward_chosen, vec!["2@s.whatsapp.net".to_string()]);
+
+        // An edit from another device rewrites the stored body.
+        model.apply(&UiEvent::MessageEdited {
+            chat: "1@s.whatsapp.net".into(),
+            id: "1@s.whatsapp.net-m".into(),
+            text: "edited".into(),
+        });
+        assert_eq!(model.chats["1@s.whatsapp.net"].messages[0].text, "edited");
+
+        // A revoke drops it.
+        model.apply(&UiEvent::MessageDeleted {
+            chat: "2@s.whatsapp.net".into(),
+            id: "2@s.whatsapp.net-m".into(),
+        });
+        assert!(model.chats["2@s.whatsapp.net"].messages.is_empty());
+    }
+
+    #[test]
+    fn reactions_replace_our_own_pill() {
+        let mut model = Model::new();
+        let mut message = view("1@s.whatsapp.net", "Ada", "m1", "hi", 1, false);
+        message.from_me = false;
+        model.apply(&UiEvent::Message(message));
+
+        // Someone else reacts.
+        model.apply(&UiEvent::Reaction {
+            chat: "1@s.whatsapp.net".into(),
+            id: "m1".into(),
+            sender: "1@s.whatsapp.net".into(),
+            from_me: false,
+            emoji: "👍".into(),
+            timestamp: 10,
+        });
+        assert_eq!(model.reactions_for("m1"), vec![("👍".into(), 1, false)]);
+
+        // We react, then change our mind: ours replaces, it does not stack.
+        model.apply_own_reaction("m1", "❤️");
+        model.apply_own_reaction("m1", "😂");
+        let pills = model.reactions_for("m1");
+        assert_eq!(
+            pills,
+            vec![("👍".into(), 1, false), ("😂".into(), 1, true)],
+            "one pill per emoji, ours flagged"
+        );
+
+        // An empty emoji from us removes our reaction only.
+        model.apply(&UiEvent::Reaction {
+            chat: "1@s.whatsapp.net".into(),
+            id: "m1".into(),
+            sender: "9@s.whatsapp.net".into(),
+            from_me: true,
+            emoji: String::new(),
+            timestamp: 11,
+        });
+        assert_eq!(model.reactions_for("m1"), vec![("👍".into(), 1, false)]);
     }
 
     #[test]
