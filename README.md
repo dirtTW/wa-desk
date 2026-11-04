@@ -36,8 +36,9 @@ account. Issues and pull requests are welcome.
   with match counter and highlight; **documents as the official card**; photos and stickers.
 - **Media viewer**: filmstrip, arrow keys, Esc, and Save copies to `Downloads\WA Desk`.
 - **Emoji and stickers**: full catalogue with search/recents, favourites and cached stickers.
-- **Message actions**: reply, react, copy, forward, edit, delete (for me / everyone), plus
-  **chat actions**: mute, pin, mark unread, archive, clear, delete.
+- **Message actions**: reply, react, copy, forward, edit, delete (for me / everyone) and
+  **star**; plus **chat actions**: mute, pin, mark unread, archive, clear, delete. Starred
+  messages have their own screen, and the Chats menu can create a group or save a contact.
 - **Status / stories** and **channels**, read-only for channels.
 - **Send files**: paperclip picker, or Ctrl+V a file copied in Explorer; composer text becomes
   the caption.

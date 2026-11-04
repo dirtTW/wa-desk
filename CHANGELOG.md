@@ -4,7 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
-## [0.2.0-rc.73] — 2026-11-04
+## [0.2.0-rc.74] — 2026-11-04
+
+- **Starred messages** (JS-only before): the bubble menu stars/unstars through
+  `star_message`, `StarMessage` events fold into `Model::starred`, and Chats → kebab →
+  **Starred messages** lists them across chats (sender, time, preview); picking one opens the
+  chat.
+- **Create group and add contact**, both from the Chats kebab: a group-name field with the
+  address-book checklist (`create_group`), and a name + international number dialog
+  (`save_contact`), which the app then opens as a chat.
+- These close the remaining "list/menu" gaps from the JS→Rust move; still open: audio/video
+  playback, export import, group member management, notifications/tray, AI loop and calls.
+
+
 
 - **Chat actions are back** (they were JS-only after the migration): the chat header kebab now
   opens a card with Group info, Mute for 8 hours / 1 week / Unmute, Pin / Unpin, Mark as unread,

@@ -144,6 +144,13 @@ pub struct WaDesk {
     new_chat_search: String,
     contacts: Vec<(String, String)>,
     contacts_rx: std::sync::mpsc::Receiver<Vec<(String, String)>>,
+    show_starred: bool,
+    show_new_group: bool,
+    new_group_subject: String,
+    new_group_members: std::collections::HashSet<String>,
+    show_new_contact: bool,
+    new_contact_phone: String,
+    new_contact_name: String,
 }
 
 impl WaDesk {
@@ -210,6 +217,13 @@ impl WaDesk {
             new_chat_search: String::new(),
             contacts: Vec::new(),
             contacts_rx: native.contacts,
+            show_starred: false,
+            show_new_group: false,
+            new_group_subject: String::new(),
+            new_group_members: std::collections::HashSet::new(),
+            show_new_contact: false,
+            new_contact_phone: String::new(),
+            new_contact_name: String::new(),
         }
     }
 
@@ -302,6 +316,19 @@ impl WaDesk {
                 }
                 if menu_row(ui, &palette, Icon::Groups, "Sync groups") {
                     self.send(Command::SyncGroups);
+                    self.show_chat_menu = false;
+                }
+                if menu_row(ui, &palette, Icon::Star, "Starred messages") {
+                    self.show_starred = true;
+                    self.show_chat_menu = false;
+                }
+                if menu_row(ui, &palette, Icon::GroupAdd, "New group") {
+                    self.show_new_group = true;
+                    self.send(Command::Contacts);
+                    self.show_chat_menu = false;
+                }
+                if menu_row(ui, &palette, Icon::PersonAdd, "New contact") {
+                    self.show_new_contact = true;
                     self.show_chat_menu = false;
                 }
                 if menu_row(ui, &palette, Icon::Status, "Refresh statuses") {
@@ -442,6 +469,149 @@ impl WaDesk {
         let _ = palette;
         if !open {
             self.show_new_chat = false;
+        }
+    }
+
+    /// The starred-messages screen, gathered across chats.
+    fn starred_window(&mut self, ctx: &egui::Context) {
+        if !self.show_starred {
+            return;
+        }
+        let palette = self.palette.clone();
+        let rows = self.model.starred_messages();
+        let mut open = true;
+        egui::Window::new("Starred messages")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                if rows.is_empty() {
+                    ui.label(egui::RichText::new("No starred messages").weak());
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(460.0)
+                    .show(ui, |ui| {
+                        for (chat, message) in &rows {
+                            let name = self
+                                .model
+                                .chats
+                                .get(chat)
+                                .map(|row| self.model.title(row))
+                                .unwrap_or_else(|| chat.clone());
+                            let body = self.model.bubble_body(message);
+                            let label = format!(
+                                "{name}  ·  {}\n{}",
+                                self.model.bubble_stamp(message),
+                                body
+                            );
+                            if ui.add(egui::Button::new(label).frame(false)).clicked() {
+                                self.model.open_chat(chat);
+                                self.send(Command::MarkRead { chat: chat.clone() });
+                                self.show_starred = false;
+                            }
+                            ui.separator();
+                        }
+                    });
+            });
+        let _ = palette;
+        if !open {
+            self.show_starred = false;
+        }
+    }
+
+    /// Create a group: a name and a contact checklist.
+    fn new_group_window(&mut self, ctx: &egui::Context) {
+        if !self.show_new_group {
+            return;
+        }
+        let mut open = true;
+        let contacts = self.contacts.clone();
+        egui::Window::new("New group")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.new_group_subject)
+                        .hint_text("Group name")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!("{} selected", self.new_group_members.len()))
+                        .small()
+                        .weak(),
+                );
+                egui::ScrollArea::vertical()
+                    .max_height(320.0)
+                    .show(ui, |ui| {
+                        for (jid, name) in contacts {
+                            let mut checked = self.new_group_members.contains(&jid);
+                            if ui.checkbox(&mut checked, name).changed() {
+                                if checked {
+                                    self.new_group_members.insert(jid);
+                                } else {
+                                    self.new_group_members.remove(&jid);
+                                }
+                            }
+                        }
+                    });
+                let ready =
+                    !self.new_group_subject.trim().is_empty() && !self.new_group_members.is_empty();
+                if ui
+                    .add_enabled(ready, egui::Button::new("Create group"))
+                    .clicked()
+                {
+                    self.send(Command::CreateGroup {
+                        subject: self.new_group_subject.trim().to_string(),
+                        members: self.new_group_members.iter().cloned().collect(),
+                    });
+                    self.new_group_subject.clear();
+                    self.new_group_members.clear();
+                    self.show_new_group = false;
+                }
+            });
+        if !open {
+            self.show_new_group = false;
+        }
+    }
+
+    /// Add a saved contact (name + international number).
+    fn new_contact_window(&mut self, ctx: &egui::Context) {
+        if !self.show_new_contact {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("New contact")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(320.0)
+            .show(ctx, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.new_contact_name)
+                        .hint_text("Name")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.new_contact_phone)
+                        .hint_text("628123456789")
+                        .desired_width(f32::INFINITY),
+                );
+                let ready = !self.new_contact_name.trim().is_empty()
+                    && !self.new_contact_phone.trim().is_empty();
+                if ui.add_enabled(ready, egui::Button::new("Save")).clicked() {
+                    self.send(Command::NewContact {
+                        phone: self.new_contact_phone.trim().to_string(),
+                        name: self.new_contact_name.trim().to_string(),
+                    });
+                    self.new_contact_phone.clear();
+                    self.new_contact_name.clear();
+                    self.show_new_contact = false;
+                }
+            });
+        if !open {
+            self.show_new_contact = false;
         }
     }
 
@@ -1142,6 +1312,7 @@ impl WaDesk {
             | BubbleAction::Reply(id)
             | BubbleAction::Edit(id)
             | BubbleAction::Delete(id)
+            | BubbleAction::Star(id)
             | BubbleAction::Forward(id) => id.clone(),
             BubbleAction::React(id, _) => id.clone(),
         };
@@ -1185,6 +1356,27 @@ impl WaDesk {
             BubbleAction::Forward(_) => {
                 if let Some(message) = message {
                     self.model.start_forward(&message);
+                }
+            }
+            BubbleAction::Star(id) => {
+                if let Some(message) = message {
+                    let starred = !self.model.starred.contains(&id);
+                    self.send(Command::Star {
+                        chat: message.chat.clone(),
+                        id: message.id.clone(),
+                        starred,
+                        from_me: message.from_me,
+                        participant: if message.from_me {
+                            None
+                        } else {
+                            message.sender.clone()
+                        },
+                    });
+                    if starred {
+                        self.model.starred.insert(id);
+                    } else {
+                        self.model.starred.remove(&id);
+                    }
                 }
             }
         }
@@ -1574,6 +1766,10 @@ fn context_menu(
         }
         if menu.edit && menu_row(ui, palette, Icon::Edit, "Edit") {
             *action = Some(BubbleAction::Edit(message.id.clone()));
+            ui.close();
+        }
+        if menu.star && menu_row(ui, palette, Icon::Star, &menu.star_label) {
+            *action = Some(BubbleAction::Star(message.id.clone()));
             ui.close();
         }
         ui.add_space(2.0);
@@ -2490,6 +2686,9 @@ impl eframe::App for WaDesk {
         self.chat_menu(ctx);
         self.chat_actions_menu(ctx);
         self.new_chat_window(ctx);
+        self.starred_window(ctx);
+        self.new_group_window(ctx);
+        self.new_contact_window(ctx);
         self.screenshot_tick(ctx);
         // A restart only finds the chat list because it is mirrored here: the
         // phone does not replay history to an already-linked device.
@@ -2997,6 +3196,9 @@ enum Icon {
     Copy,
     Edit,
     Delete,
+    Star,
+    GroupAdd,
+    PersonAdd,
     Document,
     Attach,
     Chats,
@@ -3050,6 +3252,9 @@ impl Icon {
             Icon::Copy => "content_copy",
             Icon::Edit => "edit",
             Icon::Delete => "delete",
+            Icon::Star => "star",
+            Icon::GroupAdd => "group_add",
+            Icon::PersonAdd => "person_add",
             Icon::Document => "description",
             Icon::Attach => "attach_file",
             Icon::Chats => "chat_bubble",

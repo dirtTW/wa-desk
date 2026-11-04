@@ -123,6 +123,24 @@ pub enum Command {
     },
     /// The address book, for the new-chat picker.
     Contacts,
+    /// Star or unstar one message.
+    Star {
+        chat: String,
+        id: String,
+        starred: bool,
+        from_me: bool,
+        participant: Option<String>,
+    },
+    /// Create a group with these members.
+    CreateGroup {
+        subject: String,
+        members: Vec<String>,
+    },
+    /// Save a new contact (phone, name).
+    NewContact {
+        phone: String,
+        name: String,
+    },
     /// Send a file from disk as an attachment.
     SendDocument {
         chat: String,
@@ -141,6 +159,7 @@ pub enum BubbleAction {
     Edit(String),
     Delete(String),
     Forward(String),
+    Star(String),
 }
 
 /// A followed channel and its (read-only) posts.
@@ -261,6 +280,8 @@ pub struct Model {
     pub needs_history: bool,
     /// Incremented on every `Connected`, so the window can start a new backfill.
     pub connection_epoch: u64,
+    /// Starred message ids, across chats.
+    pub starred: std::collections::BTreeSet<String>,
 }
 
 impl Model {
@@ -571,6 +592,13 @@ impl Model {
                     ..Default::default()
                 });
             }
+            UiEvent::StarMessage { id, starred, .. } => {
+                if *starred {
+                    self.starred.insert(id.clone());
+                } else {
+                    self.starred.remove(id);
+                }
+            }
             UiEvent::MessageDeleted { chat, id } => {
                 self.remove_message(chat, id);
             }
@@ -778,11 +806,25 @@ impl Model {
                 .unwrap_or_else(|| "this contact".to_string()),
             chat_is_group: message.is_group,
             has_sender: message.sender.is_some(),
-            starred: false,
+            starred: self.starred.contains(&message.id),
         })
     }
 
-    /// The pending reply's name and preview, from `wa-ui`.
+    /// Every starred message, newest first, with its chat JID.
+    pub fn starred_messages(&self) -> Vec<(String, MessageView)> {
+        let mut rows: Vec<(String, MessageView)> = self
+            .chats
+            .values()
+            .flat_map(|row| {
+                row.messages
+                    .iter()
+                    .filter(|message| self.starred.contains(&message.id))
+                    .map(|message| (row.jid.clone(), message.clone()))
+            })
+            .collect();
+        rows.sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
+        rows
+    }
     pub fn reply_preview(&self) -> Option<wa_ui::actions::ReplyPreview> {
         let source = self.reply_to.as_ref()?;
         Some(wa_ui::actions::reply_preview(
@@ -2399,6 +2441,37 @@ mod tests {
         let rows = model.visible_chats();
         assert_eq!(rows.len(), 1);
         assert_eq!(model.title(rows[0]), "Pak Yoga");
+    }
+
+    #[test]
+    fn starring_lists_messages_across_chats() {
+        let mut model = Model::new();
+        model.apply(&UiEvent::Message(view(
+            "1@s.whatsapp.net",
+            "Ada",
+            "m1",
+            "hi",
+            10,
+            false,
+        )));
+        model.apply(&UiEvent::StarMessage {
+            chat: "1@s.whatsapp.net".into(),
+            id: "m1".into(),
+            starred: true,
+            timestamp: 10,
+        });
+        let rows = model.starred_messages();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1.id, "m1");
+        assert!(model.message_menu(&rows[0].1).star_label.contains("Unstar"));
+
+        model.apply(&UiEvent::StarMessage {
+            chat: "1@s.whatsapp.net".into(),
+            id: "m1".into(),
+            starred: false,
+            timestamp: 11,
+        });
+        assert!(model.starred_messages().is_empty());
     }
 
     #[test]

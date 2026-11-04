@@ -483,6 +483,48 @@ fn main() {
                     contacts.sort_by_key(|(_, name)| name.to_lowercase());
                     let _ = contacts_tx.send(contacts);
                 }
+                model::Command::Star {
+                    chat,
+                    id,
+                    starred,
+                    from_me,
+                    participant,
+                } => {
+                    if let Err(err) = session
+                        .star_message(&chat, &id, starred, from_me, participant.as_deref())
+                        .await
+                    {
+                        app::diag(&format!("star {id}: {err}"));
+                    }
+                }
+                model::Command::CreateGroup { subject, members } => {
+                    match session.create_group(&subject, &members).await {
+                        Ok(jid) => {
+                            app::diag(&format!("group created {jid}"));
+                            let _ = events_out.send(wa_types::UiEvent::Chat {
+                                jid,
+                                name: subject,
+                                is_group: true,
+                                timestamp: now_ms(),
+                            });
+                        }
+                        Err(err) => app::diag(&format!("create group: {err}")),
+                    }
+                }
+                model::Command::NewContact { phone, name } => {
+                    match session.save_contact(&phone, &name).await {
+                        Ok(jid) => {
+                            app::diag(&format!("contact saved {jid}"));
+                            let _ = events_out.send(wa_types::UiEvent::Chat {
+                                jid,
+                                name,
+                                is_group: false,
+                                timestamp: now_ms(),
+                            });
+                        }
+                        Err(err) => app::diag(&format!("new contact: {err}")),
+                    }
+                }
                 model::Command::SendDocument {
                     chat,
                     path,
