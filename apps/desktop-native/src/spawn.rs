@@ -8,15 +8,21 @@ use std::process::Command;
 
 /// A `Command` that never opens a console window on Windows.
 pub fn quiet(program: impl AsRef<std::ffi::OsStr>) -> Command {
-    let mut command = Command::new(program);
+    // `mut` only exists on Windows: on Linux the command is returned untouched,
+    // and a dangling `mut` is a `-D warnings` error there (CI caught it).
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         /// `CREATE_NO_WINDOW`: the child runs without a console.
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut command = Command::new(program);
         command.creation_flags(CREATE_NO_WINDOW);
+        command
     }
-    command
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
+    }
 }
 
 #[cfg(test)]

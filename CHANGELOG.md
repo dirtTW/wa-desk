@@ -4,6 +4,14 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.3] - 2026-11-04
+
+- **CI fix:** `spawn::quiet` kept a `mut command` that only Windows uses, so the Linux lint job
+  failed with `-D unused-mut` (rc.100/rc.101/rc.1 all died there). The Windows branch now builds
+  the `Command` itself and the other platforms return it untouched. `cargo clippy --workspace
+  --all-targets -- -D warnings` is clean locally and the tag builds again.
+- Tests: 108 native + 38 wa-core + 232 wa-ui, selftest green.
+
 ## [0.2.1-rc.2] - 2026-11-04
 
 - **Emoji in bubbles are the official size again, with padding.** Two bugs were stacked:
