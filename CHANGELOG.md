@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.83] - 2026-11-05
+
+- **The empty conversation pane is the live one now.** Sampled `web.whatsapp.com` with no chat open
+  (`target/live_now.jpg`): a rounded card with an accent illustration, **"Voice and video calling is
+  now available"**, the body line "Now you can make and join calls on WhatsApp Web.", a 34 px green
+  **Go to Calls** pill, then five labelled discs - **Send document, Add contact, Invite a friend, New
+  call, Ask Meta AI** - and a lock + **"Your personal messages are end-to-end encrypted"** footer.
+- Ours had three naked buttons and "Pick a chat on the left". It now paints the whole pane: a drawn
+  laptop-and-phone illustration in the accent colour, the same three text lines, the pill (which opens
+  the Calls drawer), the five action discs (document -> chat picker, contact -> the contact draft, New
+  call -> Calls), and the footer. Invite a friend and Meta AI say where they really happen - this
+  client has no Meta AI service, its own AI assistant answers from Settings.
+- New `WA_DESK_NO_CHAT=1` preview hook keeps the conversation empty for captures.
+- Evidence: `target/our_empty.png` beside `target/live_now.jpg`.
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.82] - 2026-11-05
 
 - **The chat list no longer deep-clones every chat per frame.** `sidebar()` collected

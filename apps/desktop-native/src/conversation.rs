@@ -2,7 +2,8 @@
 //! banner, and the attach menu's draft dialogs (poll, contact, location, list).
 
 use crate::app::{
-    Icon, WaDesk, action_button, diag, enter_sends, icon_button, paint_wallpaper, unread_divider,
+    Icon, WaDesk, action_button, diag, draw_icon, enter_sends, icon_button, paint_wallpaper,
+    unread_divider,
 };
 use crate::bubbles::{bubble, day_chip};
 use crate::model::{BubbleAction, Command, Model};
@@ -17,24 +18,148 @@ impl WaDesk {
                 // The doodle wallpaper sits behind everything in the panel.
                 paint_wallpaper(ui, &palette, ui.max_rect());
                 let Some(jid) = self.model.active.clone() else {
+                    // The live empty state (`target/live_now.jpg`): a promo card
+                    // for calls, then five quick actions and the privacy line.
+                    let width = (ui.available_width() - 40.0).clamp(280.0, 420.0);
+                    ui.add_space((ui.available_height() * 0.16).clamp(24.0, 140.0));
                     ui.vertical_centered(|ui| {
-                        ui.add_space(70.0);
+                        egui::Frame::new()
+                            .fill(palette.elevated)
+                            .corner_radius(egui::CornerRadius::same(18))
+                            .inner_margin(egui::Margin::symmetric(26, 22))
+                            .show(ui, |ui| {
+                                ui.set_width(width - 52.0);
+                                let (art, _) = ui.allocate_exact_size(
+                                    egui::vec2(140.0, 96.0),
+                                    egui::Sense::hover(),
+                                );
+                                // A laptop with a phone beside it, in the accent
+                                // green the live illustration uses.
+                                ui.painter().rect_stroke(
+                                    egui::Rect::from_min_size(
+                                        egui::pos2(art.left() + 14.0, art.top() + 12.0),
+                                        egui::vec2(84.0, 62.0),
+                                    ),
+                                    egui::CornerRadius::same(5),
+                                    egui::Stroke::new(2.0_f32, palette.accent),
+                                    egui::StrokeKind::Inside,
+                                );
+                                ui.painter().line_segment(
+                                    [
+                                        egui::pos2(art.left(), art.top() + 80.0),
+                                        egui::pos2(art.left() + 112.0, art.top() + 80.0),
+                                    ],
+                                    egui::Stroke::new(4.0_f32, palette.accent),
+                                );
+                                let phone = egui::Rect::from_min_size(
+                                    egui::pos2(art.left() + 96.0, art.top() + 20.0),
+                                    egui::vec2(36.0, 62.0),
+                                );
+                                ui.painter().rect_filled(
+                                    phone,
+                                    egui::CornerRadius::same(7),
+                                    palette.panel,
+                                );
+                                ui.painter().rect_stroke(
+                                    phone,
+                                    egui::CornerRadius::same(7),
+                                    egui::Stroke::new(2.0_f32, palette.accent),
+                                    egui::StrokeKind::Inside,
+                                );
+                                draw_icon(
+                                    ui,
+                                    egui::Rect::from_center_size(
+                                        phone.center(),
+                                        egui::vec2(20.0, 20.0),
+                                    ),
+                                    Icon::Phone,
+                                    palette.accent,
+                                );
+                                ui.add_space(8.0);
+                                ui.label(
+                                    egui::RichText::new("Voice and video calling is now available")
+                                        .size(19.0)
+                                        .strong()
+                                        .color(palette.text),
+                                );
+                                ui.add_space(6.0);
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Now you can make and join calls on WhatsApp Web.",
+                                    )
+                                    .size(13.0)
+                                    .color(palette.secondary),
+                                );
+                                ui.add_space(14.0);
+                                let (pill, response) = ui.allocate_exact_size(
+                                    egui::vec2(132.0, 34.0),
+                                    egui::Sense::click(),
+                                );
+                                ui.painter().rect_filled(
+                                    pill,
+                                    egui::CornerRadius::same(17),
+                                    if response.hovered() {
+                                        palette.accent.gamma_multiply(0.9)
+                                    } else {
+                                        palette.accent
+                                    },
+                                );
+                                ui.painter().text(
+                                    pill.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    "Go to Calls",
+                                    egui::FontId::proportional(13.5),
+                                    egui::Color32::from_rgb(11, 20, 26),
+                                );
+                                if response.clicked() {
+                                    self.show_calls = true;
+                                }
+                            });
+                        ui.add_space(26.0);
                         ui.horizontal(|ui| {
-                            ui.add_space((ui.available_width() / 2.0 - 120.0).max(0.0));
+                            ui.spacing_mut().item_spacing.x = 18.0;
+                            let total = 5.0 * 72.0 + 4.0 * 18.0;
+                            ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
                             if action_button(ui, &palette, Icon::Document, "Send document") {
-                                self.focus_search = true;
+                                self.show_new_chat = true;
+                                self.send(Command::Contacts);
                             }
-                            if action_button(ui, &palette, Icon::Add, "New chat") {
-                                self.focus_search = true;
+                            if action_button(ui, &palette, Icon::PersonAdd, "Add contact") {
+                                self.contact_draft = Some(crate::app::ContactDraft::default());
                             }
-                            if action_button(ui, &palette, Icon::Settings, "Settings") {
-                                self.show_settings = true;
+                            if action_button(ui, &palette, Icon::Mail, "Invite a friend") {
+                                self.notice = Some((
+                                    "Invite links are created on the phone".to_string(),
+                                    std::time::Instant::now(),
+                                ));
+                            }
+                            if action_button(ui, &palette, Icon::Phone, "New call") {
+                                self.show_calls = true;
+                            }
+                            if action_button(ui, &palette, Icon::Sparkle, "Ask Meta AI") {
+                                self.notice = Some((
+                                    "Meta AI needs its own service; AI assistant answers here"
+                                        .to_string(),
+                                    std::time::Instant::now(),
+                                ));
                             }
                         });
-                        ui.add_space(14.0);
-                        ui.label(
-                            egui::RichText::new("Pick a chat on the left").color(palette.secondary),
-                        );
+                    });
+                    // The live footer line: a lock and the privacy promise.
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                        ui.add_space(16.0);
+                        ui.horizontal(|ui| {
+                            let (lock, _) = ui
+                                .allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                            draw_icon(ui, lock, Icon::Lock, palette.secondary);
+                            ui.label(
+                                egui::RichText::new(
+                                    "Your personal messages are end-to-end encrypted",
+                                )
+                                .size(11.5)
+                                .color(palette.secondary),
+                            );
+                        });
                     });
                     return;
                 };

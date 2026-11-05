@@ -327,6 +327,11 @@ impl WaDesk {
         // `WA_DESK_UPDATE_DEMO=<percent>` paints the Updates page mid-download,
         // so the button-shaped progress bar can be captured without waiting for
         // a release to actually download.
+        // `WA_DESK_NO_CHAT=1` leaves the conversation empty, for the live
+        // empty-state layout (promo card + quick actions).
+        if std::env::var("WA_DESK_NO_CHAT").is_ok() {
+            self.model.active = None;
+        }
         if let Ok(percent) = std::env::var("WA_DESK_UPDATE_DEMO")
             && let Ok(value) = percent.parse::<f32>()
         {
@@ -2196,6 +2201,7 @@ pub(crate) enum Icon {
     Shortcut,
     Info,
     Sparkle,
+    Mail,
 }
 
 /// The forward picker's square checkbox: an outlined box when it is clear, the
@@ -2311,6 +2317,7 @@ impl Icon {
             Icon::Shortcut => "shortcut",
             Icon::Info => "info",
             Icon::Sparkle => "auto_awesome",
+            Icon::Mail => "mail",
         }
     }
 }
