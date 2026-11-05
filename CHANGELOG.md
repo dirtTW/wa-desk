@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.56] - 2026-11-05
+
+- **The status viewer now carries the live chrome's author avatar and emoji control.** The header paints
+  the poster's profile picture at 34 px (initials disc until it loads), and the reply bar starts with
+  the Material **emoji** button - tapping it opens a compact strip (thumb, heart, joy, open mouth, cry,
+  folded hands) that appends to the same draft the reply field uses, so the text goes out through
+  `Command::ReplyStatus` unchanged.
+- The button uses the Material glyph rather than the emoji font: the text path paints colour emoji as a
+  grey blob, which is exactly what the first capture showed.
+- `target/our_status_viewer.png` re-captured: avatar + "Ada / 9:42 am" in the header, then
+  ▶ · emoji · "Type a reply…" · Send · ❤ along the bottom.
+- `docs/PARITY.md` keeps the row honest: the **blurred backdrop** and the **sticker button** are the two
+  deltas left, and the backdrop needs status-media rendering (we still draw the placeholder for
+  image/video statuses), which is a separate feature rather than a chrome tweak.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.55] - 2026-11-05
 
 - **Status replies, reactions and delete are wired - they existed in `wa-core` but nothing in the window

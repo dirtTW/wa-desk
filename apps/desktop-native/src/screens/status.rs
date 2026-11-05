@@ -280,6 +280,7 @@ impl WaDesk {
             self.model.close_status();
             return;
         };
+        let palette = self.palette.clone();
 
         // Segments: everything before the frame is full, the active one fills.
         let (group, frame) = self.model.viewer.unwrap_or((0, 0));
@@ -312,6 +313,11 @@ impl WaDesk {
         // (sampled 2026-11-05: "Daffa" / "Yesterday at 10:29 PM") instead of
         // running them together on one line.
         ui.horizontal(|ui| {
+            // The live chrome carries the author avatar in the header.
+            self.ensure_avatar(ctx, &update.sender);
+            let avatar = self.avatar_for(&update.sender).cloned();
+            crate::widgets::paint_avatar(ui, &update.name, 34.0, avatar.as_ref());
+            ui.add_space(8.0);
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new(&update.name).size(14.5).strong());
                 ui.label(
@@ -392,10 +398,20 @@ impl WaDesk {
                     delete = true;
                 }
             } else {
+                // The live bar starts with an emoji control; ours opens a
+                // compact strip that appends to the same draft.
+                // The Material glyph, not the emoji font: the text path
+                // paints colour emoji as a grey blob.
+                if icon_button(ui, Icon::Emoji, &palette)
+                    .on_hover_text("Emoji")
+                    .clicked()
+                {
+                    self.status_emoji_open = !self.status_emoji_open;
+                }
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut self.model.composer)
                         .hint_text("Type a reply…")
-                        .desired_width(280.0),
+                        .desired_width(240.0),
                 );
                 let enter =
                     edit.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
@@ -412,6 +428,23 @@ impl WaDesk {
                 }
             }
         });
+        if self.status_emoji_open && !chrome.own_story {
+            ui.horizontal(|ui| {
+                for emoji in [
+                    "\u{1F44D}",
+                    "\u{2764}\u{FE0F}",
+                    "\u{1F602}",
+                    "\u{1F62E}",
+                    "\u{1F622}",
+                    "\u{1F64F}",
+                ] {
+                    if ui.button(emoji).clicked() {
+                        self.model.composer.push_str(emoji);
+                        self.status_emoji_open = false;
+                    }
+                }
+            });
+        }
         if let Some(text) = reply {
             self.model.composer.clear();
             self.send(Command::ReplyStatus {

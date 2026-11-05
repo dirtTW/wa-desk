@@ -80,6 +80,8 @@ pub struct WaDesk {
     /// The Media panel's search text.
     pub(crate) media_search: String,
     pub(crate) media_search_open: bool,
+    /// The status viewer a compact emoji strip is open.
+    pub(crate) status_emoji_open: bool,
     pub(crate) communities_active: Option<String>,
     /// The voice note being recorded from the composer's microphone button.
     pub(crate) voice: Option<crate::voicenote::Recording>,
@@ -283,6 +285,7 @@ impl WaDesk {
             media_tab: 0,
             media_search: String::new(),
             media_search_open: false,
+            status_emoji_open: false,
             communities_active: None,
             voice: None,
             show_attach: std::env::var("WA_DESK_ATTACH").is_ok(),
