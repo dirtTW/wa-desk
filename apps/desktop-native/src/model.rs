@@ -1821,6 +1821,35 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         (output.title, output.can_everyone)
     }
 
+    /// Every photo and video across the chats, newest first - the official
+    /// Media panel's "Media" tab.
+    pub fn media_gallery(&self) -> Vec<(String, MessageView)> {
+        self.gallery(|message| matches!(message.kind.as_str(), "image" | "video"))
+    }
+
+    /// The "Docs" tab.
+    pub fn document_gallery(&self) -> Vec<(String, MessageView)> {
+        self.gallery(|message| message.kind == "document")
+    }
+
+    /// The "Links" tab: anything that carries a link preview.
+    pub fn link_gallery(&self) -> Vec<(String, MessageView)> {
+        self.gallery(|message| message.link.is_some())
+    }
+
+    fn gallery(&self, keep: impl Fn(&MessageView) -> bool) -> Vec<(String, MessageView)> {
+        let mut rows: Vec<(String, MessageView)> = Vec::new();
+        for (jid, chat) in &self.chats {
+            for message in &chat.messages {
+                if keep(message) {
+                    rows.push((jid.clone(), message.clone()));
+                }
+            }
+        }
+        rows.sort_by_key(|(_, message)| -message.timestamp);
+        rows
+    }
+
     /// The bubble for a sticker we just sent: WhatsApp does not echo our own
     /// messages, and the picker used to close with nothing in the chat. The
     /// local file is registered as this bubble's media so it paints at once.

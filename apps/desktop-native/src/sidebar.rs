@@ -30,6 +30,7 @@ impl WaDesk {
                         self.show_status = false;
                         self.show_channels = false;
                         self.show_settings = false;
+                        self.show_media = false;
                         self.model.close_status();
                     }
                     let unseen = self
@@ -46,6 +47,7 @@ impl WaDesk {
                         self.show_status = false;
                         self.show_channels = false;
                         self.show_settings = false;
+                        self.show_media = false;
                         self.model.close_status();
                     }
                     if rail_button(ui, &palette, Icon::Status, self.show_status, unseen)
@@ -55,8 +57,22 @@ impl WaDesk {
                         self.show_status = true;
                         self.show_channels = false;
                         self.show_settings = false;
+                        self.show_media = false;
                         self.model.close_status();
                         self.send(Command::StatusHistory);
+                    }
+                    if rail_button(ui, &palette, Icon::Document, self.show_media, 0)
+                        .on_hover_text("Media")
+                        .clicked()
+                    {
+                        self.show_media = true;
+                        self.show_calls = false;
+                        self.show_status = false;
+                        self.show_channels = false;
+                        self.show_communities = false;
+                        self.show_settings = false;
+                        self.show_media = false;
+                        self.model.close_status();
                     }
                     if rail_button(ui, &palette, Icon::Channels, self.show_channels, 0)
                         .on_hover_text("Channels")
@@ -65,6 +81,7 @@ impl WaDesk {
                         self.show_channels = true;
                         self.show_status = false;
                         self.show_settings = false;
+                        self.show_media = false;
                         self.model.close_status();
                     }
                     if rail_button(ui, &palette, Icon::Groups, community_view, 0)
@@ -74,6 +91,7 @@ impl WaDesk {
                         self.show_channels = false;
                         self.show_status = false;
                         self.show_settings = false;
+                        self.show_media = false;
                         self.show_calls = false;
                         self.show_communities = true;
                     }

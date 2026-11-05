@@ -73,6 +73,13 @@ pub struct WaDesk {
     pub(crate) show_calls: bool,
     /// The Communities screen, and the community opened in it.
     pub(crate) show_communities: bool,
+    /// The Media screen (the official Media/Docs/Links panel).
+    pub(crate) show_media: bool,
+    /// 0 = Media, 1 = Docs, 2 = Links.
+    pub(crate) media_tab: usize,
+    /// The Media panel's search text.
+    pub(crate) media_search: String,
+    pub(crate) media_search_open: bool,
     pub(crate) communities_active: Option<String>,
     /// The voice note being recorded from the composer's microphone button.
     pub(crate) voice: Option<crate::voicenote::Recording>,
@@ -270,6 +277,12 @@ impl WaDesk {
             show_status: false,
             show_calls: false,
             show_communities: false,
+            show_media: std::env::var("WA_DESK_SCREEN")
+                .map(|screen| screen == "media")
+                .unwrap_or(false),
+            media_tab: 0,
+            media_search: String::new(),
+            media_search_open: false,
             communities_active: None,
             voice: None,
             show_attach: std::env::var("WA_DESK_ATTACH").is_ok(),
@@ -1983,6 +1996,8 @@ impl eframe::App for WaDesk {
                 self.group_panel(ctx);
             } else if self.show_settings {
                 self.settings_panel(ctx);
+            } else if self.show_media {
+                self.media_panel(ctx);
             } else if self.show_channels {
                 self.channels_panel(ctx);
             } else if self.show_communities {

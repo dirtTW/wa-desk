@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.52] - 2026-11-05
+
+- **The Media panel exists now, built from a live sample.** The official rail entry opens a dialog with
+  `Media · Docs · Links` tabs, `Search`, `Sort by`, `Select`, `Close` and a grid of tiles whose captions
+  read "Image from …" / "Video from …" with the sender's caption. Ours mirrors that in
+  `screens/media.rs`: the tab row with the accent underline colour, the search toggle and field, the
+  sort/select labels, the close control, and a 150 px tile grid over
+  `Model::media_gallery`/`document_gallery`/`link_gallery` (newest first, filtered by the search text,
+  thumbnails from the media cache, and a tap opens the chat's viewer).
+- The rail gained the **Media** entry between Communities and the deleted-history eye, matching the
+  official order (Chats, Calls, Status, Channels, Communities, Meta AI, **Media**, You) — Meta AI
+  remains the only rail item with no local equivalent (ours is the bring-your-own-key assistant in
+  Settings).
+- `WA_DESK_SCREEN=media` captures it. Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.51] - 2026-11-05
 
 - **The session glue left `app.rs`: `src/session_glue.rs` (299 lines).** `drain_events` (the whole
