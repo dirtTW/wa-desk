@@ -190,6 +190,12 @@ pub enum Command {
         id: String,
         text: String,
     },
+    /// Answer a status with a sticker (base64 WebP).
+    ReplyStatusSticker {
+        sender: String,
+        id: String,
+        payload: String,
+    },
     /// React to a status with one emoji.
     ReactStatus {
         sender: String,

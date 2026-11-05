@@ -467,6 +467,12 @@ impl WaDesk {
                 {
                     self.status_emoji_open = !self.status_emoji_open;
                 }
+                if icon_button(ui, Icon::Sticker, &palette)
+                    .on_hover_text("Sticker")
+                    .clicked()
+                {
+                    self.status_sticker_open = !self.status_sticker_open;
+                }
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut self.model.composer)
                         .hint_text("Type a reply…")
@@ -487,6 +493,63 @@ impl WaDesk {
                 }
             }
         });
+        if self.status_sticker_open && !chrome.own_story {
+            // The account's stickers, newest first: a tap uploads the file and
+            // sends it as the status answer.
+            let stickers = self.model.sticker_collection();
+            let mut chosen: Option<String> = None;
+            ui.horizontal(|ui| {
+                for (id, path) in stickers.iter().take(10) {
+                    let texture = crate::bubbles::texture_at(
+                        ui.ctx(),
+                        &mut self.textures,
+                        &format!("status-sticker-{id}"),
+                        Some(path.clone()),
+                        crate::bubbles::STICKER_PX,
+                    );
+                    let (rect, response) =
+                        ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::click());
+                    if response.hovered() {
+                        ui.painter().rect_filled(
+                            rect,
+                            egui::CornerRadius::same(8),
+                            egui::Color32::from_white_alpha(20),
+                        );
+                    }
+                    if let Some(texture) = texture {
+                        let size = texture.size_vec2();
+                        let scale = (40.0 / size.x.max(1.0)).min(40.0 / size.y.max(1.0));
+                        ui.painter().image(
+                            texture.id(),
+                            egui::Rect::from_center_size(rect.center(), size * scale),
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    if response.clicked() {
+                        chosen = Some(path.clone());
+                    }
+                }
+                if stickers.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No stickers cached yet")
+                            .size(12.5)
+                            .color(egui::Color32::from_gray(170)),
+                    );
+                }
+            });
+            if let Some(path) = chosen {
+                use base64::Engine as _;
+                if let Ok(bytes) = std::fs::read(&path) {
+                    self.send(Command::ReplyStatusSticker {
+                        sender: update.sender.clone(),
+                        id: update.id.clone(),
+                        payload: base64::engine::general_purpose::STANDARD.encode(bytes),
+                    });
+                    self.status_sticker_open = false;
+                }
+            }
+        }
         if self.status_emoji_open && !chrome.own_story {
             ui.horizontal(|ui| {
                 for emoji in [

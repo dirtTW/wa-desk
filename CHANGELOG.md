@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.59] - 2026-11-05
+
+- **Status sticker replies work end to end.** `Session::reply_status_sticker(sender, id, payload,
+  status_text)` uploads the WebP as a sticker and sends it as a `stickerMessage` whose
+  `contextInfo` quotes the status (`remote_jid = status@broadcast`, the status id, the author) - the
+  same shape the phone produces. `Command::ReplyStatusSticker` carries it from the window.
+- The viewer's bottom bar gained the **sticker button** beside the emoji control (the last chrome delta
+  from the live image-status sample): tapping it lists the account's cached stickers as 44 px tiles, and
+  a tap reads that file, base64s it and sends the reply, then closes the strip. An empty collection
+  says "No stickers cached yet" instead of showing an empty row.
+- `target/our_status_viewer.png` re-captured: ▶ · emoji · **sticker** · "Type a reply…" · Send · ❤.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.58] - 2026-11-05
 
 - **The window itself left `app.rs`: `src/app_impl.rs` (470 lines).** `WaDesk::new` (settings load,

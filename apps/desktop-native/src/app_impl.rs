@@ -44,6 +44,7 @@ impl WaDesk {
             media_search: String::new(),
             media_search_open: false,
             status_emoji_open: false,
+            status_sticker_open: false,
             communities_active: None,
             voice: None,
             show_attach: std::env::var("WA_DESK_ATTACH").is_ok(),

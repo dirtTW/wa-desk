@@ -82,6 +82,8 @@ pub struct WaDesk {
     pub(crate) media_search_open: bool,
     /// The status viewer a compact emoji strip is open.
     pub(crate) status_emoji_open: bool,
+    /// The status viewer a sticker strip is open.
+    pub(crate) status_sticker_open: bool,
     pub(crate) communities_active: Option<String>,
     /// The voice note being recorded from the composer's microphone button.
     pub(crate) voice: Option<crate::voicenote::Recording>,

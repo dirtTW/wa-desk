@@ -709,6 +709,18 @@ fn main() {
                         tracing::warn!(%err, "status reply failed");
                     }
                 }
+                model::Command::ReplyStatusSticker {
+                    sender,
+                    id,
+                    payload,
+                } => {
+                    if let Err(err) = session
+                        .reply_status_sticker(&sender, &id, &payload, None)
+                        .await
+                    {
+                        tracing::warn!(%err, "status sticker reply failed");
+                    }
+                }
                 model::Command::ReactStatus { sender, id, emoji } => {
                     if let Err(err) = session.react_status(&sender, &id, &emoji).await {
                         tracing::warn!(%err, "status reaction failed");

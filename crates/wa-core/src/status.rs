@@ -222,6 +222,75 @@ impl Session {
             .map_err(|e| format!("status reply failed: {e}"))
     }
 
+    /// Answer a status with a sticker. The sticker is uploaded the usual way
+    /// and sent with the status as its quoted context, which is what the phone
+    /// shows as a sticker reply.
+    pub async fn reply_status_sticker(
+        &self,
+        sender: &str,
+        id: &str,
+        payload: &str,
+        status_text: Option<&str>,
+    ) -> Result<(), String> {
+        use base64::Engine as _;
+
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(payload)
+            .map_err(|e| format!("invalid sticker payload: {e}"))?;
+        if data.is_empty() {
+            return Err("the selected sticker is empty".into());
+        }
+        let mut sender: Jid = sender
+            .parse()
+            .map_err(|e| format!("invalid status author: {e}"))?;
+        sender.device = 0;
+        sender.agent = 0;
+
+        let (width, height, animated) = webp_size(&data).unwrap_or((512, 512, false));
+        let upload = self
+            .client
+            .upload(data, MediaType::Sticker, Default::default())
+            .await
+            .map_err(|e| format!("sticker upload failed: {e}"))?;
+
+        let quoted = self.status_body(id, status_text);
+        let context = quoted.map(|quoted| {
+            MessageField::some(wa::ContextInfo {
+                remote_jid: Some("status@broadcast".to_owned()),
+                stanza_id: Some(id.to_owned()),
+                participant: Some(sender.to_string()),
+                quoted_message: MessageField::some(quoted),
+                ..Default::default()
+            })
+        });
+        let mut sticker = wa::message::StickerMessage {
+            url: Some(upload.url),
+            file_sha256: Some(upload.file_sha256.to_vec()),
+            file_enc_sha256: Some(upload.file_enc_sha256.to_vec()),
+            media_key: Some(upload.media_key.to_vec()),
+            direct_path: Some(upload.direct_path),
+            file_length: Some(upload.file_length),
+            media_key_timestamp: Some(upload.media_key_timestamp),
+            mimetype: Some("image/webp".to_owned()),
+            width: Some(width),
+            height: Some(height),
+            is_animated: Some(animated),
+            ..Default::default()
+        };
+        if let Some(context) = context {
+            sticker.context_info = context;
+        }
+        let message = wa::Message {
+            sticker_message: MessageField::some(sticker),
+            ..Default::default()
+        };
+        self.client
+            .send_message(sender, message)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("status sticker reply failed: {e}"))
+    }
+
     /// The status body to embed in a reply's quote: the protobuf we cached when
     /// the status arrived, otherwise the text the viewer is showing.
     fn status_body(&self, id: &str, status_text: Option<&str>) -> Option<wa::Message> {
