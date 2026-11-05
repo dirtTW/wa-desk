@@ -4,6 +4,16 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.61] - 2026-11-05
+
+- **The composer has the official single smiley again.** A fresh live capture of a conversation showed
+  the compose box carrying exactly one combined control - `Attach`, then the smiley inside the field
+  (`Emojis, GIFs, Stickers`), then the send/mic - while ours had grown a second, separate sticker icon
+  inside the field. That icon is gone; the sticker panel is still one tap away through the emoji
+  panel's **Stickers** tab, which is how the official client exposes it too.
+- `target/our_chat.png` re-captured: attach · rounded field with one smiley · mic/send.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.60] - 2026-11-05
 
 - **The "You" pane now matches the live drawer.** The sampled pane is the account's name and avatar, a

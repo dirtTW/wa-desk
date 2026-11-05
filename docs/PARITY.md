@@ -68,7 +68,7 @@ the chat row was targeted.
 | Filters All / Unread / Favorites / Communities / Groups + "New list" | the same five in the official order with live counts; Favorites is a real filter (`Model::favourites`, toggled from the chat menu's **Add to / Remove from favourites**, persisted in `chats.json`) and **New list** creates custom lists (`ChatList`, `ChatFilter::List`) | ✅ filter + custom lists (`target/our_filters_crop.png`, `target/our_lists.png`) |
 | Search field `raised` (#2A3942) | same | ✅ |
 | Chat header 64 px | 64 px | ✅ |
-| Composer 62 px bar, 38 px field, icons inside | same | ✅ |
+| Composer: attach, one combined smiley, send/mic | live capture 2026-11-05: `Attach`, the rounded field with the single `Emojis, GIFs, Stickers` control, then send (or mic when the draft is empty); the sticker panel is the emoji panel's Stickers tab | ✅ (`target/our_chat.png`) |
 
 ## Conversation
 
@@ -105,7 +105,7 @@ the chat row was targeted.
 | Photo and video status | `Command::PostStatusMedia` via the file picker | ✅ |
 | Media loads instantly: the sender's inline JPEG paints while the file downloads | `inline_thumb` builds a data URI from `jpegThumbnail`, `MessageView.thumb` ships it with the event, the bubble paints it cover-scaled in the media tile; eight downloads run in parallel | ✅ (`target/our_thumb.png`, `WA_DESK_THUMB=1`) |
 | WhatsApp markup `*bold*` `_italic_` `~strike~` ``` ```mono``` ``` | parsed with the phone's rules (opener before a non-space, closer after one, runs of markers are one delimiter); bold is double-painted, strike a hairline, mono the monospace face | ✅ (`target/our_markup.png`, `WA_DESK_MARKUP=1`) |
-| Composer: Enter sends, and the bubble appears at once | `enter_sends` samples the key before the single-line field consumes it; `WA_DESK_ENTER_TEST=1` drives a real `Event::Key` through egui for the capture | ✅ (`target/our_enter_send.png`) |
+| Composer: attach, one combined smiley, send/mic | live capture 2026-11-05: `Attach`, the rounded field with the single `Emojis, GIFs, Stickers` control, then send (or mic when the draft is empty); the sticker panel is the emoji panel's Stickers tab | ✅ (`target/our_chat.png`) |
 | Send failures are visible: a red `!` instead of a tick | `UiEvent::SendFailed` from `wa-core`, `Model::send_failures` + `send_error`, the bubble paints a red disc with `!` | ✅ (`target/our_send_failed.png`) |
 | Conversation scroll: newest message on open/send, floating jump-to-latest disc | opening a chat or sending pins the view to the last bubble (`ui.scroll_to_rect(..., Align::BOTTOM)`); scrolling up reveals the official 44 px chevron disc above the composer | ✅ (`target/real_scroll.png`, `WA_DESK_SCROLL_TOP=1`) |
 | Story viewer: progress bar, avatar, photo/video stage with the blurred backdrop, caption, reply (text **and sticker**), react, delete | `FetchMedia` on the status id, stage cover-scaled + dimmed behind a letterboxed frame, caption over the bottom; the bar has emoji + sticker + reply field + heart, or the view count + Delete on your own | ✅ (`target/our_status_media.png`, `target/our_status_viewer.png`) |

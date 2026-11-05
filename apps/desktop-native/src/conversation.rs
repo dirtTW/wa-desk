@@ -437,18 +437,6 @@ impl WaDesk {
                                             self.model.emoji_open = !self.model.emoji_open;
                                             self.model.stickers_open = false;
                                         }
-                                        if icon_button(ui, Icon::Sticker, &palette)
-                                            .on_hover_text("Stickers")
-                                            .clicked()
-                                        {
-                                            self.model.stickers_open = !self.model.stickers_open;
-                                            self.model.emoji_open = false;
-                                            if self.model.favorites.is_empty()
-                                                && self.model.favorites_error.is_none()
-                                            {
-                                                self.send(Command::FavoriteStickers);
-                                            }
-                                        }
                                     });
                                 });
                             let edit = edit_response.expect("the composer field is created above");
