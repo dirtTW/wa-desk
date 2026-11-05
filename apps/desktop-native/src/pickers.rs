@@ -374,10 +374,14 @@ impl WaDesk {
                                 .on_hover_text("Add a sticker pack")
                                 .clicked()
                             {
-                                self.notice = Some((
-                                    "Adding packs is done from the store on the phone".to_string(),
-                                    std::time::Instant::now(),
-                                ));
+                                // The live `+` opens the sticker store; ours jumps
+                                // to the packs tab and asks the session for the
+                                // packs it knows about, so a shared one shows up.
+                                self.sticker_tab = 2;
+                                if !self.packs_requested {
+                                    self.packs_requested = true;
+                                    self.send(Command::StickerPacks);
+                                }
                             }
                         });
                         ui.add_space(8.0);
