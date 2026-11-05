@@ -75,6 +75,10 @@ pub struct WaDesk {
     pub(crate) channels_query: String,
     /// The Communities drawer shows every group, not the first four.
     pub(crate) communities_all: bool,
+    /// The media viewer's zoom factor (the toolbar's magnifiers).
+    pub(crate) viewer_zoom: f32,
+    /// The viewer shows the caption and filmstrip (the chevron hides them).
+    pub(crate) viewer_details: bool,
     /// The Meta AI pane is open (the rail entry; no Meta AI service exists that
     /// a linked device can call, so the pane explains that).
     pub(crate) show_meta_ai: bool,

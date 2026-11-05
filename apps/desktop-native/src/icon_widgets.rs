@@ -57,6 +57,9 @@ pub(crate) enum Icon {
     Mail,
     Pin,
     BellOff,
+    ChevronDown,
+    ZoomIn,
+    ZoomOut,
 }
 
 impl Icon {
@@ -113,6 +116,11 @@ impl Icon {
             Icon::Mail => "mail",
             Icon::Pin => "push_pin",
             Icon::BellOff => "notifications_off",
+            Icon::ChevronDown => "keyboard_arrow_down",
+            // The generated table carries no magnifier, so the zoom buttons
+            // reuse the search glyph and add their own sign (see `draw_icon`).
+            Icon::ZoomIn => "search",
+            Icon::ZoomOut => "search",
         }
     }
 }
@@ -175,6 +183,23 @@ pub(crate) fn draw_icon(ui: &egui::Ui, rect: egui::Rect, icon: Icon, color: egui
             rect,
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,
+        );
+    }
+    // The magnifier carries its own sign: the table has no zoom glyph, and a
+    // bare magnifier for both buttons would be a guess.
+    if matches!(icon, Icon::ZoomIn | Icon::ZoomOut) {
+        let sign_centre = egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0);
+        let sign = if matches!(icon, Icon::ZoomIn) {
+            '+'
+        } else {
+            '-'
+        };
+        ui.painter().text(
+            sign_centre,
+            egui::Align2::CENTER_CENTER,
+            sign,
+            egui::FontId::proportional((rect.width() * 0.55).max(8.0)),
+            color,
         );
     }
 }

@@ -134,6 +134,8 @@ impl WaDesk {
         let mut seek_to: Option<f32> = None;
         let mut toggle_mute = false;
         let mut starred = false;
+        let mut zoom_step: Option<f32> = None;
+        let mut collapse = false;
         let mut save = false;
         let mut nav: Option<bool> = None;
         let description = item.text.clone();
@@ -195,14 +197,17 @@ impl WaDesk {
 
                 // The toolbar, right to left: close, menu, forward, pin, star,
                 // reply - the official order.
-                let mut icons: Vec<(Icon, &str)> = vec![
+                let icons: Vec<(Icon, &str)> = vec![
                     (Icon::Close, "close"),
                     (Icon::Menu, "menu"),
                     (Icon::Forward, "forward"),
+                    (Icon::Download, "download"),
+                    (Icon::ChevronDown, "collapse"),
                     (Icon::Star, "star"),
                     (Icon::Reply, "reply"),
+                    (Icon::ZoomIn, "zoom-in"),
+                    (Icon::ZoomOut, "zoom-out"),
                 ];
-                icons.push((Icon::Download, "download"));
                 let mut x = screen.right() - 18.0;
                 for (icon, name) in icons {
                     let rect = egui::Rect::from_center_size(
@@ -229,6 +234,9 @@ impl WaDesk {
                             "star" => starred = true,
                             "forward" => open = Some(String::new()),
                             "download" => save = true,
+                            "zoom-in" => zoom_step = Some(1.25),
+                            "zoom-out" => zoom_step = Some(0.8),
+                            "collapse" => collapse = true,
                             _ => {}
                         }
                     }
@@ -254,7 +262,8 @@ impl WaDesk {
                             let size = frame.size_vec2();
                             let scale = (stage.width() / size.x)
                                 .min(stage.height() / size.y)
-                                .max(0.01);
+                                .max(0.01)
+                                * self.viewer_zoom;
                             let target = egui::Rect::from_center_size(stage.center(), size * scale);
                             media_rect = target;
                             painter.image(
@@ -295,7 +304,8 @@ impl WaDesk {
                             let size = texture.size_vec2();
                             let scale = (stage.width() / size.x)
                                 .min(stage.height() / size.y)
-                                .clamp(0.01, 1.0);
+                                .clamp(0.01, 1.0)
+                                * self.viewer_zoom;
                             let target = egui::Rect::from_center_size(stage.center(), size * scale);
                             media_rect = target;
                             painter.image(
@@ -480,45 +490,36 @@ impl WaDesk {
                     );
                 }
 
-                // ---- caption and the filmstrip -----------------------------
-                // The caption sits in a translucent box, the way the official
-                // viewer shows it; there is no "1 of 2" counter (that was ours
-                // only - the arrows and the strip carry the position).
+                // ---- caption and the filmstrip (the chevron hides them) -----
+                // The live viewer prints the caption as plain centred text under
+                // the stage (no box, no counter).
                 if !description.trim().is_empty() {
-                    let caption_font = egui::FontId::proportional(13.5);
-                    let shown = fit_text(
-                        &painter,
-                        &description,
-                        caption_font.clone(),
+                    let galley = painter.layout(
+                        description.clone(),
+                        egui::FontId::proportional(14.0),
                         egui::Color32::from_gray(226),
-                        (media_rect.width() - 24.0).max(120.0),
-                    );
-                    let galley =
-                        painter.layout_no_wrap(shown, caption_font, egui::Color32::from_gray(226));
-                    let box_rect = egui::Rect::from_min_size(
-                        egui::pos2(media_rect.left(), stage.bottom() + 2.0),
-                        galley.size() + egui::vec2(20.0, 12.0),
-                    );
-                    painter.rect_filled(
-                        box_rect,
-                        egui::CornerRadius::same(7),
-                        egui::Color32::from_rgba_unmultiplied(32, 44, 51, 235),
+                        (screen.width() - 80.0).max(120.0),
                     );
                     painter.galley(
-                        box_rect.min + egui::vec2(10.0, 6.0),
+                        egui::pos2(
+                            screen.center().x - galley.size().x / 2.0,
+                            stage.bottom() + 4.0,
+                        ),
                         galley,
                         egui::Color32::from_gray(226),
                     );
                 }
 
                 // The strip: 64 px rounded thumbnails, the open one ringed green.
-                let thumb_side = 58.0;
-                let selected_side = 66.0;
+                let thumb_side = 54.0;
+                let selected_side = 60.0;
                 let gap = 4.0;
                 let total = items_len as f32 * (thumb_side + gap) - gap;
+                // The live filmstrip starts at the stage's left edge and runs to
+                // its right edge, not centred in a narrow band.
                 let mut thumb_x = (screen.center().x - total / 2.0)
                     .max(screen.left() + 8.0)
-                    .min(screen.right() - total - 8.0);
+                    .min((screen.right() - total - 8.0).max(screen.left() + 8.0));
                 let thumb_y = screen.bottom() - strip + 6.0;
                 for (position, (id, thumb)) in thumbs.iter().enumerate() {
                     let side = if position == selected {
@@ -550,6 +551,25 @@ impl WaDesk {
                             painter.rect_filled(rect, egui::CornerRadius::same(4), palette_thumb());
                         }
                     }
+                    if let Some(VideoState::Ready(video)) = self.videos.get(id) {
+                        let label = crate::app::stamp_seconds(video.duration);
+                        let badge = egui::Rect::from_min_size(
+                            egui::pos2(rect.left() + 4.0, rect.bottom() - 18.0),
+                            egui::vec2(30.0, 14.0),
+                        );
+                        painter.rect_filled(
+                            badge,
+                            egui::CornerRadius::same(3),
+                            egui::Color32::from_black_alpha(150),
+                        );
+                        painter.text(
+                            badge.center(),
+                            egui::Align2::CENTER_CENTER,
+                            label,
+                            egui::FontId::proportional(10.0),
+                            egui::Color32::from_gray(240),
+                        );
+                    }
                     if position == selected {
                         painter.rect_stroke(
                             rect.expand(1.0),
@@ -579,6 +599,12 @@ impl WaDesk {
                 }
             });
 
+        if let Some(step) = zoom_step {
+            self.viewer_zoom = (self.viewer_zoom * step).clamp(0.5, 4.0);
+        }
+        if collapse {
+            self.viewer_details = !self.viewer_details;
+        }
         if close {
             self.stop_video();
             self.release_video();

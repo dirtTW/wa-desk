@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.7] - 2026-11-05
+
+- **The media viewer toolbar and zoom now follow the live client.** From the official capture
+  (`target/live_viewer.jpg`): right to left **zoom out, zoom in, reply, star, chevron, download,
+  forward, kebab, close**. Ours had download/reply/star/forward/kebab/close only. The two magnifiers
+  are new; the generated icon table carries no `zoom_in`/`zoom_out`, so `draw_icon` reuses the
+  magnifier glyph and paints its own **+** / **-** sign rather than inventing a symbol.
+- **Zoom works on the stage**: `viewer_zoom` (0.5-4x) multiplies the photo fit and the video frame
+  scale, the magnifier buttons step it 1.25x / 0.8x, and the chevron toggles the caption and filmstrip
+  (`viewer_details`). Wheel zoom and drag pan were already there.
+- The caption is now **plain centred text** under the stage (the boxed version from rc.87 is gone) and
+  the filmstrip uses square thumbnails with a duration badge on decoded clips.
+- Evidence: `target/our_viewer_photo.png` beside the official `live_viewer.jpg`.
+- Side note from the REA probe the user asked for: the packaged app is **.NET + WebView2**
+  (`WhatsApp.Root.exe`, `WhatsApp.Core.dll`, ... and a `WhatsAppRust.dll`), so the viewer behaviour lives
+  in its web bundle, not in native code - disassembling the exe would not reveal it.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.6] - 2026-11-05
 
 - **A download button on media the phone has not sent.** Reported: "add button to request download media when the
