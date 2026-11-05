@@ -36,6 +36,17 @@ impl WaDesk {
                         });
                     });
 
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(20.0);
+                    if status_share_tile(ui, &palette, Icon::Groups, "New community") {
+                        self.notice = Some((
+                            "Creating a community needs the phone".to_string(),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                });
+
                 let communities = self
                     .model
                     .communities()
@@ -216,25 +227,53 @@ impl WaDesk {
                                             egui::Color32::WHITE,
                                         );
                                     }
+                                    // The official row is name + last message
+                                    // + stamp, not just the name.
+                                    let (preview, stamp) = self
+                                        .model
+                                        .chats
+                                        .get(&child.jid)
+                                        .map(|chat| {
+                                            (
+                                                self.model.row_preview(chat),
+                                                self.model.row_stamp(chat),
+                                            )
+                                        })
+                                        .unwrap_or_default();
                                     ui.painter().text(
-                                        egui::pos2(row.left() + 70.0, row.center().y),
+                                        egui::pos2(row.left() + 70.0, row.center().y - 9.0),
                                         egui::Align2::LEFT_CENTER,
                                         fit_text(
                                             ui.painter(),
                                             &child.name,
                                             egui::FontId::proportional(14.5),
                                             palette.text,
-                                            row.width() - 90.0,
+                                            row.width() - 130.0,
                                         ),
                                         egui::FontId::proportional(14.5),
                                         palette.text,
                                     );
-                                    if child.announce {
+                                    if !preview.is_empty() {
                                         ui.painter().text(
-                                            egui::pos2(row.right() - 22.0, row.center().y),
+                                            egui::pos2(row.left() + 70.0, row.center().y + 10.0),
+                                            egui::Align2::LEFT_CENTER,
+                                            fit_text(
+                                                ui.painter(),
+                                                &crate::widgets::single_line(&preview),
+                                                egui::FontId::proportional(12.5),
+                                                palette.secondary,
+                                                row.width() - 130.0,
+                                            ),
+                                            egui::FontId::proportional(12.5),
+                                            palette.secondary,
+                                        );
+                                    }
+                                    if !stamp.is_empty() {
+                                        ui.painter().text(
+                                            egui::pos2(row.right() - 22.0, row.center().y - 9.0),
                                             egui::Align2::RIGHT_CENTER,
-                                            "Announcements",
-                                            egui::FontId::proportional(11.5),
+                                            stamp,
+                                            egui::FontId::proportional(11.0),
                                             palette.secondary,
                                         );
                                     }

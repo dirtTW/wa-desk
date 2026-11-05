@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.53] - 2026-11-05
+
+- **The Communities screen now matches the live drawer.** Sampled on web.whatsapp.com: the drawer is
+  `Communities` + a **New community** action, then each community with its subgroups listed as rows of
+  *name / last message / timestamp* (no type tag). Ours gained the **New community** tile (which points
+  at the phone, since a community is created there) and each sub-group row now carries its chat preview
+  and stamp; the old right-hand "Announcements" label was removed because the stamp owns that corner
+  and the two overlapped.
+- `target/our_communities.png` re-captured: New community tile, "Team Community · 2 groups", then
+  Announcements and Deploys with their previews and times.
+- Also sampled for the record: the official **Channels** drawer lists followed channels as
+  *name / time / last post / unread count* with no discover card once channels exist (the demo account
+  here follows none, so our empty state is what a capture can show).
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.52] - 2026-11-05
 
 - **The Media panel exists now, built from a live sample.** The official rail entry opens a dialog with
