@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.51] - 2026-11-05
+
+- **The session glue left `app.rs`: `src/session_glue.rs` (299 lines).** `drain_events` (the whole
+  `UiEvent` pump: message/status/chat folding, media and avatar results, call audio/self-video frames,
+  update messages), `notify_message` (the unfocused-window toast), `poll_tray`, `screenshot_tick`
+  (`--screenshot`) and `smoke_send` (`WA_DESK_SEND_ONCE`) are their own module now.
+- `app.rs` is down to **2,527 lines**, from 10,069 at the start of this run - a 75 % reduction. What
+  remains is the eframe `App` impl (`update`, the scene switch), the app's construction and the
+  window/instance plumbing.
+- Verified after the move: `--selftest` still folds the scripted event sequence
+  (`{"chats":3,"status":"Connected","viewer_items":1,…}`) and `target/our_chat.png`
+  (`WA_DESK_OPEN_FIRST=1`) renders the list and the conversation unchanged.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.50] - 2026-11-05
 
 - **The QR gate left `app.rs`: `src/gate.rs` (489 lines).** `gate` (the "Download WA Desk for

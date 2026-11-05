@@ -40,6 +40,7 @@ mod overlays;
 mod pickers;
 mod rich_text;
 mod screens;
+mod session_glue;
 mod settings;
 mod settings_ui;
 mod sidebar;
