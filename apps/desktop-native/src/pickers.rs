@@ -329,8 +329,9 @@ impl WaDesk {
                         });
                         ui.add_space(8.0);
                         egui::Frame::new()
-                            .fill(palette.rail)
-                            .corner_radius(egui::CornerRadius::same(9))
+                            .fill(palette.panel)
+                            .stroke(egui::Stroke::new(1.0_f32, palette.accent))
+                            .corner_radius(egui::CornerRadius::same(12))
                             .inner_margin(egui::Margin::symmetric(10, 5))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
@@ -342,7 +343,7 @@ impl WaDesk {
                                     ui.add(
                                         egui::TextEdit::singleline(&mut self.sticker_query)
                                             .frame(false)
-                                            .hint_text("Search stickers")
+                                            .hint_text("Search via WhatsApp sticker store")
                                             .desired_width(f32::INFINITY),
                                     );
                                 });

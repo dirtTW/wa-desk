@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.64] - 2026-11-05
+
+- **The sticker panel was sampled from the live client.** Opened through the emoji panel's sticker tab
+  (found by its `aria-label` "Stickers selector"): a row of **icon tabs** - clock (recents, underlined
+  when selected), star, heart, packs, then a **+** to add a pack - the search pill ringed in the accent
+  colour reading **"Search via WhatsApp sticker store"**, a four-column grid whose first cell is the
+  **Create** tile, and the same three-icon footer as the emoji panel.
+- Ours now matches the search field exactly: accent stroke on a `panel` pill and the live hint text.
+  Capture: `target/our_stickers.png`.
+- Still different, recorded: our tabs are the **text** labels Recents / Favourites / Packs (the live ones
+  are icons with the selected underlined, plus an add-pack `+`), and our footer keeps a `Close` button.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.63] - 2026-11-05
 
 - **The two emoji-panel deltas from rc.62 are closed.** The live sample showed **eight** category icons (no
