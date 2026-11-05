@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.12] - 2026-11-05
+
+- **`WA_DESK_SCROLL_TO` works now.** It is read where `WA_DESK_OPEN_CHAT` opens the chat (after the list
+  exists) instead of at construction, so the target survives to the first conversation paint and beats
+  the per-frame bottom pin. `target/real_album_test.png` now frames "Test group" index 20 instead of the
+  bottom of the chat - the capture hook is finally usable for off-screen messages.
+- **Album grid still not confirmed: the three real images did NOT collapse.** The framed messages are
+  indices 20-22 from the same LID sender at the same/one-second timestamps
+  (`20 ts=…197000, 21 ts=…197000, 22 ts=…198000`, all `from_me=false`, kind `image`), which satisfies
+  `Model::album_span` on paper, yet they paint as three separate download bubbles. So either the model's
+  `sender` values differ from the cached ones or the branch is skipped for another reason - the next step
+  is a diagnostic line printing `span` and the two senders/timestamps for the first three images of a
+  chat. Recorded as open, not as fixed.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.11] - 2026-11-05
 
 - **A capture hook for off-screen messages**: `WA_DESK_SCROLL_TO=<index>` frames one message the way a

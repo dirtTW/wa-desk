@@ -360,14 +360,6 @@ impl WaDesk {
             self.model.open_viewer(&video);
         }
 
-        // `WA_DESK_SCROLL_TO=<index>` frames one message, so an album burst deep
-        // in a chat can be captured without scrolling by hand.
-        if let Ok(index) = std::env::var("WA_DESK_SCROLL_TO")
-            && let Ok(index) = index.parse::<usize>()
-        {
-            self.scroll_target = Some(index);
-        }
-
         // `WA_DESK_NO_CHAT=1` leaves the conversation empty, for the live
         // empty-state layout (promo card + quick actions).
         if std::env::var("WA_DESK_NO_CHAT").is_ok() {

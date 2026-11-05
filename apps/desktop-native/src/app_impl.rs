@@ -297,6 +297,16 @@ impl eframe::App for WaDesk {
                 self.model.open_chat(&jid);
                 self.send(Command::MarkRead { chat: jid.clone() });
                 self.send(Command::ChatHistory { chat: jid });
+                // `WA_DESK_SCROLL_TO=<index>` frames one message of this chat,
+                // so an album burst deep in the history can be captured without
+                // scrolling by hand. It has to be read *here*: at construction
+                // time the chat is not loaded yet and the target was consumed on
+                // the first paint.
+                if let Ok(index) = std::env::var("WA_DESK_SCROLL_TO")
+                    && let Ok(index) = index.parse::<usize>()
+                {
+                    self.scroll_target = Some(index);
+                }
                 self.auto_opened = true;
                 // Opened once; auto_opened keeps it from repeating.
             }
