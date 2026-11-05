@@ -4,6 +4,28 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.97] - 2026-11-05
+
+Three bugs reported from the installed build:
+
+- **Newlines were swallowed, so numbered lists collapsed into one paragraph.** The bubble layout
+  tokenised text by whitespace only, so `\n` never ended a line - the pasted "INFORMASI SALINAN PKWT
+  1. … 2. …" message rendered as a wall of text while WhatsApp Web showed one item per line. The
+  tokeniser now emits a `Break` token for every newline and the layout resets to a fresh row, so
+  paragraphs come back (blank lines too). Evidence: `target/our_multiline.png` with
+  `WA_DESK_MULTILINE=1`.
+- **The view-once bubble overlapped its own clock and told the sender to use the phone.** It was 62 px
+  with the state line at the centre and the stamp at the bottom, and *our own* bubble read "Open this on
+  your phone". It is now 74 px with "Photo" at 22 px, the state at 41 px and the stamp at the bottom
+  right; a message we sent reads **View once** (or **Opened**), never the phone hint. Evidence: the two
+  bubbles in `target/our_multiline.png`.
+- **A photo or video that had not downloaded could not be opened.** Its tile's click only re-armed the
+  download (`LoadMedia`), so a message whose file never arrived could never be viewed - the inline
+  thumbnail was all anyone saw. The tap now opens the viewer (`OpenMedia`), the viewer retries the
+  fetch itself, and it paints the sender's inline JPEG while the full file arrives, so the stage is
+  never empty.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.96] - 2026-11-05
 
 - **The last two Communities deltas are closed.** From the live sample

@@ -296,7 +296,7 @@ fn bubble_content(
             let playable = model.view_once_playable(message);
             let width = max_width.min(250.0);
             let (rect, response) =
-                ui.allocate_exact_size(egui::vec2(width, 62.0), egui::Sense::click());
+                ui.allocate_exact_size(egui::vec2(width, 74.0), egui::Sense::click());
             let fill = if message.from_me {
                 palette.bubble_out
             } else {
@@ -316,7 +316,7 @@ fn bubble_content(
                 ui.painter()
                     .rect_filled(rect, egui::CornerRadius::same(7), palette.hover);
             }
-            let badge = egui::pos2(rect.left() + 26.0, rect.center().y - 2.0);
+            let badge = egui::pos2(rect.left() + 26.0, rect.top() + 28.0);
             ui.painter()
                 .circle_stroke(badge, 13.0, egui::Stroke::new(1.6_f32, palette.secondary));
             ui.painter().text(
@@ -327,13 +327,17 @@ fn bubble_content(
                 palette.secondary,
             );
             ui.painter().text(
-                egui::pos2(rect.left() + 48.0, rect.center().y - 11.0),
+                egui::pos2(rect.left() + 48.0, rect.top() + 22.0),
                 egui::Align2::LEFT_CENTER,
                 "Photo",
                 egui::FontId::proportional(14.0),
                 palette.text,
             );
-            let state = if opened {
+            // The sender's own bubble can never be opened from here, so it says
+            // what it is instead of telling the sender to use the phone.
+            let state = if message.from_me {
+                if opened { "Opened" } else { "View once" }
+            } else if opened {
                 "Opened"
             } else if playable {
                 "Tap to open it once"
@@ -341,14 +345,14 @@ fn bubble_content(
                 "Open this on your phone"
             };
             ui.painter().text(
-                egui::pos2(rect.left() + 48.0, rect.center().y + 9.0),
+                egui::pos2(rect.left() + 48.0, rect.top() + 41.0),
                 egui::Align2::LEFT_CENTER,
                 state,
                 egui::FontId::proportional(11.5),
                 palette.secondary,
             );
             ui.painter().text(
-                egui::pos2(rect.right() - 10.0, rect.bottom() - 8.0),
+                egui::pos2(rect.right() - 10.0, rect.bottom() - 7.0),
                 egui::Align2::RIGHT_BOTTOM,
                 model.bubble_stamp(message),
                 egui::FontId::proportional(11.0),
@@ -553,7 +557,9 @@ fn bubble_content(
                 }
             }
             if response.clicked() {
-                action = Some(BubbleAction::LoadMedia(message.id.clone()));
+                // Opening the viewer also asks for the file again, so a tap
+                // never just re-arms a download that never arrived.
+                action = Some(BubbleAction::OpenMedia(message.id.clone()));
             }
             context_menu(&response, palette, model, message, &mut action);
             pills_row(ui, palette, model, message, rect);

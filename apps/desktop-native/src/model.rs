@@ -278,8 +278,6 @@ pub enum BubbleAction {
     Star(String),
     /// Start or stop the voice note's playback.
     PlayAudio(String),
-    /// (Re)fetch a photo/video whose file is not on disk.
-    LoadMedia(String),
 }
 
 /// A followed channel and its (read-only) posts.
@@ -1065,6 +1063,17 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                     row.parent = Some("1200@g.us".to_string());
                 }
             }
+        }
+
+        // `WA_DESK_MULTILINE=1`: a numbered list, so the paragraph fix shows up
+        // in a capture instead of only in a live chat.
+        if std::env::var("WA_DESK_MULTILINE").is_ok() {
+            let list = "INFORMASI SALINAN\n1. JOHAN ADI SAPUTRA\n2. ROKHMAFUL HADI\n\
+                        3. ASO DARSONO\nSILAHKAN BISA DI AMBIL SETELAH JAM PULANG KERJA";
+            let mut message = view("1203@g.us", "Team", "ml1", list, now - 30_000, false);
+            message.sender = Some("1@s.whatsapp.net".to_string());
+            message.sender_name = Some("Ada".to_string());
+            model.apply(&UiEvent::Message(message));
         }
 
         // One pinned and one muted chat, so the row badges show in `--preview`
@@ -2198,6 +2207,15 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
     }
 
     /// Open the viewer on one message; false when it is not viewable media.
+    /// Drop a failed state so the next request fetches again. Opening a photo
+    /// or video clears it, so the viewer's own request retries the download.
+    pub fn retry_media(&mut self, id: &str) {
+        if matches!(self.media.get(id), Some(MediaState::Failed)) {
+            self.media.remove(id);
+            self.media_errors.remove(id);
+        }
+    }
+
     pub fn open_viewer(&mut self, id: &str) -> bool {
         let items = self.media_items();
         let Some(index) = items.iter().position(|item| item.id == id) else {
@@ -2206,6 +2224,7 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         if items[index].kind == "view_once" {
             self.mark_view_once_opened(id);
         }
+        self.retry_media(id);
         self.media_viewer = Some(index);
         true
     }
@@ -2671,14 +2690,6 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         self.media.insert(id.to_string(), MediaState::Failed);
         self.media_errors
             .insert(id.to_string(), reason.trim().to_string());
-    }
-
-    /// Drop a failed state so the next request fetches again (tap to retry).
-    pub fn retry_media(&mut self, id: &str) {
-        if matches!(self.media.get(id), Some(MediaState::Failed)) {
-            self.media.remove(id);
-            self.media_errors.remove(id);
-        }
     }
 
     pub fn media_error(&self, id: &str) -> Option<&str> {

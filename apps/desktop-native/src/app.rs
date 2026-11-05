@@ -790,7 +790,6 @@ impl WaDesk {
             | BubbleAction::Delete(id)
             | BubbleAction::Star(id)
             | BubbleAction::PlayAudio(id)
-            | BubbleAction::LoadMedia(id)
             | BubbleAction::Forward(id) => id.clone(),
             BubbleAction::React(id, _) => id.clone(),
         };
@@ -798,12 +797,6 @@ impl WaDesk {
         match action {
             BubbleAction::OpenMedia(id) => {
                 self.model.open_viewer(&id);
-            }
-            BubbleAction::LoadMedia(id) => {
-                self.model.retry_media(&id);
-                if self.model.request_media(&id) {
-                    self.send(Command::FetchMedia { id });
-                }
             }
             BubbleAction::Reply(_) => {
                 if let Some(message) = message {

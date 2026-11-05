@@ -87,7 +87,12 @@ impl WaDesk {
             &item.id,
             self.model.media_path(&item.id),
             PHOTO_PX,
-        );
+        )
+        // Not downloaded yet: show the sender's inline JPEG instead of an empty
+        // stage, and let the fetch below fill it in.
+        .or_else(|| {
+            crate::app::thumb_texture(ctx, &mut self.textures, &item.id, item.thumb.as_deref())
+        });
         let thumbs: Vec<(String, Option<egui::TextureHandle>)> = items
             .iter()
             .map(|entry| {

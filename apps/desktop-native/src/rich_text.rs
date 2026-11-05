@@ -132,6 +132,7 @@ pub(crate) fn layout_body(
     enum Token {
         Word(String, Style),
         Emoji(char),
+        Break,
     }
 
     let font = egui::FontId::proportional(14.0);
@@ -160,7 +161,22 @@ pub(crate) fn layout_body(
         let mut word_run = String::new();
         let flush_words = |word_run: &mut String, tokens: &mut Vec<Token>| {
             for word in word_run.split_inclusive(char::is_whitespace) {
-                tokens.push(Token::Word(word.to_string(), style));
+                if !word.contains('\n') {
+                    tokens.push(Token::Word(word.to_string(), style));
+                    continue;
+                }
+                // A newline is a real line break (the numbered lists people
+                // paste used to collapse into one paragraph).
+                let mut first = true;
+                for part in word.split('\n') {
+                    if !first {
+                        tokens.push(Token::Break);
+                    }
+                    first = false;
+                    if !part.is_empty() {
+                        tokens.push(Token::Word(part.to_string(), style));
+                    }
+                }
             }
             word_run.clear();
         };
@@ -227,6 +243,10 @@ pub(crate) fn layout_body(
                     }
                 }
                 widest = widest.max(x);
+            }
+            Token::Break => {
+                x = 0.0;
+                y += row;
             }
             Token::Word(word, style) => {
                 // `layout_no_wrap` drops trailing whitespace from the measured
