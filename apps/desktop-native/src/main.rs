@@ -22,6 +22,7 @@ mod bubbles;
 mod callvideo;
 mod camera;
 mod clipboard;
+mod conversation;
 mod echo;
 mod emoji_glyph;
 mod frames;

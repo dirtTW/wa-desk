@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.45] - 2026-11-05
+
+- **The conversation left `app.rs`: `src/conversation.rs` (886 lines).** `conversation` (the chat
+  header with its two icons, the bubble list with day chips, the unread divider, the jump-to-latest
+  disc and the scroll pinning), `composer_banner` (reply/edit card), and the attach menu's four draft
+  dialogs (`poll_window`, `contact_window`, `location_window`, `list_window`) now live in their own
+  module, still as `impl WaDesk` methods.
+- `app.rs` is down to **6,244 lines**: from 10,069 at the start of this run, with `screens/`
+  (calls, channels, communities, status, settings), `bubbles.rs`, `conversation.rs`, `rich_text.rs`,
+  `widgets.rs`, `settings_ui.rs` and `login_ui.rs` holding the rest.
+- Helpers made crate-visible for it: `action_button`, `paint_wallpaper`, `enter_sends`,
+  `unread_divider`, plus the methods `start_call`, `run_action`, `send_document`.
+- Verified after the move: `target/our_enter_send.png` (`WA_DESK_ENTER_TEST=1`) still shows the chat
+  list, the bubble column, the composer **and** the Enter-driven bubble "Enter key sends this line"
+  with its tick; `target/our_markup.png` re-captured for the paragraph/markup case.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.44] - 2026-11-05
 
 - **`src/screens/` gains the whole Settings screen.** `settings_sections` (the Profile/Account/
