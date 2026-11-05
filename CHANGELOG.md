@@ -4,6 +4,42 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.6] - 2026-11-05
+
+- **A download button on media the phone has not sent.** Reported: "add button to request download media when the
+  phone does not download it". A photo/video whose file is not on disk used to show a dead tile with
+  "Loading the photo…"; it now shows a **download disc** and **"Tap to download the video/photo"**, and the tap
+  asks the phone for the file (`BubbleAction::Download` -> retry + `FetchMedia`). Once the file lands the bubble
+  paints it and a tap opens the viewer.
+- **Video playback no longer re-uploads or evicts the frame under the playhead** (the flicker): decode-ahead
+  raised from 6 to 12 frames, ten frames uploaded per paint instead of four, an already-cached frame is never
+  re-uploaded, and the LRU keeps 48 entries while protecting the playhead window instead of dropping it.
+- **Verified on the real session this time**, not the demo: `target/real_qc.png` was captured with
+  `WA_DESK_OPEN_CHAT="QC DIVISI"` against the account's own chats. It shows the numbered PKWT list rendering
+  one item per line (rc.97's fix confirmed on real data) and both video messages painting their poster frames.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
+## [0.2.2-rc.6] - 2026-11-05
+
+- **Albums are back.** They were implemented in the shared `wa-ui::chat` markup (the old shell rendered
+  them) and were lost when the window became egui-only: the native painter drew every photo and video
+  as its own bubble. `Model::album_span` now applies the **same rule** `wa_ui::chat::album_at` uses -
+  same side, same sender, image or video, at most four seconds between consecutive items, up to nine -
+  and `bubbles::album_bubble` paints the grid: one bubble, 2-4 tiles (two columns from three items), a
+  film badge on video tiles, one caption and one clock. Each tile opens **its own** item in the viewer,
+  or asks the phone for it when the file is not on disk. `consecutive_media_form_an_album` pins the rule.
+  Note: the two videos in the "QC DIVISI" screenshot are 61 s apart, so the official rule keeps them as
+  two bubbles - that pair is not an album.
+- **A download disc on media the phone has not sent.** A photo/video whose file is missing used to show
+  a dead tile with "Loading the photo…"; it now shows a download disc and "Tap to download the
+  photo/video", and the tap sends `FetchMedia` (`BubbleAction::Download`).
+- **Video flicker.** Decode-ahead 6 -> 12 frames, ten uploads per paint instead of four, no re-upload of
+  an already-cached frame, and the LRU keeps 48 entries while protecting the playhead's window instead
+  of evicting the frame under it.
+- **Verified on the real session** (`target/real_album.png`, `WA_DESK_OPEN_CHAT="QC DIVISI"`): the
+  numbered PKWT list renders one item per line and both video messages paint their posters.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.5] - 2026-11-05
 
 - **Channels' suggestion footer now has the live shape.** From `target/live_channels.jpg`: the

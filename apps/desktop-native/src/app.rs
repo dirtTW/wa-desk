@@ -794,6 +794,7 @@ impl WaDesk {
             | BubbleAction::Delete(id)
             | BubbleAction::Star(id)
             | BubbleAction::PlayAudio(id)
+            | BubbleAction::Download(id)
             | BubbleAction::Forward(id) => id.clone(),
             BubbleAction::React(id, _) => id.clone(),
         };
@@ -801,6 +802,14 @@ impl WaDesk {
         match action {
             BubbleAction::OpenMedia(id) => {
                 self.model.open_viewer(&id);
+            }
+            BubbleAction::Download(id) => {
+                // The official download button: clear a failed state and ask the
+                // phone for the file again.
+                self.model.retry_media(&id);
+                if self.model.request_media(&id) {
+                    self.send(Command::FetchMedia { id });
+                }
             }
             BubbleAction::Reply(_) => {
                 if let Some(message) = message {

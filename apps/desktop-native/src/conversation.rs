@@ -392,8 +392,10 @@ impl WaDesk {
                     egui::Frame::new()
                         .inner_margin(egui::Margin::symmetric(20, 0))
                         .show(ui, |ui| {
+                            let mut index = 0usize;
                             let now = self.model.now;
-                            for (index, message) in row.messages.iter().enumerate() {
+                            while index < row.messages.len() {
+                                let message = &row.messages[index];
                                 // The official client separates days with a chip.
                                 if Model::starts_new_day(&row.messages, index, now) {
                                     day_chip(
@@ -423,6 +425,28 @@ impl WaDesk {
                                 } else {
                                     None
                                 };
+                                // A burst of photos/videos from one sender paints as the official
+                                // album grid, one bubble with one caption and one clock.
+                                let span = Model::album_span(&row.messages, index);
+                                if span > 1 {
+                                    let items: Vec<&wa_types::MessageView> =
+                                        row.messages[index..index + span].iter().collect();
+                                    let tail = Model::ends_run(&row.messages, index + span - 1);
+                                    if let Some(action) = crate::bubbles::album_bubble(
+                                        ui,
+                                        &palette,
+                                        &self.model,
+                                        &items,
+                                        &mut self.textures,
+                                        &ctx,
+                                        (ui.available_width() * 0.66).max(160.0),
+                                        tail,
+                                    ) {
+                                        chosen = Some(action);
+                                    }
+                                    index += span;
+                                    continue;
+                                }
                                 if let Some(action) = bubble(
                                     ui,
                                     &palette,
@@ -439,6 +463,7 @@ impl WaDesk {
                                 ) {
                                     chosen = Some(action);
                                 }
+                                index += 1;
                             }
                             ctx.data_mut(|data| {
                                 data.insert_temp(

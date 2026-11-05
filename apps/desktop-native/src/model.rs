@@ -278,6 +278,9 @@ pub enum BubbleAction {
     Star(String),
     /// Start or stop the voice note's playback.
     PlayAudio(String),
+    /// Ask the phone for this media (the official download button on a bubble
+    /// whose file never arrived).
+    Download(String),
 }
 
 /// A followed channel and its (read-only) posts.
@@ -2658,6 +2661,42 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         true
     }
 
+    /// How many media messages at `index` were sent together as one album.
+    ///
+    /// The official client collapses a burst of photos/videos from one sender
+    /// into a single grid bubble. The rule is the one `wa_ui::chat::album_at`
+    /// uses for the HTML renderer - same side, same sender, image or video, at
+    /// most four seconds between consecutive items, up to nine of them - so the
+    /// painted window and the shared markup agree.
+    pub fn album_span(messages: &[MessageView], index: usize) -> usize {
+        let Some(first) = messages.get(index) else {
+            return 0;
+        };
+        if !matches!(first.kind.as_str(), "image" | "video") {
+            return 0;
+        }
+        let mut span = 1;
+        while span < 9 {
+            let Some(next) = messages.get(index + span) else {
+                break;
+            };
+            if !matches!(next.kind.as_str(), "image" | "video")
+                || next.from_me != first.from_me
+                || next.sender != first.sender
+                || next.timestamp
+                    - messages
+                        .get(index + span - 1)
+                        .map(|m| m.timestamp)
+                        .unwrap_or(first.timestamp)
+                    > 4_000
+            {
+                break;
+            }
+            span += 1;
+        }
+        if span == 1 { 0 } else { span }
+    }
+
     /// The poster image extracted for a video, when one has been made.
     pub fn poster_of(&self, id: &str) -> Option<String> {
         let path = crate::video::poster_path(id, std::path::Path::new(&media_dir()));
@@ -3636,6 +3675,32 @@ fn view(chat: &str, name: &str, id: &str, text: &str, ts: i64, from_me: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Consecutive photos/videos from one sender collapse into an album.
+    #[test]
+    fn consecutive_media_form_an_album() {
+        let mut model = Model::new();
+        let now = 1_770_000_000_000;
+        model.now = now;
+        let media = |id: &str, kind: &str, at: i64| {
+            let mut message = view("1@s.whatsapp.net", "Ada", id, "", at, false);
+            message.kind = kind.to_string();
+            message.sender = Some("1@s.whatsapp.net".to_string());
+            message
+        };
+        let messages = vec![
+            media("m1", "image", now),
+            media("m2", "video", now + 1_000),
+            media("m3", "image", now + 2_000),
+            view("1@s.whatsapp.net", "Ada", "t1", "hi", now + 3_000, false),
+        ];
+        for message in &messages {
+            model.apply(&UiEvent::Message(message.clone()));
+        }
+        assert_eq!(Model::album_span(&messages, 0), 3);
+        assert_eq!(Model::album_span(&messages, 1), 2);
+        assert_eq!(Model::album_span(&messages, 3), 0, "text is not media");
+    }
 
     /// The group header lists participants and ends with "You", like the live
     /// client ("Yi, You").

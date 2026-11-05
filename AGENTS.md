@@ -4,6 +4,66 @@ This file keeps the feature inventory, architecture notes, design gotchas and ro
 to live in `README.md`; the change log is its own file, [`CHANGELOG.md`](CHANGELOG.md). Build
 instructions and dependency/license information stay in `README.md`.
 
+## Current state
+
+**Version `0.2.2-rc.6`.** The rc counter runs to 99 per patch and then rolls
+(`0.2.1-rc.99` -> `0.2.2-rc.1`); `updates::tests::prereleases_compare_in_order` pins the order.
+
+**The window is `apps/desktop-native` (egui), `wa-ui` is the decision layer, `wa-core` speaks the
+protocol.** `app.rs` is **1,344 lines** - down from 2,559 - after these modules were split out:
+
+| Module | Holds |
+| --- | --- |
+| `fonts.rs` | `install_fonts`, `SYMBOL_FONTS`, the emoji / CJK / Korean fallback lists |
+| `wallpaper.rs` | `wallpaper_textile`, `paint_wallpaper` (the doodle sheet) |
+| `buttons.rs` | `pill_button`, `pill_plus_button`, `rail_button`, `fab_button`, `action_button` |
+| `icon_widgets.rs` | the `Icon` enum + Material name table, `draw_icon`, `icon_button`, `forward_checkbox` |
+| `paint.rs` | `palette_thumb`, `circular_avatar`, `sender_color`, `thumb_texture`, `prune_textures` |
+| `screens/group.rs` | `group_panel`, `group_row`, `group_media_thumbnails` |
+| `screens/meta_ai.rs` | the Meta AI pane (rail entry; no service is called) |
+
+**Surfaces compared live against `web.whatsapp.com`** (each has a `target/live_*.jpg` beside ours):
+the chat-list filter row, the Calls drawer, group info, Settings, the empty conversation pane, chat
+rows (pin / muted badges), Status, Channels, Communities, Media, the You drawer, and the Meta AI rail
+entry. Everything else is still our own `--preview` capture only.
+
+**Media path (current).** `video::prepare` pre-extracts frames with ffmpeg (10 fps, <=640 px, first
+120 s) plus `audio.wav`; `frames::Prefetch` decodes 12 frames ahead on a worker and the viewer uploads
+ten per paint, never re-uploading a cached frame and protecting the playhead's window in a 48-entry
+LRU. `request_media` retries a `Loading` entry after 15 s (a reply that never arrives used to leave a
+bubble on its inline thumbnail for the whole session). Photo/video bubbles whose file is **not** on
+disk show a **download disc** ("Tap to download the photo/video") which sends `FetchMedia`; a
+downloaded bubble opens the viewer on tap.
+
+**Media problems are logged without a flag.** `app::note` appends media failures and fetches slower
+than 2 s to `diagnostics.log`; `app::diag` (behind `WA_DESK_DIAG=1`) logs everything else. A cold-cache
+run of the real account fetched 24 files in 18-647 ms (median 96 ms).
+
+**View-once.** A `<unavailable type="view_once">` fanout paints a 74 px placeholder (circled `1`,
+"Photo", and Tap to open / Opened / Open this on your phone / **View once** for our own bubble).
+`Model::open_viewer` consumes it in `view_once_open`, so it never reopens. The body only exists when a
+reply quote recovered it.
+
+**Known open items**
+
+1. **Albums** are implemented: `Model::album_span` (same rule as `wa_ui::chat::album_at`) and
+   `bubbles::album_bubble` paint a burst as one grid bubble, each tile opening its own item. They were
+   lost in the JS -> egui move because only the shared markup had them; a pair more than 4 s apart
+   stays two bubbles, which is the official rule.
+2. **Captures that need the user**, because WhatsApp Web ignores synthetic clicks on them: the media
+   viewer, the sticker panel, a view-once message on live data, and the call overlay.
+3. **Protocol-limited, read-only by design**: linked devices / 2FA / block list, and Channels'
+   "Find channels to follow" rows (the directory is not reachable from a linked device).
+4. **Meta AI** has an entry point and an honest pane only; no Meta service is called. This client's own
+   assistant is the one that answers.
+
+**Verification habit that matters here.** Several fixes in this project shipped before they were
+checked and had to be redone (a Settings panic, the camera badge, the media probe, the poster wiring,
+three module splits). Run `cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` (132 native + 43 wa-core + 232 wa-ui) and take the `--preview` capture
+**before** claiming a change, and prefer a real-session capture (`WA_DESK_OPEN_CHAT="<chat>"` plus
+`--screenshot`) over the demo model when the change touches media or list rendering.
+
 ## Change log
 
 See [`CHANGELOG.md`](CHANGELOG.md) — newest first, one entry per feature or

@@ -14,7 +14,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 /// How far ahead of the playhead frames are kept decoded. Six frames is 0.2 s
 /// at 30 fps - enough to ride out a slow disk without holding ~100 MB of RGBA
 /// for a long clip.
-const AHEAD: usize = 6;
+const AHEAD: usize = 12;
 
 /// A running worker for one clip.
 pub struct Prefetch {

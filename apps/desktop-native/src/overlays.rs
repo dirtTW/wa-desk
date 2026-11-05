@@ -941,9 +941,12 @@ impl WaDesk {
         }
         if let Some((_, worker)) = &self.video_prefetch {
             worker.seek(index);
-            let ready = worker.drain(4);
+            let ready = worker.drain(10);
             for (number, image) in ready {
                 let key = format!("{dir_key}#{number}");
+                if self.video_textures.contains_key(&key) {
+                    continue;
+                }
                 let texture = ctx.load_texture(key.clone(), image, egui::TextureOptions::LINEAR);
                 self.video_textures.insert(key.clone(), Some(texture));
                 self.video_order.push_back(key);
@@ -951,10 +954,24 @@ impl WaDesk {
         }
         // 18 frames at 640 px is ~0.6 s of look-ahead in video memory; the LRU
         // drops the frames behind the playhead as they are passed.
-        while self.video_order.len() > 18 {
-            if let Some(old) = self.video_order.pop_front() {
-                self.video_textures.remove(&old);
+        // Keep a generous window and never drop the playhead's own frames: an
+        // evicted current frame is what made the picture blink back to the one
+        // behind it.
+        let keep = |number: usize| number + 1 >= index.saturating_sub(3) && number <= index + 24;
+        while self.video_order.len() > 48 {
+            let Some(old) = self.video_order.pop_front() else {
+                break;
+            };
+            let protected = old
+                .rsplit('#')
+                .next()
+                .and_then(|tail| tail.parse::<usize>().ok())
+                .is_some_and(keep);
+            if protected {
+                self.video_order.push_back(old);
+                continue;
             }
+            self.video_textures.remove(&old);
         }
 
         // The frame itself, otherwise the nearest one behind it.

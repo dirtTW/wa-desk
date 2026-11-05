@@ -244,6 +244,174 @@ pub(crate) fn bubble(
     .inner
 }
 
+/// A burst of photos/videos from one sender as the official album: one bubble,
+/// a grid of tiles, one caption and one clock. Each tile opens its own item in
+/// the viewer.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn album_bubble(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    model: &Model,
+    messages: &[&MessageView],
+    textures: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    ctx: &egui::Context,
+    max_width: f32,
+    tail: bool,
+) -> Option<BubbleAction> {
+    let first = messages.first()?;
+    let from_me = first.from_me;
+    let align = if from_me {
+        egui::Align::Max
+    } else {
+        egui::Align::Min
+    };
+    let mut action: Option<BubbleAction> = None;
+    ui.with_layout(egui::Layout::top_down(align), |ui| {
+        ui.set_max_width(max_width);
+        let inner = max_width.min(264.0);
+        let gap = 2.0;
+        let columns = if messages.len() >= 3 {
+            2
+        } else {
+            messages.len().max(1)
+        };
+        let cell = ((inner - gap * (columns as f32 - 1.0)) / columns as f32).max(60.0);
+        let rows = messages.len().div_ceil(columns);
+        let grid_h = cell * rows as f32 + gap * (rows.saturating_sub(1) as f32);
+        let caption = messages
+            .iter()
+            .map(|m| clean_text(m.text.trim()))
+            .find(|text| !text.is_empty())
+            .unwrap_or_default();
+        let stamp = messages
+            .last()
+            .map(|m| model.bubble_stamp(m))
+            .unwrap_or_default();
+        let caption_galley = (!caption.is_empty()).then(|| {
+            ui.painter().layout(
+                caption.clone(),
+                egui::FontId::proportional(14.0),
+                palette.text,
+                (inner - 18.0).max(80.0),
+            )
+        });
+        let pad = 3.0;
+        let clock_h = 16.0;
+        let mut height = pad + grid_h + clock_h;
+        if let Some(galley) = &caption_galley {
+            height += galley.size().y + 6.0;
+        }
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(inner, height), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius {
+                nw: 7,
+                ne: 7,
+                sw: if tail && !from_me { 0 } else { 7 },
+                se: if tail && from_me { 0 } else { 7 },
+            },
+            if from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            },
+        );
+        for (index, message) in messages.iter().enumerate() {
+            let column = index % columns;
+            let row = index / columns;
+            let tile = egui::Rect::from_min_size(
+                egui::pos2(
+                    rect.left() + pad + column as f32 * (cell + gap),
+                    rect.top() + pad + row as f32 * (cell + gap),
+                ),
+                egui::vec2(cell, cell),
+            );
+            let texture = texture_at(
+                ctx,
+                textures,
+                &message.id,
+                if message.kind == "video" {
+                    model.poster_of(&message.id)
+                } else {
+                    model.media_path(&message.id)
+                },
+                PHOTO_PX,
+            );
+            ui.painter()
+                .rect_filled(tile, egui::CornerRadius::same(4), palette.hover);
+            if let Some(texture) = texture {
+                let size = texture.size_vec2();
+                let scale = (tile.width() / size.x.max(1.0)).max(tile.height() / size.y.max(1.0));
+                let drawn = egui::Rect::from_center_size(tile.center(), size * scale);
+                ui.painter().with_clip_rect(tile).image(
+                    texture.id(),
+                    drawn,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            } else {
+                draw_icon(
+                    ui,
+                    egui::Rect::from_center_size(tile.center(), egui::vec2(22.0, 22.0)),
+                    if message.kind == "video" {
+                        Icon::Play
+                    } else {
+                        Icon::Download
+                    },
+                    palette.secondary,
+                );
+            }
+            if message.kind == "video" {
+                let badge = egui::Rect::from_min_size(
+                    egui::pos2(tile.left() + 3.0, tile.top() + 3.0),
+                    egui::vec2(15.0, 12.0),
+                );
+                ui.painter().rect_filled(
+                    badge,
+                    egui::CornerRadius::same(3),
+                    egui::Color32::from_black_alpha(140),
+                );
+                draw_icon(
+                    ui,
+                    badge.shrink(2.0),
+                    Icon::Play,
+                    egui::Color32::from_gray(235),
+                );
+            }
+            let response = ui.interact(
+                tile,
+                ui.id().with(("album", &message.id)),
+                egui::Sense::click(),
+            );
+            if response.clicked() {
+                action = Some(if model.media_path(&message.id).is_some() {
+                    BubbleAction::OpenMedia(message.id.clone())
+                } else {
+                    BubbleAction::Download(message.id.clone())
+                });
+            }
+            context_menu(&response, palette, model, message, &mut action);
+        }
+        let y = rect.top() + pad + grid_h + 3.0;
+        if let Some(galley) = &caption_galley {
+            ui.painter().galley(
+                egui::pos2(rect.left() + 9.0, y),
+                galley.clone(),
+                palette.text,
+            );
+        }
+        ui.painter().text(
+            egui::pos2(rect.right() - 9.0, rect.bottom() - 5.0),
+            egui::Align2::RIGHT_BOTTOM,
+            stamp,
+            egui::FontId::proportional(11.0),
+            palette.secondary,
+        );
+        ui.add_space(if tail { 14.0 } else { 8.0 });
+    });
+    action
+}
+
 #[allow(clippy::too_many_arguments)]
 fn bubble_content(
     ui: &mut egui::Ui,
@@ -359,7 +527,7 @@ fn bubble_content(
                 palette.secondary,
             );
             if playable && response.clicked() {
-                action = Some(BubbleAction::OpenMedia(message.id.clone()));
+                action = Some(BubbleAction::Download(message.id.clone()));
             }
             context_menu(&response, palette, model, message, &mut action);
             pills_row(ui, palette, model, message, rect);
@@ -482,18 +650,19 @@ fn bubble_content(
                         );
                 }
                 None => {
-                    // A play disc for a video, a picture glyph for a photo.
+                    // The official download disc: the file lives on the phone,
+                    // so the bubble asks for it instead of showing a dead tile.
                     let disc = egui::Rect::from_center_size(tile.center(), egui::vec2(46.0, 46.0));
-                    painter.circle_filled(disc.center(), 23.0, egui::Color32::from_black_alpha(90));
+                    painter.circle_filled(
+                        disc.center(),
+                        23.0,
+                        egui::Color32::from_black_alpha(110),
+                    );
                     draw_icon(
                         ui,
                         disc.shrink(12.0),
-                        if message.kind == "video" {
-                            Icon::Play
-                        } else {
-                            Icon::Document
-                        },
-                        egui::Color32::from_gray(235),
+                        Icon::Download,
+                        egui::Color32::from_gray(245),
                     );
                     let kind_label = if message.kind == "video" {
                         "video"
@@ -504,7 +673,7 @@ fn bubble_content(
                         Some(err) => {
                             format!("Couldn't load the {kind_label} - tap to retry ({err})")
                         }
-                        None => format!("Loading the {kind_label}…"),
+                        None => format!("Tap to download the {kind_label}"),
                     };
                     painter.text(
                         egui::pos2(tile.center().x, tile.bottom() - 12.0),
