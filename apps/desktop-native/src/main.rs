@@ -27,6 +27,7 @@ mod conversation;
 mod dialogs;
 mod echo;
 mod emoji_glyph;
+mod fonts;
 mod frames;
 mod gate;
 mod gif;
@@ -52,6 +53,7 @@ mod tray;
 mod updates;
 mod video;
 mod voicenote;
+mod wallpaper;
 mod webp_anim;
 mod widgets;
 

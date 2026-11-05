@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.87] - 2026-11-05
+
+- **Media viewer details, from the recorded tokens.** The caption now sits in a translucent rounded box
+  (`rgba(32,44,51,235)`, 7 px corner, 13.5 px text) instead of loose grey text; the **"1 of 2"** counter
+  is gone - it was ours only, the arrows and the strip carry the position; and the selected filmstrip
+  thumbnail is a step larger (66 px vs 58) with the accent ring, so the open item reads at a glance.
+  Evidence: `target/our_viewer_photo.png`.
+- **`app.rs` split again.** The type stack moved to `fonts.rs` (`install_fonts`, the Latin/emoji/CJK
+  candidates and `SYMBOL_FONTS`) and the doodle wallpaper to `wallpaper.rs` (`wallpaper_textile`,
+  `paint_wallpaper`); `app.rs` re-exports both names so no call site changed. The window file is now
+  **2,410 lines** (from ~2,560), and the two helpers are 98 and 103 lines in their own modules with
+  their own doc comments.
+- Verification: `target/our_split_check.png` (the wallpaper still tiles, the chat list, participant
+  header and view-once bubbles all render), clippy `-D warnings`, 131 native + 43 wa-core + 232 wa-ui.
+- Messages are unchanged: this is layout only.
+
 ## [0.2.1-rc.86] - 2026-11-05
 
 - **The media viewer's still-image path is verifiable now.** Only the video path had ever been captured

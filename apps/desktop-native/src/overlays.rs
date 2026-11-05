@@ -475,35 +475,40 @@ impl WaDesk {
                     );
                 }
 
-                // ---- caption, counter and the filmstrip -------------------
-                let caption_y = stage.bottom() + 2.0;
+                // ---- caption and the filmstrip -----------------------------
+                // The caption sits in a translucent box, the way the official
+                // viewer shows it; there is no "1 of 2" counter (that was ours
+                // only - the arrows and the strip carry the position).
                 if !description.trim().is_empty() {
-                    painter.text(
-                        egui::pos2(media_rect.left(), caption_y),
-                        egui::Align2::LEFT_TOP,
-                        fit_text(
-                            &painter,
-                            &description,
-                            egui::FontId::proportional(13.0),
-                            egui::Color32::from_gray(200),
-                            media_rect.width(),
-                        ),
-                        egui::FontId::proportional(13.0),
-                        egui::Color32::from_gray(200),
+                    let caption_font = egui::FontId::proportional(13.5);
+                    let shown = fit_text(
+                        &painter,
+                        &description,
+                        caption_font.clone(),
+                        egui::Color32::from_gray(226),
+                        (media_rect.width() - 24.0).max(120.0),
+                    );
+                    let galley =
+                        painter.layout_no_wrap(shown, caption_font, egui::Color32::from_gray(226));
+                    let box_rect = egui::Rect::from_min_size(
+                        egui::pos2(media_rect.left(), stage.bottom() + 2.0),
+                        galley.size() + egui::vec2(20.0, 12.0),
+                    );
+                    painter.rect_filled(
+                        box_rect,
+                        egui::CornerRadius::same(7),
+                        egui::Color32::from_rgba_unmultiplied(32, 44, 51, 235),
+                    );
+                    painter.galley(
+                        box_rect.min + egui::vec2(10.0, 6.0),
+                        galley,
+                        egui::Color32::from_gray(226),
                     );
                 }
-                let counter = format!("{} of {}", selected + 1, items_len.max(1));
-                let counter_y = screen.bottom() - strip - counter_row + 2.0;
-                painter.text(
-                    egui::pos2(screen.center().x, counter_y),
-                    egui::Align2::CENTER_TOP,
-                    counter,
-                    egui::FontId::proportional(12.5),
-                    egui::Color32::from_gray(180),
-                );
 
                 // The strip: 64 px rounded thumbnails, the open one ringed green.
                 let thumb_side = 58.0;
+                let selected_side = 66.0;
                 let gap = 4.0;
                 let total = items_len as f32 * (thumb_side + gap) - gap;
                 let mut thumb_x = (screen.center().x - total / 2.0)
@@ -511,15 +516,20 @@ impl WaDesk {
                     .min(screen.right() - total - 8.0);
                 let thumb_y = screen.bottom() - strip + 6.0;
                 for (position, (id, thumb)) in thumbs.iter().enumerate() {
+                    let side = if position == selected {
+                        selected_side
+                    } else {
+                        thumb_side
+                    };
                     let rect = egui::Rect::from_min_size(
-                        egui::pos2(thumb_x, thumb_y),
-                        egui::vec2(thumb_side, 62.0),
+                        egui::pos2(thumb_x, thumb_y - (side - 62.0) / 2.0),
+                        egui::vec2(side, side),
                     );
-                    thumb_x += thumb_side + gap;
+                    thumb_x += side + gap;
                     match thumb {
                         Some(texture) => {
                             let size = texture.size_vec2();
-                            let scale = (thumb_side / size.x).min(62.0 / size.y);
+                            let scale = (side / size.x).min(side / size.y);
                             let fitted = egui::Rect::from_center_size(rect.center(), size * scale);
                             painter.image(
                                 texture.id(),
