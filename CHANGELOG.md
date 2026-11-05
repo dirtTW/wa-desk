@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.43] - 2026-11-05
+
+- **`src/screens/` gains the Status screen.** `status_panel` (the list with "My status", the Recent
+  and Viewed sections and the 24-hour rings, plus the 320 px "Share statuses" pane with its Text /
+  Photo-and-video tiles), `status_viewer` (segmented progress bar, author over timestamp, the body,
+  the reply/react/delete row) and `status_row` now live in `screens/status.rs` (435 lines).
+  `status_as_message` (the adapter the viewer uses for the clock) is crate-visible.
+- `app.rs` is down to **8,208 lines**, from 8,634 after the Channels/Communities move and 10,069
+  before this run of extractions. `src/screens/` now holds calls, channels, communities and status;
+  only the settings pages and the conversation chrome remain in `app.rs`.
+- Verified after the move: `target/our_status.png` (`WA_DESK_SCREEN=status`: "You / Click to add
+  status update", Recent/Viewed with green and grey rings, the share pane) and
+  `target/our_status_viewer.png` (`WA_DESK_STATUS_VIEWER=1`: "Ada" over "8:02 am", segments, body).
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.42] - 2026-11-05
 
 - **`src/screens/` gains the Channels and Communities screens.** `channels_panel` (the header, the
