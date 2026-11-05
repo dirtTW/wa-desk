@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.96] - 2026-11-05
+
+- **The last two Communities deltas are closed.** From the live sample
+  (`target/live_communities.jpg`): the announcement group carries the **crossed bell** and the group list
+  is capped with a green **View all** link under it. Ours now paints `notifications_off` left of the
+  announcement row's time, shows at most four groups and offers **View all** (which expands the list)
+  when the community has more.
+- `WA_DESK_COMM_MANY=1` seeds a community with seven groups so that link can be captured:
+  `target/our_communities_viewall.png` shows the four-row cap and the green link beneath it.
+- **Meta AI entry point, honestly labelled.** The empty conversation pane's **Ask Meta AI** disc and the
+  Settings row already point at this client's own assistant; the disc reports that Meta AI needs its own
+  service rather than pretending to be it. No Meta account or API exists to drive a real Meta AI here,
+  so the row stays "no local equivalent" in `docs/PARITY.md` with that entry point recorded.
+- Evidence: `target/our_communities.png`, `target/our_communities_viewall.png` beside
+  `target/live_communities.jpg`.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.95] - 2026-11-05
 
 - **Communities compared against the live drawer and rebuilt in its shape.** Live sample

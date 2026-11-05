@@ -1044,6 +1044,29 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         model.apply(&UiEvent::Message(opened));
         model.mark_view_once_opened("vo2");
 
+        // `WA_DESK_COMM_MANY=1`: a community with more than four groups, so the
+        // drawer's "View all" link can be captured.
+        if std::env::var("WA_DESK_COMM_MANY").is_ok() {
+            for index in 0..5 {
+                let jid = format!("13{index}@g.us");
+                let mut message = view(
+                    &jid,
+                    "Community group",
+                    &format!("c{index}"),
+                    "a group post",
+                    now - 600_000 - index,
+                    false,
+                );
+                message.sender = Some("1@s.whatsapp.net".to_string());
+                message.sender_name = Some("Ada".to_string());
+                model.apply(&UiEvent::Message(message));
+                if let Some(row) = model.chats.get_mut(&jid) {
+                    row.name = format!("Community group {}", index + 1);
+                    row.parent = Some("1200@g.us".to_string());
+                }
+            }
+        }
+
         // One pinned and one muted chat, so the row badges show in `--preview`
         // the way the live list marks them.
         if let Some(row) = model.chats.get_mut("1@s.whatsapp.net") {

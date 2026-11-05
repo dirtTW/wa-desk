@@ -73,6 +73,8 @@ pub struct WaDesk {
     pub(crate) calls_query: String,
     /// The Channels drawer's search query.
     pub(crate) channels_query: String,
+    /// The Communities drawer shows every group, not the first four.
+    pub(crate) communities_all: bool,
     /// The Communities screen, and the community opened in it.
     pub(crate) show_communities: bool,
     /// The Media screen (the official Media/Docs/Links panel).

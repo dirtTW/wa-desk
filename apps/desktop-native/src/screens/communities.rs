@@ -1,6 +1,6 @@
 //! Full-window screens split out of `app.rs`.
 
-use crate::app::{Icon, WaDesk, icon_button};
+use crate::app::{Icon, WaDesk, draw_icon, icon_button};
 use crate::model::Command;
 use crate::widgets::{avatar_color, fit_text, initials, status_share_tile};
 
@@ -216,7 +216,12 @@ impl WaDesk {
                             // The selected community opens its groups below it.
                             if selected {
                                 ui.add_space(2.0);
-                                for child in children {
+                                let shown: Vec<&crate::model::ChatRow> = if self.communities_all {
+                                    children.iter().collect()
+                                } else {
+                                    children.iter().take(4).collect()
+                                };
+                                for child in shown {
                                     let (row, hit) = ui.allocate_exact_size(
                                         egui::vec2(ui.available_width(), 56.0),
                                         egui::Sense::click(),
@@ -308,12 +313,44 @@ impl WaDesk {
                                             palette.secondary,
                                         );
                                     }
+                                    // The live row marks the announcement
+                                    // group with the crossed bell.
+                                    if child.announce {
+                                        draw_icon(
+                                            ui,
+                                            egui::Rect::from_center_size(
+                                                egui::pos2(row.right() - 74.0, row.center().y),
+                                                egui::vec2(13.0, 13.0),
+                                            ),
+                                            Icon::BellOff,
+                                            palette.secondary,
+                                        );
+                                    }
                                     if hit.clicked() {
                                         let jid = child.jid.clone();
                                         self.show_communities = false;
                                         self.model.open_chat(&jid);
                                     }
                                 }
+                            }
+                            if !self.communities_all && children.len() > 4 {
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(46.0);
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new("View all")
+                                                    .size(13.0)
+                                                    .color(palette.accent),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.communities_all = true;
+                                    }
+                                });
                             }
                         }
                     });
