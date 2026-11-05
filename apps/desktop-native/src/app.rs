@@ -79,6 +79,10 @@ pub struct WaDesk {
     pub(crate) viewer_zoom: f32,
     /// The viewer shows the caption and filmstrip (the chevron hides them).
     pub(crate) viewer_details: bool,
+    /// Toasts waiting to be posted, keyed by chat: (title, latest body, count,
+    /// first arrival). A burst becomes one toast instead of one per message.
+    pub(crate) notify_pending:
+        std::collections::HashMap<String, (String, String, usize, std::time::Instant)>,
     /// The Meta AI pane is open (the rail entry; no Meta AI service exists that
     /// a linked device can call, so the pane explains that).
     pub(crate) show_meta_ai: bool,

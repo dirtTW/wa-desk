@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.16] - 2026-11-05
+
+- **Opening a video could freeze the window.** The frame-texture sweep pushed every "protected" key
+  (the playhead's own window) back onto the queue while it was still over the cap - an endless loop on
+  the UI thread, which reads as a crash the moment a video opens. The sweep is bounded to one pass now;
+  anything still over the cap simply re-decodes on a later frame.
+- **Notifications are batched.** A chat that sent several lines in a row fired one Windows toast per
+  message, and the toasts queued behind each other, so they arrived late. `notify_message` queues per
+  chat and `flush_notifications` posts a single toast after 700 ms of quiet, reading
+  `3 messages · <latest line>` when it merged several. The existing gates (notifications off, status,
+  newsletters, the open chat, focused window) are unchanged.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.15] - 2026-11-05
 
 - **A saved contact arriving from a LID no longer keeps its `~`.** Reported on "Test group" with

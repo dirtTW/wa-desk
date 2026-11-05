@@ -1059,7 +1059,12 @@ impl WaDesk {
         // evicted current frame is what made the picture blink back to the one
         // behind it.
         let keep = |number: usize| number + 1 >= index.saturating_sub(3) && number <= index + 24;
-        while self.video_order.len() > 48 {
+        // Bounded sweep: pushing a protected key back used to be an endless loop
+        // when every remaining entry was protected (opening a video froze the
+        // window). One pass is enough - anything still over the cap re-decodes.
+        let mut budget = self.video_order.len();
+        while self.video_order.len() > 48 && budget > 0 {
+            budget -= 1;
             let Some(old) = self.video_order.pop_front() else {
                 break;
             };
@@ -1069,7 +1074,6 @@ impl WaDesk {
                 .and_then(|tail| tail.parse::<usize>().ok())
                 .is_some_and(keep);
             if protected {
-                self.video_order.push_back(old);
                 continue;
             }
             self.video_textures.remove(&old);

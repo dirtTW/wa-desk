@@ -246,8 +246,44 @@ impl WaDesk {
         } else {
             name.to_string()
         };
-        if let Err(err) = crate::notify::send(&title, &body) {
-            diag(&format!("notification: {err}"));
+        // Queue, do not post: a chat that sends five lines in two seconds used to
+        // fire five Windows toasts. `flush_notifications` posts one per chat.
+        match self.notify_pending.get_mut(chat) {
+            Some((queued_title, queued_body, count, _)) => {
+                *queued_title = title;
+                *queued_body = body;
+                *count += 1;
+            }
+            None => {
+                self.notify_pending.insert(
+                    chat.to_string(),
+                    (title, body, 1, std::time::Instant::now()),
+                );
+            }
+        }
+    }
+
+    /// Post one toast per chat after a short quiet period, so a burst reads as
+    /// "Ada · 3 messages" instead of three separate toasts.
+    pub(crate) fn flush_notifications(&mut self) {
+        let now = std::time::Instant::now();
+        let ready: Vec<String> = self
+            .notify_pending
+            .iter()
+            .filter(|(_, (_, _, _, first))| now.duration_since(*first).as_millis() >= 700)
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in ready {
+            if let Some((title, body, count, _)) = self.notify_pending.remove(&chat) {
+                let body = if count > 1 {
+                    format!("{count} messages · {body}")
+                } else {
+                    body
+                };
+                if let Err(err) = crate::notify::send(&title, &body) {
+                    diag(&format!("notification: {err}"));
+                }
+            }
         }
     }
 

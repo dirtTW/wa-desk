@@ -132,6 +132,7 @@ impl WaDesk {
             video_muted: false,
             video_speed: 1.0,
             scroll_target: None,
+            notify_pending: std::collections::HashMap::new(),
             suppress_bottom: false,
             groups_asked: std::collections::HashSet::new(),
             show_chat_menu: std::env::var("WA_DESK_MENU").is_ok(),
@@ -198,6 +199,7 @@ impl eframe::App for WaDesk {
         // Texture caches are capped so memory does not grow with a long session.
         prune_textures(ctx, &mut self.textures, 96);
         prune_textures(ctx, &mut self.sticker_textures, 240);
+        self.flush_notifications();
         if let Some(recording) = self.voice.as_mut() {
             recording.pump();
         }
