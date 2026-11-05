@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.94] - 2026-11-05
+
+- **Channels finished against the live drawer.** The screen is now a **420 px left drawer** (header
+  "Channels" + circle-plus, a Search field, the followed-channel rows at 72 px with the name and the
+  follower line) beside a **right pane**: the open `@newsletter` channel's posts read-only, or the live
+  centred empty state - channel glyph, "Discover channels", the body line and the two round discs
+  (**Create channel**, **Explore channels**). The suggestions section keeps the live heading with an
+  honest note and the **Discover more** footer, because the directory itself is not reachable from a
+  linked device.
+- One bug caught by the capture: the right pane was showing the demo **group's** messages, because it
+  trusted `model.active` blindly; it now only opens the post pane for a `@newsletter` JID.
+- Evidence: `target/our_channels.png` beside `target/live_channels.jpg`.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.93] - 2026-11-05
 
 - **Channels compared against the live drawer, partially matched.** Live sample

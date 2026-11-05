@@ -1,31 +1,35 @@
-//! Full-window screens split out of `app.rs`.
+//! The Channels drawer: "Channels" + circle-plus header, a Search field, the
+//! followed-channel rows, the "Find channels to follow" section and a "Discover
+//! more" footer. The right pane shows the open channel's posts read-only, or the
+//! centred "Discover channels" empty state.
+//!
+//! Sampled from web.whatsapp.com on 2026-11-05 (`target/live_channels.jpg`).
 
-use crate::app::{Icon, WaDesk, icon_button};
-use crate::widgets::{fit_text, paint_avatar, status_share_tile};
+use crate::app::{Icon, WaDesk, draw_icon, icon_button};
+use crate::widgets::{fit_text, paint_avatar};
 
 impl WaDesk {
-    /// The Channels screen.
     pub(crate) fn channels_panel(&mut self, ctx: &egui::Context) {
         let palette = self.palette.clone();
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(palette.panel))
+        let rows = self.model.channel_rows();
+
+        // ---- the drawer, in the chat list's column -------------------------
+        egui::SidePanel::left("channels")
+            .resizable(true)
+            .default_width(420.0)
+            .width_range(320.0..=560.0)
+            .frame(egui::Frame::new().fill(palette.elevated))
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(palette.elevated)
-                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .inner_margin(egui::Margin::symmetric(12, 10))
                     .show(ui, |ui| {
-                        ui.set_min_height(40.0);
+                        ui.set_min_height(44.0);
                         ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new("Channels")
-                                    .size(20.0)
-                                    .color(palette.text),
-                            );
+                            ui.label(egui::RichText::new("Channels").size(26.0).strong());
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    // The live drawer's only header control is
-                                    // the circle-plus that creates a channel.
+                                    // The live drawer's only header control.
                                     if icon_button(ui, Icon::Add, &palette)
                                         .on_hover_text("Create channel")
                                         .clicked()
@@ -40,12 +44,11 @@ impl WaDesk {
                         });
                     });
 
-                // The live drawer's search field.
-                ui.add_space(8.0);
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.add_space(12.0);
+                    ui.add_space(10.0);
                     egui::Frame::new()
-                        .fill(palette.elevated)
+                        .fill(palette.panel)
                         .corner_radius(egui::CornerRadius::same(9))
                         .inner_margin(egui::Margin::symmetric(10, 5))
                         .show(ui, |ui| {
@@ -54,7 +57,7 @@ impl WaDesk {
                                     egui::vec2(15.0, 15.0),
                                     egui::Sense::hover(),
                                 );
-                                crate::app::draw_icon(ui, rect, Icon::Search, palette.secondary);
+                                draw_icon(ui, rect, Icon::Search, palette.secondary);
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.channels_query)
                                         .frame(false)
@@ -63,87 +66,26 @@ impl WaDesk {
                                 );
                             });
                         });
-                    ui.add_space(12.0);
+                    ui.add_space(10.0);
                 });
+                ui.add_space(4.0);
 
-                // "Discover channels" - the official empty-state copy.
-                ui.add_space(14.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(20.0);
-                    ui.vertical(|ui| {
-                        ui.label(
-                            egui::RichText::new("Discover channels")
-                                .size(17.0)
-                                .strong()
-                                .color(palette.text),
-                        );
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(
-                                "Entertainment, sports, news, lifestyle, people and more. \
-                                 Follow the channels that interest you.",
-                            )
-                            .size(13.0)
-                            .color(palette.secondary),
-                        );
-                        ui.add_space(10.0);
-                        ui.horizontal(|ui| {
-                            if status_share_tile(ui, &palette, Icon::Add, "Create channel") {
-                                self.notice = Some((
-                                    "Creating channels needs the phone".to_string(),
-                                    std::time::Instant::now(),
-                                ));
-                            }
-                            if status_share_tile(ui, &palette, Icon::Search, "Explore channels") {
-                                self.notice = Some((
-                                    "Browsing the channel directory is not in this build"
-                                        .to_string(),
-                                    std::time::Instant::now(),
-                                ));
-                            }
-                        });
-                    });
-                });
-
-                let rows = self.model.channel_rows();
-                if rows.is_empty() {
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(20.0);
-                        ui.label(
-                            egui::RichText::new("Find channels to follow")
-                                .size(12.5)
-                                .strong()
-                                .color(palette.secondary),
-                        );
-                    });
-                    ui.add_space(26.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(
-                            egui::RichText::new("No followed channels yet")
-                                .size(13.5)
-                                .color(palette.secondary),
-                        );
-                    });
-                    return;
-                }
-
-                ui.add_space(16.0);
-                ui.horizontal_top(|ui| {
-                    // The channel rail.
-                    ui.vertical(|ui| {
-                        ui.add_space(4.0);
-                        ui.set_width(240.0);
+                let needle = self.channels_query.trim().to_lowercase();
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
                         for (row, followers) in &rows {
+                            if !needle.is_empty() && !row.name.to_lowercase().contains(&needle) {
+                                continue;
+                            }
                             let selected = self.model.active.as_deref() == Some(row.jid.as_str());
-                            let card = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), 64.0),
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 72.0),
                                 egui::Sense::click(),
                             );
-                            let (rect, response) = card;
                             if selected || response.hovered() {
                                 ui.painter().rect_filled(
-                                    rect.shrink2(egui::vec2(8.0, 0.0)),
+                                    rect.shrink2(egui::vec2(6.0, 0.0)),
                                     egui::CornerRadius::same(12),
                                     if selected {
                                         palette.selected
@@ -152,65 +94,140 @@ impl WaDesk {
                                     },
                                 );
                             }
-                            paint_avatar(ui, &row.name, 40.0, None);
+                            let center = egui::pos2(rect.left() + 40.0, rect.center().y);
+                            paint_avatar(ui, &row.name, 48.0, None);
                             ui.painter().text(
-                                egui::pos2(rect.left() + 58.0, rect.center().y - 8.0),
+                                egui::pos2(rect.left() + 74.0, rect.top() + 26.0),
                                 egui::Align2::LEFT_CENTER,
                                 fit_text(
                                     ui.painter(),
                                     &row.name,
-                                    egui::FontId::proportional(14.5),
+                                    egui::FontId::proportional(15.5),
                                     palette.text,
-                                    rect.width() - 70.0,
+                                    rect.width() - 90.0,
                                 ),
-                                egui::FontId::proportional(14.5),
+                                egui::FontId::proportional(15.5),
                                 palette.text,
                             );
                             ui.painter().text(
-                                egui::pos2(rect.left() + 58.0, rect.center().y + 10.0),
+                                egui::pos2(rect.left() + 74.0, rect.top() + 47.0),
                                 egui::Align2::LEFT_CENTER,
                                 followers.clone(),
                                 egui::FontId::proportional(12.5),
                                 palette.secondary,
                             );
+                            let _ = center;
                             if response.clicked() {
                                 self.model.active = Some(row.jid.clone());
                             }
-                            ui.add_space(2.0);
                         }
-                    });
-                    ui.separator();
 
-                    // Posts, read-only: no composer for a channel.
-                    ui.vertical(|ui| {
-                        let Some(jid) = self.model.active.clone() else {
-                            ui.add_space(20.0);
+                        if rows.is_empty() {
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
+                                ui.add_space(14.0);
+                                ui.label(
+                                    egui::RichText::new("No followed channels yet")
+                                        .size(13.0)
+                                        .color(palette.secondary),
+                                );
+                            });
+                        }
+
+                        // The live drawer's suggestion section. The directory
+                        // itself is not reachable from a linked device, so the
+                        // heading and its "Discover more" footer say where the
+                        // real list comes from instead of faking rows.
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(14.0);
                             ui.label(
-                                egui::RichText::new("Pick a channel")
-                                    .size(13.0)
+                                egui::RichText::new("Find channels to follow")
+                                    .size(12.5)
+                                    .strong()
                                     .color(palette.secondary),
                             );
-                            return;
-                        };
-                        let posts = self.model.channel_posts(&jid);
-                        egui::ScrollArea::vertical()
-                            .stick_to_bottom(true)
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                for post in &posts {
-                                    let header = format!(
-                                        "{}  \u{00b7}  {}",
-                                        self.model.title(
-                                            &self
-                                                .model
-                                                .chats
-                                                .get(&jid)
-                                                .cloned()
-                                                .unwrap_or_default()
-                                        ),
-                                        self.model.bubble_stamp(post)
+                        });
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(14.0);
+                            ui.label(
+                                egui::RichText::new(
+                                    "Follow channels on the phone; they show up here.",
+                                )
+                                .size(12.5)
+                                .color(palette.secondary),
+                            );
+                        });
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(14.0);
+                            let (grid, _) = ui
+                                .allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                            draw_icon(ui, grid, Icon::Groups, palette.accent);
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Discover more")
+                                            .size(13.0)
+                                            .color(palette.accent),
+                                    )
+                                    .frame(false),
+                                )
+                                .clicked()
+                            {
+                                self.notice = Some((
+                                    "The channel directory lives on the phone".to_string(),
+                                    std::time::Instant::now(),
+                                ));
+                            }
+                        });
+                    });
+            });
+
+        // ---- the right pane -------------------------------------------------
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                // Only a channel JID belongs here: `active` may still point at
+                // the chat the user was reading (the demo group, for instance).
+                let Some(jid) = self
+                    .model
+                    .active
+                    .clone()
+                    .filter(|jid| jid.ends_with("@newsletter"))
+                else {
+                    discover_pane(ui, &palette);
+                    return;
+                };
+                let posts = self.model.channel_posts(&jid);
+                let title = self
+                    .model
+                    .chats
+                    .get(&jid)
+                    .map(|row| self.model.title(row))
+                    .unwrap_or_default();
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(18.0);
+                    ui.label(egui::RichText::new(title).size(17.0).strong());
+                });
+                ui.add_space(4.0);
+                egui::ScrollArea::vertical()
+                    .stick_to_bottom(true)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.add_space(6.0);
+                        for post in &posts {
+                            ui.horizontal(|ui| {
+                                ui.add_space(18.0);
+                                ui.vertical(|ui| {
+                                    ui.set_width((ui.available_width() - 60.0).min(620.0));
+                                    ui.label(
+                                        egui::RichText::new(self.model.bubble_stamp(post))
+                                            .small()
+                                            .weak(),
                                     );
-                                    ui.label(egui::RichText::new(header).small().weak());
                                     let body = self.model.bubble_body(post);
                                     egui::Frame::new()
                                         .fill(palette.bubble_in)
@@ -224,10 +241,43 @@ impl WaDesk {
                                             );
                                         });
                                     ui.add_space(8.0);
-                                }
+                                });
                             });
+                        }
                     });
-                });
             });
     }
+}
+
+/// The live empty state: the channel glyph, the copy and the two round actions.
+fn discover_pane(ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+    ui.vertical_centered(|ui| {
+        ui.add_space((ui.available_height() * 0.24).clamp(20.0, 220.0));
+        let (icon, _) = ui.allocate_exact_size(egui::vec2(54.0, 54.0), egui::Sense::hover());
+        crate::app::draw_icon(ui, icon, Icon::Channels, egui::Color32::from_gray(72));
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new("Discover channels")
+                .size(23.0)
+                .strong()
+                .color(palette.text),
+        );
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(
+                "Entertainment, sports, news, lifestyle, people and more. Follow the \
+                 channels that interest you",
+            )
+            .size(13.5)
+            .color(palette.secondary),
+        );
+        ui.add_space(18.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 26.0;
+            let total = 2.0 * 72.0 + 26.0;
+            ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
+            let _ = crate::app::action_button(ui, palette, Icon::Add, "Create channel");
+            let _ = crate::app::action_button(ui, palette, Icon::Search, "Explore channels");
+        });
+    });
 }
