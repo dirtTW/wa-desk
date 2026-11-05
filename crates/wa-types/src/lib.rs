@@ -489,6 +489,9 @@ pub struct GroupInfoView {
     pub subject: String,
     pub description: Option<String>,
     pub members: Vec<GroupMemberView>,
+    /// The group's disappearing-message timer in seconds (`None` = off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ephemeral: Option<u32>,
     /// This group is a WhatsApp Community parent (its rows host child groups).
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_community: bool,

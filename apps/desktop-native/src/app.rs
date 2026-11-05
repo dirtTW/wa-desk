@@ -11,7 +11,7 @@ use wa_types::{MessageView, UiEvent};
 use crate::login_ui::demo_qr_svg;
 use crate::model::{BubbleAction, ChatRow, Command, Model};
 use crate::settings::NativeSettings;
-use crate::settings_ui::{settings_card, settings_file, settings_row};
+use crate::settings_ui::{settings_card, settings_file, settings_radio_row, settings_row};
 use crate::updates::{self, Release, UpdateMsg, UpdateState};
 use crate::widgets::paint_avatar;
 
@@ -1732,6 +1732,36 @@ impl WaDesk {
                                         "Send messages, edit info, disappearing messages.",
                                         |_ui| {},
                                     );
+                                });
+                                ui.add_space(10.0);
+                                // Disappearing messages: a linked device can set
+                                // this for a group (the account-wide default is
+                                // the phone's, and stays read-only in Privacy).
+                                let current = info.ephemeral;
+                                settings_card(ui, &palette, "DISAPPEARING MESSAGES", |ui| {
+                                    for (label, seconds, note) in [
+                                        ("Off", 0u32, "New messages stay in the chat."),
+                                        ("24 hours", 86_400, "New messages vanish after a day."),
+                                        ("7 days", 604_800, "New messages vanish after a week."),
+                                        (
+                                            "90 days",
+                                            7_776_000,
+                                            "New messages vanish after 90 days.",
+                                        ),
+                                    ] {
+                                        let selected = current.unwrap_or(0) == seconds;
+                                        settings_row(ui, &palette, label, note, |ui| {
+                                            if settings_radio_row(ui, &palette, "", selected)
+                                                .clicked()
+                                                && !selected
+                                            {
+                                                self.send(Command::SetDisappearing {
+                                                    chat: info.jid.clone(),
+                                                    seconds,
+                                                });
+                                            }
+                                        });
+                                    }
                                 });
                                 ui.add_space(10.0);
                                 settings_card(

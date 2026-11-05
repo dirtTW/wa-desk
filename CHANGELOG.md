@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.54] - 2026-11-05
+
+- **Disappearing messages can be set for a group, for real.** `GroupInfoView` gained
+  `ephemeral: Option<u32>` (filled from the metadata's `<ephemeral expiration>`), `wa-core` gained
+  `Session::set_group_ephemeral(chat, seconds)` over the client's `groups().set_ephemeral` (0 clears
+  it), and `Command::SetDisappearing` carries the change; the answer refreshes the group info through
+  the same channel the group screen already uses. Group info now has the official
+  **DISAPPEARING MESSAGES** card - Off / 24 hours / 7 days / 90 days, the current value ringed - and
+  tapping another row sends the change.
+- What stays read-only, on purpose: the **account-wide default timer** in Settings -> Privacy, because
+  that is a phone-owned privacy setting a linked device cannot set. The docs row says so.
+- `target/our_group.png` (`WA_DESK_SCREEN=group`) shows the new card under GROUP.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.53] - 2026-11-05
 
 - **The Communities screen now matches the live drawer.** Sampled on web.whatsapp.com: the drawer is

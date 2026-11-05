@@ -54,6 +54,17 @@ impl Session {
         Ok(rows)
     }
 
+    /// Set (or clear, with `0`) the group's disappearing-messages timer. The
+    /// linked device owns this for groups, unlike the account-wide default.
+    pub async fn set_group_ephemeral(&self, chat: &str, seconds: u32) -> Result<(), String> {
+        let jid = self.resolve_chat(chat)?;
+        self.client
+            .groups()
+            .set_ephemeral(jid, seconds)
+            .await
+            .map_err(|err| format!("could not change the timer: {err}"))
+    }
+
     pub async fn group_info(&self, chat: &str) -> Result<GroupInfoView, String> {
         let jid = self.resolve_chat(chat)?;
         let metadata = match self.client.groups().get_metadata(&jid).await {
@@ -103,6 +114,10 @@ impl Session {
             subject: metadata.subject,
             description: metadata.description,
             members,
+            ephemeral: metadata
+                .ephemeral
+                .as_ref()
+                .and_then(|settings| settings.expiration),
             is_community: metadata.is_parent_group,
             parent_jid: metadata.parent_group_jid.map(|parent| parent.to_string()),
             is_announce: metadata.is_default_sub_group,

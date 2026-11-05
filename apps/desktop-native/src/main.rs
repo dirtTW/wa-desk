@@ -630,6 +630,17 @@ fn main() {
                     Ok(id) => app::diag(&format!("poll sent {id}")),
                     Err(err) => tracing::warn!(%err, "poll failed"),
                 },
+                model::Command::SetDisappearing { chat, seconds } => {
+                    match session.set_group_ephemeral(&chat, seconds).await {
+                        Ok(()) => {
+                            let reply = session.group_info(&chat).await;
+                            let _ = group_tx.send((chat, reply));
+                        }
+                        Err(err) => {
+                            tracing::warn!(%err, "disappearing timer failed");
+                        }
+                    }
+                }
                 model::Command::SendLocation {
                     chat,
                     lat,

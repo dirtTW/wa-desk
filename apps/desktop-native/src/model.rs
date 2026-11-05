@@ -151,6 +151,11 @@ pub enum Command {
         options: Vec<String>,
         multiple: bool,
     },
+    /// Set (or clear, with 0) a group's disappearing-messages timer.
+    SetDisappearing {
+        chat: String,
+        seconds: u32,
+    },
     /// Share a location pin in the open chat.
     SendLocation {
         chat: String,
@@ -664,6 +669,7 @@ impl Model {
                 },
             ],
             is_community: false,
+            ephemeral: None,
             parent_jid: None,
             is_announce: false,
         });
@@ -3173,6 +3179,7 @@ pub fn selftest() -> Result<String, String> {
             },
         ],
         is_community: false,
+        ephemeral: None,
         parent_jid: None,
         is_announce: false,
     });

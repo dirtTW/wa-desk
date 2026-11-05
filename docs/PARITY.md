@@ -92,7 +92,7 @@ the chat row was targeted.
 | Polls and contact cards: compose, send, receive, render | **send**: attach menu → *Create poll* / *Share a contact* dialogs → `SendPoll`/`SendContact` → `polls().create` / `contactMessage` + vCard. **receive**: `media_kind` maps `pollCreationMessage` / `contactMessage` / `contactsArrayMessage`, `poll_view`/`contact_view` build the views (options, `selectable_options_count`, number parsed out of the vCard) and the bubbles draw the question + option rows or the initials disc card | ✅ (`target/our_poll.png`, `target/our_poll_dialog.png`, `target/our_contact_dialog.png`) |
 
 | View-once | partially (rail eye reveals recovered ones) | 🟡 |
-| Disappearing messages | indicator shown | 🟡 settings toggle not wired |
+| Disappearing messages | **Groups**: the group info's DISAPPEARING MESSAGES card sets Off / 24 h / 7 d / 90 d through `Session::set_group_ephemeral` and the refreshed metadata rings the current value. **Account default** (Settings -> Privacy) stays read-only: it is a phone-owned privacy setting | ✅ groups (`target/our_group.png`) |
 
 ## Status / stories
 
