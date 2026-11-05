@@ -175,6 +175,22 @@ impl WaDesk {
                     row.messages.len(),
                     wanted.len()
                 ));
+                // Videos already on disk but without a poster: ask for the
+                // frame once, so the bubble stops showing "Loading".
+                for message in &row.messages {
+                    if message.kind != "video" || self.model.poster_of(&message.id).is_some() {
+                        continue;
+                    }
+                    let Some(path) = self.model.media_path(&message.id) else {
+                        continue;
+                    };
+                    if self.posters_asked.insert(message.id.clone()) {
+                        self.send(Command::VideoPoster {
+                            id: message.id.clone(),
+                            path,
+                        });
+                    }
+                }
                 for id in wanted {
                     if self.model.request_media(&id) {
                         diag(&format!("request media {id}"));

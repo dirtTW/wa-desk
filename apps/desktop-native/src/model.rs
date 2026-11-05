@@ -151,6 +151,11 @@ pub enum Command {
         options: Vec<String>,
         multiple: bool,
     },
+    /// Extract the poster frame for a video already on disk.
+    VideoPoster {
+        id: String,
+        path: String,
+    },
     /// Set (or clear, with 0) a group's disappearing-messages timer.
     SetDisappearing {
         chat: String,
@@ -2493,6 +2498,12 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         }
         self.media.insert(id.to_string(), MediaState::Loading);
         true
+    }
+
+    /// The poster image extracted for a video, when one has been made.
+    pub fn poster_of(&self, id: &str) -> Option<String> {
+        let path = crate::video::poster_path(id, std::path::Path::new(&media_dir()));
+        path.is_file().then(|| path.to_string_lossy().into_owned())
     }
 
     /// `media.json`: the message id -> file path cache, so photos, stickers and

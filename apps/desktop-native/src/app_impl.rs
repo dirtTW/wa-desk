@@ -45,6 +45,7 @@ impl WaDesk {
             media_search_open: false,
             status_emoji_open: false,
             status_sticker_open: false,
+            posters_asked: std::collections::HashSet::new(),
             settings_search: String::new(),
             settings_search_open: false,
             communities_active: None,

@@ -495,6 +495,19 @@ fn main() {
                         };
                         let started = std::time::Instant::now();
                         let reply = session.fetch_media(&id).await;
+                        // A video gets a poster frame: the bubble cannot decode the
+                        // mp4 and older messages carry no inline thumbnail.
+                        if let Ok(path) = &reply
+                            && path.ends_with(".mp4")
+                        {
+                            let (path, id_clone) = (path.clone(), id.clone());
+                            let _ = tokio::task::spawn_blocking(move || {
+                                if let Err(err) = crate::video::poster(&path, &id_clone) {
+                                    app::diag(&format!("poster {id_clone} failed: {err}"));
+                                }
+                            })
+                            .await;
+                        }
                         let took = started.elapsed().as_millis();
                         match &reply {
                             Ok(path) => app::diag(&format!("media {id} in {took} ms: {path}")),
@@ -635,6 +648,14 @@ fn main() {
                     Ok(id) => app::diag(&format!("poll sent {id}")),
                     Err(err) => tracing::warn!(%err, "poll failed"),
                 },
+                model::Command::VideoPoster { id, path } => {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Err(err) = crate::video::poster(&path, &id) {
+                            app::diag(&format!("poster {id} failed: {err}"));
+                        }
+                    })
+                    .await;
+                }
                 model::Command::SetDisappearing { chat, seconds } => {
                     match session.set_group_ephemeral(&chat, seconds).await {
                         Ok(()) => {

@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.69] - 2026-11-05
+
+- **Video bubbles get a poster frame.** The bubble could never paint a video: `texture_at` runs the
+  file through the `image` crate, which cannot read an mp4, so it fell back to the inline JPEG
+  thumbnail - and messages cached before rc.34 have no thumbnail at all, which left them on
+  "Loading the video…" forever even though the file was on disk. Now `video::poster(source, id)`
+  extracts frame 0 with ffmpeg to `<media>/<id>-poster.png` as soon as a video finishes downloading
+  (or is re-requested), `Model::poster_of(id)` exposes it, and the video bubble paints the poster
+  before falling back to the thumbnail. `poster_into`/`poster_path` keep it testable and reused by the
+  model.
+- Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.68] - 2026-11-05
 
 - **Saved contacts no longer carry the `~` in group bubbles.** `Model::sender_row` compared the sender's

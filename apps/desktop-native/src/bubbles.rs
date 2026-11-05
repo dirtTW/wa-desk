@@ -495,13 +495,14 @@ fn bubble_content(
                 })
                 .flatten()
                 .or_else(|| {
-                    texture_at(
-                        ctx,
-                        textures,
-                        &message.id,
-                        model.media_path(&message.id),
-                        PHOTO_PX,
-                    )
+                    // A video paints its poster frame; the mp4 itself is not an
+                    // image the texture loader can read.
+                    let source = if message.kind == "video" {
+                        model.poster_of(&message.id)
+                    } else {
+                        model.media_path(&message.id)
+                    };
+                    texture_at(ctx, textures, &message.id, source, PHOTO_PX)
                 })
                 // Nothing on disk yet: the few-kilobyte JPEG the sender's
                 // client embedded paints immediately, which is what makes the

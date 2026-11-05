@@ -120,6 +120,53 @@ pub fn source_fps(source: &str, ffmpeg: &Path) -> f32 {
     DEFAULT_FPS
 }
 
+/// Extract frame 0 of `source` as `<media>/<id>-poster.png`, so a video bubble has
+/// something to paint (the bubble cannot decode the mp4 itself, and older
+/// messages carry no inline JPEG thumbnail).
+pub fn poster(source: &str, id: &str) -> Result<String, String> {
+    poster_into(source, id, Path::new(&crate::model::media_dir()))
+}
+
+/// `poster`, with an explicit media directory (tests use a temp folder).
+pub fn poster_into(source: &str, id: &str, base: &Path) -> Result<String, String> {
+    let target = poster_path(id, base);
+    if target.is_file() {
+        return Ok(target.to_string_lossy().into_owned());
+    }
+    let ffmpeg = ffmpeg().ok_or_else(|| "ffmpeg is not available".to_string())?;
+    let _ = std::fs::create_dir_all(base);
+    let status = crate::spawn::quiet(ffmpeg)
+        .args([
+            "-y",
+            "-ss",
+            "0",
+            "-i",
+            source,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+        ])
+        .arg(&target)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|err| format!("ffmpeg could not start: {err}"))?;
+    if !status.success() || !target.is_file() {
+        return Err("ffmpeg could not extract a poster".to_string());
+    }
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// Where the poster for `id` lives inside `base`.
+pub fn poster_path(id: &str, base: &Path) -> PathBuf {
+    let safe: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    base.join(format!("{safe}-poster.png"))
+}
+
 /// Decode `source` into frames + audio under a per-message directory.
 pub fn prepare(source: &str, id: &str) -> Result<Video, String> {
     prepare_into(source, id, Path::new(&crate::model::media_dir()))
