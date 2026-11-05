@@ -2191,6 +2191,11 @@ pub(crate) enum Icon {
     Folder,
     Bell,
     Palette,
+    Person,
+    Block,
+    Shortcut,
+    Info,
+    Sparkle,
 }
 
 /// The forward picker's square checkbox: an outlined box when it is clear, the
@@ -2301,6 +2306,11 @@ impl Icon {
             Icon::Folder => "inventory_2",
             Icon::Bell => "notifications",
             Icon::Palette => "palette",
+            Icon::Person => "person",
+            Icon::Block => "block",
+            Icon::Shortcut => "shortcut",
+            Icon::Info => "info",
+            Icon::Sparkle => "auto_awesome",
         }
     }
 }

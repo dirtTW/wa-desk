@@ -3,7 +3,7 @@
 //! detail page behind it. The widgets they are built from live in
 //! `settings_ui.rs`.
 
-use crate::app::{Icon, WaDesk, icon_button};
+use crate::app::{Icon, WaDesk, draw_icon};
 use crate::model::Command;
 use crate::settings_ui::{
     settings_card, settings_field, settings_link, settings_list_row, settings_radio_row,
@@ -41,43 +41,41 @@ impl WaDesk {
                         ui.horizontal(|ui| {
                             ui.add_space(18.0);
                             paint_avatar(ui, &self.model.own_name(), 56.0, avatar.as_ref());
-                            ui.add_space(4.0);
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new(self.model.own_name())
-                                        .size(17.0)
-                                        .strong()
-                                        .color(palette.text),
-                                );
-                                ui.label(
-                                    egui::RichText::new(&self.model.status)
-                                        .size(12.5)
-                                        .color(palette.secondary),
-                                );
-                            });
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new(self.model.own_name())
+                                    .size(20.0)
+                                    .strong()
+                                    .color(palette.text),
+                            );
                         });
-                        ui.add_space(12.0);
-                        // The live "You" pane carries a search field and the two profile
-                        // links above the section list.
+                        ui.add_space(14.0);
+                        // The live drawer's search is a permanent pill with the
+                        // accent ring, not a toggle behind an icon.
                         ui.horizontal(|ui| {
-                            ui.add_space(18.0);
-                            if icon_button(ui, Icon::Search, palette).clicked() {
-                                self.settings_search_open = !self.settings_search_open;
-                            }
-                            if self.settings_search_open || !self.settings_search.is_empty() {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.settings_search)
-                                        .hint_text("Search")
-                                        .desired_width(width - 80.0),
-                                );
-                            } else {
-                                ui.label(
-                                    egui::RichText::new("Search")
-                                        .size(13.5)
-                                        .color(palette.secondary),
-                                );
-                            }
+                            ui.add_space(14.0);
+                            egui::Frame::new()
+                                .fill(palette.elevated)
+                                .stroke(egui::Stroke::new(1.0_f32, palette.accent))
+                                .corner_radius(egui::CornerRadius::same(20))
+                                .inner_margin(egui::Margin::symmetric(12, 7))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        let (rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(15.0, 15.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        draw_icon(ui, rect, Icon::Search, palette.secondary);
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut self.settings_search)
+                                                .frame(false)
+                                                .hint_text("Search")
+                                                .desired_width(width - 96.0),
+                                        );
+                                    });
+                                });
                         });
+                        let _ = self.settings_search_open;
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
                             ui.add_space(22.0);
@@ -93,31 +91,30 @@ impl WaDesk {
                         // The official list, in its order and with its subtitles (sampled
                         // from the "You" drawer of web.whatsapp.com), plus this client's own
                         // AI and Updates pages.
+                        // The live drawer's glyphs and subtitles (sampled
+                        // 2026-11-05): person, key/lock, block, chat, bell,
+                        // keyboard, help - plus our own AI and Updates pages.
                         let sections = [
-                            (Icon::Status, "Profile", "Name, profile picture, status"),
+                            (Icon::Person, "Profile", "Name, profile picture, username"),
                             (
                                 Icon::Lock,
                                 "Account",
                                 "Security notifications, account info",
                             ),
                             (
-                                Icon::SelectChats,
+                                Icon::Block,
                                 "Privacy",
                                 "Blocked contacts, disappearing messages",
                             ),
                             (Icon::Chats, "Chats", "Theme, wallpaper, chat settings"),
-                            (Icon::Phone, "Notifications", "Messages, groups, sounds"),
+                            (Icon::Bell, "Notifications", "Messages, groups, sounds"),
+                            (Icon::Shortcut, "Keyboard shortcuts", "Quick actions"),
+                            (Icon::Sparkle, "AI assistant", "Auto-reply with your key"),
+                            (Icon::Download, "Updates", "Version and releases"),
                             (
-                                Icon::Edit,
-                                "Keyboard shortcuts",
-                                "Keys this window answers to",
-                            ),
-                            (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
-                            (Icon::Document, "Updates", "Version and releases"),
-                            (
-                                Icon::Groups,
+                                Icon::Info,
                                 "Help and feedback",
-                                "Project, changelog, privacy",
+                                "Help center, contact us, privacy policy",
                             ),
                         ];
                         let needle = self.settings_search.trim().to_lowercase();

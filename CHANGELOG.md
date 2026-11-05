@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.81] - 2026-11-05
+
+- **The Settings drawer matches the live one's header, search and rows.** Live sample from
+  `web.whatsapp.com` (`target/live_settings.jpg`, opened from the rail gear): the header is the
+  account **name only** (no status line), the search is a **permanent accent-ringed pill** with the
+  "Search" placeholder, and the rows carry a leading glyph with the subtitles "Name, profile picture,
+  username", "Quick actions" and "Help center, contact us, privacy policy".
+- Ours now paints exactly that: name-only header (20 px), the accent pill (always visible - it used to
+  hide behind a search icon), the live subtitles, and the live glyphs via five new Material variants
+  (`person`, `block`, `shortcut`, `info`, `auto_awesome`). Notifications now uses the bell, Privacy the
+  block glyph, AI the sparkle, Updates the download arrow and Help the info circle.
+- Deliberately kept: **View profile / View about** (this client has no separate You drawer), the AI
+  and Updates pages between Keyboard shortcuts and Help, and the status composer living in the Status
+  screen. All three are recorded in `docs/PARITY.md`.
+- Evidence: `target/our_settings.png` beside `target/live_settings.jpg`.
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.80] - 2026-11-05
 
 - **The Group info rows are flat with leading glyphs, and Media carries a thumbnail strip.** The live
