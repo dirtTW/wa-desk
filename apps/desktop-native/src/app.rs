@@ -71,6 +71,8 @@ pub struct WaDesk {
     pub(crate) show_status: bool,
     /// The calls panel is showing instead of a conversation.
     pub(crate) show_calls: bool,
+    /// The Calls drawer's search query.
+    pub(crate) calls_query: String,
     /// The Communities screen, and the community opened in it.
     pub(crate) show_communities: bool,
     /// The Media screen (the official Media/Docs/Links panel).

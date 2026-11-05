@@ -36,6 +36,7 @@ impl WaDesk {
             typing_sent: false,
             show_status: false,
             show_calls: false,
+            calls_query: String::new(),
             show_communities: false,
             show_media: std::env::var("WA_DESK_SCREEN")
                 .map(|screen| screen == "media")
@@ -352,6 +353,7 @@ impl eframe::App for WaDesk {
                 self.communities_panel(ctx);
             } else if self.show_calls {
                 self.calls_panel(ctx);
+                self.conversation(ctx);
             } else if self.show_status {
                 self.status_panel(ctx);
             } else {

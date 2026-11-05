@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.78] - 2026-11-05
+
+- **The Calls screen is the live drawer now.** Sampled `web.whatsapp.com` (`target/live_calls.jpg`,
+  `target/live_calls_list.jpg`): Calls is a **left drawer the width of the chat list**, not a
+  full-window screen with a close button, and it carries a header (title, kebab, green
+  **phone-plus FAB**), a **"Search name, number or @username"** field, a green **Favorites** heading
+  with an **Add favorite** disc row, then **Recent**. Rows keep the name white and paint the second
+  line red only for a missed call, with the time at the right; the call buttons appear on hover.
+- Ours is now a 300-460 px `SidePanel` (`calls_panel`) with `self.conversation(ctx)` beside it, the
+  same header, a `call_fab` that draws a phone glyph with a plus badge, the same search placeholder
+  (`calls_query` filters the list), both section headings, the Add favorite row and the live row
+  anatomy; connected calls keep their duration. The old full-window layout, the `X` close button and
+  the always-visible call button are gone.
+- Evidence: `target/our_calls.png` beside `target/live_calls.jpg`.
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.77] - 2026-11-05
 
 - **The chat-list filter row now matches the live sample.** Read from `web.whatsapp.com`
