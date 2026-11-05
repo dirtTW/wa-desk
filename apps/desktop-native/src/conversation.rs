@@ -178,10 +178,21 @@ impl WaDesk {
                 // Videos already on disk but without a poster: ask for the
                 // frame once, so the bubble stops showing "Loading".
                 for message in &row.messages {
-                    if message.kind != "video" || self.model.poster_of(&message.id).is_some() {
+                    if message.kind != "video" {
                         continue;
                     }
-                    let Some(path) = self.model.media_path(&message.id) else {
+                    let poster = self.model.poster_of(&message.id);
+                    let media = self.model.media_path(&message.id);
+                    diag(&format!(
+                        "video {} poster {} media {}",
+                        message.id,
+                        poster.is_some(),
+                        media.is_some()
+                    ));
+                    if poster.is_some() {
+                        continue;
+                    }
+                    let Some(path) = media else {
                         continue;
                     };
                     if self.posters_asked.insert(message.id.clone()) {
