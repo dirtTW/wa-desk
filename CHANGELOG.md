@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.99] - 2026-11-05
+
+- **The download path is healthy; media problems now leave a trail by themselves.** A cold-cache run on
+  a real account ("QC DIVISI", the app's own `media` folder moved aside) fetched **24 files in 18-647 ms
+  (median 96 ms)** and wrote 35 files, so `fetch_media` itself is not the bottleneck - the reported
+  "thumbnail only" is either the rc.98 stall case or a specific message whose CDN path expired.
+- New always-on `app::note(...)`: media **failures** (`media <id> FAILED: <reason>`) and fetches slower
+  than 2 s (`media <id> slow: … ms`) are appended to `diagnostics.log` **without** `WA_DESK_DIAG`, so a
+  "photo never loads" report can be diagnosed from the user's own log instead of asking for a special
+  relaunch. Successful fast fetches stay quiet.
+- Note: the diagnostic log I inspected before this change contained no media lines at all because
+  `WA_DESK_DIAG` is off in normal runs - that is why the stall had no trail.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.98] - 2026-11-05
 
 - **A download that never answers is retried instead of leaving the thumbnail forever.** Reported after

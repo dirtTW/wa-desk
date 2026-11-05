@@ -514,10 +514,19 @@ fn main() {
                             .await;
                         }
                         let took = started.elapsed().as_millis();
+                        // Failures and very slow fetches go to the log even
+                        // without `WA_DESK_DIAG`: a "photo never loads" report
+                        // needs a trail the user can just send.
                         match &reply {
-                            Ok(path) => app::diag(&format!("media {id} in {took} ms: {path}")),
+                            Ok(path) => {
+                                app::diag(&format!("media {id} in {took} ms: {path}"));
+                                if took > 2_000 {
+                                    app::note(&format!("media {id} slow: {took} ms -> {path}"));
+                                }
+                            }
                             Err(err) => {
-                                app::diag(&format!("media {id} failed in {took} ms: {err}"))
+                                app::diag(&format!("media {id} failed in {took} ms: {err}"));
+                                app::note(&format!("media {id} FAILED: {err}"));
                             }
                         }
                         let _ = media_tx.send((id, reply));

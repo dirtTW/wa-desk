@@ -982,6 +982,25 @@ pub(crate) enum VideoState {
 
 /// Append a line to `diagnostics.log` when `WA_DESK_DIAG=1` (the windowing
 /// backend detaches the console, so tracing is not readable from a GUI run).
+/// Always-on diagnostic, for the lines a bug report needs: media fetch
+/// outcomes, so a "photo never loads" report can be traced without asking the
+/// user to relaunch with `WA_DESK_DIAG=1`.
+pub fn note(message: &str) {
+    let dir = std::env::var("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("io.github.dirttw.wadesk-native");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("diagnostics.log"))
+    {
+        use std::io::Write as _;
+        let _ = writeln!(file, "{message}");
+    }
+}
+
 pub fn diag(message: &str) {
     if std::env::var("WA_DESK_DIAG").is_err() {
         return;
