@@ -379,6 +379,8 @@ pub struct Model {
     pub scroll_bottom: u8,
     /// Bubbles waiting for their server id: (chat, local id), oldest first.
     pub pending_local: Vec<(String, String)>,
+    /// Bubbles whose send failed, with the reason (keyed by the local id).
+    pub send_failures: std::collections::BTreeMap<String, String>,
     /// Monotonic counter for the optimistic bubble ids.
     pub local_seq: u64,
     /// The message being forwarded, its chat search and chosen chats.
@@ -1116,10 +1118,29 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                                 .rposition(|m| m.from_me && m.id.starts_with("local-"))
                         });
                     if let Some(index) = index {
+                        let previous = row.messages[index].id.clone();
                         row.messages[index].id = id.clone();
                         row.messages[index].timestamp = *timestamp;
                         row.messages.sort_by_key(|m| m.timestamp);
+                        // An optimistic sticker keeps painting from its local
+                        // file under the new id.
+                        if let Some(state) = self.media.remove(&previous) {
+                            self.media.insert(id.clone(), state);
+                        }
                     }
+                }
+            }
+            UiEvent::SendFailed { chat, error } => {
+                // The oldest bubble still waiting for an id is the one that
+                // failed; it keeps its place but never shows a tick.
+                let local = self
+                    .pending_local
+                    .iter()
+                    .position(|(jid, _)| jid == chat)
+                    .map(|index| self.pending_local.remove(index).1);
+                if let Some(local) = local {
+                    self.ticks.remove(&local);
+                    self.send_failures.insert(local, error.clone());
                 }
             }
             UiEvent::ChatReadMark { chat, read } => {
@@ -1378,6 +1399,11 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         }
         // A new "day"/burst after a long pause starts a fresh run.
         next.timestamp.saturating_sub(message.timestamp) > 60_000
+    }
+
+    /// Why the send of this bubble never left the socket, when it did not.
+    pub fn send_error(&self, id: &str) -> Option<&str> {
+        self.send_failures.get(id).map(String::as_str)
     }
 
     /// The delivery marker for one of our own messages: `sent`, `delivered` or
@@ -1793,6 +1819,33 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             message.chat == self.me_jid,
         );
         (output.title, output.can_everyone)
+    }
+
+    /// The bubble for a sticker we just sent: WhatsApp does not echo our own
+    /// messages, and the picker used to close with nothing in the chat. The
+    /// local file is registered as this bubble's media so it paints at once.
+    pub fn add_own_sticker(&mut self, chat: &str, path: &str) -> String {
+        self.local_seq += 1;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as i64)
+            .unwrap_or(self.now);
+        let id = format!("local-sticker-{stamp}-{}", self.local_seq);
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_default();
+        let mut message = view(chat, &chat_name, &id, "", stamp, true);
+        message.kind = "sticker".to_string();
+        self.media
+            .insert(id.clone(), MediaState::Path(path.to_string()));
+        self.now = self.now.max(stamp);
+        self.scroll_bottom = 3;
+        self.ticks.insert(id.clone(), "sent".to_string());
+        self.pending_local.push((chat.to_string(), id.clone()));
+        self.upsert(message);
+        id
     }
 
     /// The bubble for a message we just sent. WhatsApp does not echo a
@@ -4337,5 +4390,69 @@ mod send_tests {
         let card = last.reply_to.as_ref().expect("a quote card");
         assert_eq!(card.id, "m1");
         assert_eq!(card.text, "the plan");
+    }
+}
+
+#[cfg(test)]
+mod send_failure_tests {
+    use super::*;
+
+    /// A failed send keeps the bubble but drops the tick and records the reason.
+    #[test]
+    fn a_failed_send_is_marked_instead_of_ticked() {
+        let mut model = Model::new();
+        model.apply(&UiEvent::Message(view(
+            "1203@g.us",
+            "Team",
+            "m1",
+            "hi",
+            1_770_000_000_000,
+            false,
+        )));
+        let local = model.add_own_text("1203@g.us", "never sent", None);
+        assert!(model.pending_local.iter().any(|(_, id)| id == &local));
+
+        model.apply(&UiEvent::SendFailed {
+            chat: "1203@g.us".to_string(),
+            error: "send failed: not connected".to_string(),
+        });
+        assert!(model.pending_local.is_empty());
+        assert_eq!(model.send_error(&local), Some("send failed: not connected"));
+        assert_eq!(
+            model.tick_status(&model.chats["1203@g.us"].messages.last().cloned().unwrap()),
+            "sent"
+        );
+    }
+}
+
+#[cfg(test)]
+mod sticker_send_tests {
+    use super::*;
+
+    /// Tapping a sticker shows its bubble immediately, and the server id takes
+    /// the media over instead of leaving a blank tile.
+    #[test]
+    fn a_sent_sticker_shows_at_once_and_keeps_its_file() {
+        let mut model = Model::new();
+        let path = "C:/cache/sticker.webp".to_string();
+        let local = model.add_own_sticker("1203@g.us", &path);
+        {
+            let last = model.chats["1203@g.us"].messages.last().cloned().unwrap();
+            assert_eq!(last.id, local);
+            assert_eq!(last.kind, "sticker");
+            assert!(last.from_me);
+        }
+        assert_eq!(model.media_path(&local).as_deref(), Some(path.as_str()));
+
+        model.apply(&UiEvent::Sent {
+            chat: "1203@g.us".to_string(),
+            id: "srv-sticker".to_string(),
+            timestamp: 1_770_000_003_000,
+        });
+        assert_eq!(
+            model.media_path("srv-sticker").as_deref(),
+            Some(path.as_str())
+        );
+        assert!(model.media_path(&local).is_none());
     }
 }

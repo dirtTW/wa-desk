@@ -62,6 +62,9 @@ pub enum UiEvent {
     /// The same peer is stored under two ids (typically a LID chat and its
     /// phone-number chat). The UI should fold `from` into `to`.
     ChatAlias { from: String, to: String },
+    /// A send that never left the socket (poisoned transport, session down):
+    /// the UI marks the optimistic bubble instead of pretending it went out.
+    SendFailed { chat: String, error: String },
     /// An outbound message was accepted by the server.
     Sent {
         chat: String,
@@ -188,6 +191,7 @@ impl UiEvent {
             UiEvent::HistorySyncProgress { .. } => "history_sync_progress",
             UiEvent::ChannelInfo { .. } => "channel_info",
             UiEvent::Sent { .. } => "sent",
+            UiEvent::SendFailed { .. } => "send_failed",
             UiEvent::Receipt { .. } => "receipt",
             UiEvent::ChatDeleted { .. } => "chat_deleted",
             UiEvent::ChatCleared { .. } => "chat_cleared",

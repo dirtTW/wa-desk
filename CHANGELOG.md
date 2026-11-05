@@ -4,6 +4,50 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.38] - 2026-11-05
+
+- **A sticker you send now shows in the chat.** Tapping a sticker in the picker used to close the
+  panel and upload it with nothing in the conversation: WhatsApp never echoes a device's own
+  messages, so the bubble had no source. `Model::add_own_sticker(chat, path)` inserts it immediately
+  (kind `sticker`, the local WebP registered as its media so it paints at once, `sent` tick, queued
+  for the server id), and `UiEvent::Sent` now moves the media entry onto the new id so the sticker
+  does not turn into a blank tile when the upload finishes.
+- Test: `sticker_send_tests::a_sent_sticker_shows_at_once_and_keeps_its_file`.
+- Capture: `target/our_sticker_sent.png` (`WA_DESK_STICKER_SENT=<path.webp>`).
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
+## [0.2.1-rc.37] - 2026-11-05
+
+- **Enter sends again, and a send that fails no longer pretends it worked.** Two fixes on the
+  composer path:
+  - egui's single-line `TextEdit` consumes the Enter event while it surrenders focus, so the old
+    `edit.lost_focus() && key_pressed(Enter)` check read `false` on every frame and Enter did nothing.
+    The key is now sampled **before** the field is drawn, and `enter_sends(enter_pressed,
+    focused)` keeps a stray Enter elsewhere in the window from posting the draft.
+    Test: `composer_tests::enter_sends_only_from_the_composer`.
+  - A failed `send_text` (poisoned transport, session down, a blocked network) used to be swallowed
+    by a `tracing::warn!` while the optimistic bubble already looked sent. `wa-core` now emits
+    `UiEvent::SendFailed { chat, error }`, the model moves the oldest pending bubble of that chat into
+    `send_failures`, and the bubble paints a red **!** instead of a grey/blue tick.
+    Test: `send_failure_tests::a_failed_send_is_marked_instead_of_ticked`.
+- Being able to see the failure matters on restricted networks (a work laptop behind a proxy can
+  stall the stanza without the socket dropping).
+- Tests: 126 native + 43 wa-core + 232 wa-ui, clippy clean.
+
+## [0.2.1-rc.36] - 2026-11-05
+
+- **`app.rs` split, module 6: the bubble itself.** `bubble`, `bubble_content` and the whole per-kind
+  body (media tiles and their thumbnail preview, stickers, documents, audio and voice notes, polls,
+  contacts, locations, replies, the `texture_at`/`menu_row` helpers and the `PHOTO_PX`/`QUOTE_PX`/
+  `STICKER_PX` caps) moved into `src/bubbles.rs` next to the menu and reaction chips - **1,136 lines**
+  out of `app.rs`, which is now 9,072 (from 10,082 at rc.34). The moved painters reach the rest of the
+  window through `pub(crate)` imports (`draw_icon`, `fit_text`, `highlight_job`, `sender_color`,
+  `stamp_seconds`, `thumb_texture`, `clean_text`/`has_emoji`/`has_markup`/`layout_body`/`paint_body`,
+  `avatar_color`/`initials`), which is the direction the split has been going.
+- Verified visually after the move: `target/our_markup.png` renders exactly as before (bold span, even
+  paragraph spacing, clock under the last line, media tile with its caption).
+- Tests: 124 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.35] - 2026-11-05
 
 - **Privacy and Chats were sampled from the live client and rebuilt to match.** Both panes were

@@ -399,6 +399,10 @@ fn main() {
                 model::Command::SendText { chat, text } => {
                     if let Err(err) = session.send_text(&chat, &text).await {
                         tracing::warn!(%err, "send failed");
+                        // The bubble is already on screen: tell the window it
+                        // never left, instead of leaving a green tick on a
+                        // message the server never saw.
+                        let _ = events_out.send(wa_types::UiEvent::SendFailed { chat, error: err });
                     }
                 }
                 model::Command::MarkRead { chat } => {
