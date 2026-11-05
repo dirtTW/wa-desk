@@ -401,6 +401,8 @@ pub struct Model {
     pub favorites_error: Option<String>,
     /// The media viewer's position among the open chat's photos and videos.
     pub media_viewer: Option<usize>,
+    /// View-once bubbles that have been opened, so they read "Opened".
+    pub view_once_open: std::collections::HashSet<String>,
     /// The message the composer is replying to, and the one being edited.
     pub reply_to: Option<MessageView>,
     pub editing: Option<MessageView>,
@@ -998,6 +1000,20 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             emoji: "👍".to_string(),
             timestamp: now + 1,
         });
+
+        // View-once placeholders: one untouched, one already opened, so the
+        // bubble's three states can be captured with `--preview`.
+        let mut once = view("1203@g.us", "Team", "vo1", "", now + 2, false);
+        once.kind = "view_once".to_string();
+        once.sender = Some("1@s.whatsapp.net".to_string());
+        once.sender_name = Some("Ada".to_string());
+        model.apply(&UiEvent::Message(once));
+        let mut opened = view("1203@g.us", "Team", "vo2", "", now + 3, false);
+        opened.kind = "view_once".to_string();
+        opened.sender = Some("1@s.whatsapp.net".to_string());
+        opened.sender_name = Some("Ada".to_string());
+        model.apply(&UiEvent::Message(opened));
+        model.mark_view_once_opened("vo2");
 
         model.open_chat("1203@g.us");
         model
@@ -2079,16 +2095,45 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         };
         row.messages
             .iter()
-            .filter(|message| matches!(message.kind.as_str(), "image" | "video"))
+            .filter(|message| {
+                // A view-once whose body survived (reply quote recovery) is
+                // viewable like any photo; a plain fanout has no file.
+                matches!(message.kind.as_str(), "image" | "video")
+                    || (message.kind == "view_once" && self.media_path(&message.id).is_some())
+            })
             .cloned()
             .collect()
     }
 
+    /// This view-once bubble has been opened, so it reads "Opened" like the
+    /// official client's.
+    pub fn view_once_opened(&self, id: &str) -> bool {
+        self.view_once_open.contains(id)
+    }
+
+    /// Remember that a view-once bubble was opened.
+    pub fn mark_view_once_opened(&mut self, id: &str) {
+        self.view_once_open.insert(id.to_string());
+    }
+
+    /// A view-once can be opened only when its file is on disk: a linked device
+    /// receives `<unavailable type="view_once">` for the fanout itself, and the
+    /// body only comes back through a reply quote.
+    pub fn view_once_playable(&self, message: &MessageView) -> bool {
+        message.kind == "view_once"
+            && !self.view_once_opened(&message.id)
+            && self.media_path(&message.id).is_some()
+    }
+
     /// Open the viewer on one message; false when it is not viewable media.
     pub fn open_viewer(&mut self, id: &str) -> bool {
-        let Some(index) = self.media_items().iter().position(|item| item.id == id) else {
+        let items = self.media_items();
+        let Some(index) = items.iter().position(|item| item.id == id) else {
             return false;
         };
+        if items[index].kind == "view_once" {
+            self.mark_view_once_opened(id);
+        }
         self.media_viewer = Some(index);
         true
     }
@@ -3418,6 +3463,35 @@ fn view(chat: &str, name: &str, id: &str, text: &str, ts: i64, from_me: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A view-once bubble gains its "Opened" state once, and a fanout without a
+    /// file can never be opened (the linked device only gets the placeholder).
+    #[test]
+    fn view_once_opens_once_and_only_with_a_file() {
+        let mut model = Model::new();
+        let now = 1_770_000_000_000;
+        model.now = now;
+        let mut message = view("1@s.whatsapp.net", "Ada", "vo", "", now, false);
+        message.kind = "view_once".to_string();
+        model.apply(&UiEvent::Message(message.clone()));
+
+        assert!(!model.view_once_opened("vo"));
+        assert!(
+            !model.view_once_playable(&message),
+            "no file on disk means the phone has to open it"
+        );
+        assert!(
+            !model.open_viewer("vo"),
+            "a placeholder with no media is not in the viewer list"
+        );
+
+        model.mark_view_once_opened("vo");
+        assert!(model.view_once_opened("vo"));
+        assert!(
+            !model.view_once_playable(&message),
+            "an opened one never reopens"
+        );
+    }
 
     #[test]
     fn events_fill_the_sidebar() {

@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.76] - 2026-11-05
+
+- **View-once bubbles exist now.** A `<unavailable type="view_once">` fanout used to fall through to
+  the text painter, so it appeared as an empty bubble. It now paints the official placeholder: a
+  250 px bubble with the circled **1**, the kind (**Photo**) and a state line - **Tap to open it once**
+  when the body is available, **Opened** once consumed, and **Open this on your phone** for a fanout
+  whose body never reached this device (a linked device only receives the placeholder; the body comes
+  back through a reply quote).
+- `Model::view_once_playable` / `view_once_opened` / `mark_view_once_opened` track the state, and
+  `open_viewer` consumes a view-once on open: it joins `media_items` only when its file exists, and
+  once opened it can never be reopened. `view_once_opens_once_and_only_with_a_file` pins that.
+- `--preview` now seeds both states (`target/our_view_once.png`).
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.75] - 2026-11-05
 
 - **The sticker panel's `+` opens the store sheet.** It used to jump to the Packs tab; now it opens

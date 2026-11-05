@@ -287,6 +287,81 @@ fn bubble_content(
             ui.add_space(if tail { 14.0 } else { 8.0 });
             return;
         }
+        // View-once media: the official placeholder - a circled "1", the kind
+        // and one of three states. A linked device receives
+        // `<unavailable type="view_once">` for the fanout, so the body is only
+        // there when a reply quote recovered it (`once_recovered`).
+        if message.kind == "view_once" {
+            let opened = model.view_once_opened(&message.id);
+            let playable = model.view_once_playable(message);
+            let width = max_width.min(250.0);
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, 62.0), egui::Sense::click());
+            let fill = if message.from_me {
+                palette.bubble_out
+            } else {
+                palette.bubble_in
+            };
+            ui.painter().rect_filled(
+                rect,
+                egui::CornerRadius {
+                    nw: 7,
+                    ne: 7,
+                    sw: 7,
+                    se: if tail { 0 } else { 7 },
+                },
+                fill,
+            );
+            if response.hovered() {
+                ui.painter()
+                    .rect_filled(rect, egui::CornerRadius::same(7), palette.hover);
+            }
+            let badge = egui::pos2(rect.left() + 26.0, rect.center().y - 2.0);
+            ui.painter()
+                .circle_stroke(badge, 13.0, egui::Stroke::new(1.6_f32, palette.secondary));
+            ui.painter().text(
+                badge,
+                egui::Align2::CENTER_CENTER,
+                "1",
+                egui::FontId::proportional(13.0),
+                palette.secondary,
+            );
+            ui.painter().text(
+                egui::pos2(rect.left() + 48.0, rect.center().y - 11.0),
+                egui::Align2::LEFT_CENTER,
+                "Photo",
+                egui::FontId::proportional(14.0),
+                palette.text,
+            );
+            let state = if opened {
+                "Opened"
+            } else if playable {
+                "Tap to open it once"
+            } else {
+                "Open this on your phone"
+            };
+            ui.painter().text(
+                egui::pos2(rect.left() + 48.0, rect.center().y + 9.0),
+                egui::Align2::LEFT_CENTER,
+                state,
+                egui::FontId::proportional(11.5),
+                palette.secondary,
+            );
+            ui.painter().text(
+                egui::pos2(rect.right() - 10.0, rect.bottom() - 8.0),
+                egui::Align2::RIGHT_BOTTOM,
+                model.bubble_stamp(message),
+                egui::FontId::proportional(11.0),
+                palette.secondary,
+            );
+            if playable && response.clicked() {
+                action = Some(BubbleAction::OpenMedia(message.id.clone()));
+            }
+            context_menu(&response, palette, model, message, &mut action);
+            pills_row(ui, palette, model, message, rect);
+            ui.add_space(if tail { 14.0 } else { 8.0 });
+            return;
+        }
         // A sticker: still WebP or animated (WhatsApp's animated stickers are
         // WebP with an `ANIM` chunk - the `image` crate only shows frame one, so
         // those are decoded to frames and stepped like a GIF).
