@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.48] - 2026-11-05
+
+- **The menus and dialogs left `app.rs`: `src/dialogs.rs` (888 lines).** Moved as `impl WaDesk`:
+  `chat_menu` (the sidebar kebab: New group, Starred messages, Select chats, Mark all as read, App
+  lock, Log out), `chat_actions_menu`/`chat_actions_window` (the header ⋮), `attach_window` (the
+  live-sampled entry order), `new_chat_window`, `new_group_window`, `new_contact_window`,
+  `group_add_window`, `starred_window`, `delete_window` and `forward_window` (the official forward
+  card).
+- `app.rs` is down to **4,065 lines** - from 10,069 at the start of this run. What is left is the app
+  plumbing, the gate, the emoji/sticker pickers and the event pump.
+- Helpers made crate-visible for it: `forward_checkbox`, `import_chat_export`, `pick_attachment`
+  (`menu_row` came from `bubbles.rs`).
+- Verified after the move: `target/our_forward.png` (`WA_DESK_FORWARD=1`) still shows the official
+  card - ✕ / "Forward message to" / green send, the accent search field, "My status", "Recent chats"
+  with the square checkboxes and the thumbnails; `target/our_attach.png` re-captured.
+- Also in this release's tree: the **version numbering rule** (rc.1…rc.99, then the patch rolls to
+  `0.2.2-rc.1`) is written into `AGENTS.md` and pinned by
+  `updates::tests::prereleases_compare_in_order` (`0.2.2-rc.1` beats `0.2.1-rc.99`).
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.47] - 2026-11-05
 
 - **The overlays left `app.rs`: `src/overlays.rs` (932 lines).** The media viewer (`media_overlay`: the
