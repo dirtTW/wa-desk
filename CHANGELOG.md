@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.89] - 2026-11-05
+
+- **The icon vocabulary has its own module.** `icon_widgets.rs` now holds the `Icon` enum with its
+  Material Symbols name table, `draw_icon`, `icon_button` and the forward picker's `forward_checkbox`
+  (176 lines). `app.rs` re-exports the four names, so every `use crate::app::{Icon, ...}` call site is
+  untouched. `app.rs` is down to **1,608 lines** - from 2,559 two releases ago, a third of it moved out.
+- The move caught two things worth naming: the `#[derive(Clone, Copy, PartialEq, Eq)]` above the enum
+  stayed behind in `app.rs` (the enum then could not be copied - the settings rows move `*icon`), and the
+  icon doc comment was orphaned. Both were repaired, not suppressed.
+- Evidence: `target/our_icons_check.png` (chat screen) and `target/our_calls_check.png` (Calls drawer) -
+  rail icons, the phone-plus FAB, avatar discs and the composer's paperclip/emoji/send all render
+  unchanged.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.88] - 2026-11-05
 
 - **Group info moved out of `app.rs`.** `screens/group.rs` now owns `group_panel`, `group_row` and

@@ -32,6 +32,7 @@ mod frames;
 mod gate;
 mod gif;
 mod icon;
+mod icon_widgets;
 mod icons;
 mod login;
 mod login_ui;
