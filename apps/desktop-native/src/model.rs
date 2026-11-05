@@ -323,6 +323,10 @@ pub struct ChatRow {
     pub name: String,
     pub messages: Vec<MessageView>,
     pub unread: i64,
+    /// Pinned to the top of the list (app-state `pin`).
+    pub pinned: bool,
+    /// Muted (app-state `mute`): the row shows the crossed bell.
+    pub muted: bool,
     pub last_ts: i64,
     /// The chat is a community (from its group metadata).
     pub community: bool,
@@ -331,6 +335,19 @@ pub struct ChatRow {
     pub parent: Option<String>,
     /// The community's announcement group (hidden from the chat list).
     pub announce: bool,
+}
+
+impl Model {
+    /// Remember a JID app-state mentioned, so the sidebar can list it even
+    /// before its name arrives from group metadata.
+    fn remember_chat(&mut self, chat: &str) {
+        self.chats
+            .entry(chat.to_string())
+            .or_insert_with(|| ChatRow {
+                jid: chat.to_string(),
+                ..Default::default()
+            });
+    }
 }
 
 /// The sidebar's filter pills.
@@ -1015,6 +1032,15 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         model.apply(&UiEvent::Message(opened));
         model.mark_view_once_opened("vo2");
 
+        // One pinned and one muted chat, so the row badges show in `--preview`
+        // the way the live list marks them.
+        if let Some(row) = model.chats.get_mut("1@s.whatsapp.net") {
+            row.pinned = true;
+        }
+        if let Some(row) = model.chats.get_mut("1201@g.us") {
+            row.muted = true;
+        }
+
         model.open_chat("1203@g.us");
         model
     }
@@ -1242,16 +1268,24 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             UiEvent::ChatDeleted { chat } if self.active.as_deref() == Some(chat.as_str()) => {
                 self.active = None;
             }
-            UiEvent::ChatPin { chat, .. }
-            | UiEvent::ChatArchive { chat, .. }
-            | UiEvent::ChatMute { chat, .. } => {
+            UiEvent::ChatPin { chat, pinned, .. } => {
+                self.remember_chat(chat);
+                if let Some(row) = self.chats.get_mut(chat) {
+                    row.pinned = *pinned;
+                }
+            }
+            UiEvent::ChatMute { chat, until, .. } => {
+                self.remember_chat(chat);
+                if let Some(row) = self.chats.get_mut(chat) {
+                    // `until == 0` is the app-state's "mute off".
+                    row.muted = *until != 0;
+                }
+            }
+            UiEvent::ChatArchive { chat, .. } => {
                 // App-state mentions chats we have never seen - pinned, archived
                 // or muted groups are the usual case. Remember the JID so the
                 // sidebar can list it (the name arrives from group metadata).
-                self.chats.entry(chat.clone()).or_insert_with(|| ChatRow {
-                    jid: chat.clone(),
-                    ..Default::default()
-                });
+                self.remember_chat(chat);
             }
             UiEvent::StickerPack(view) => {
                 self.packs.retain(|pack| pack.id != view.id);
@@ -1993,9 +2027,12 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 digits.contains(&wanted)
             })
             .collect();
+        // Pinned chats first (the live list keeps them above everything), then
+        // newest first.
         rows.sort_by(|a, b| {
-            b.last_ts
-                .cmp(&a.last_ts)
+            b.pinned
+                .cmp(&a.pinned)
+                .then_with(|| b.last_ts.cmp(&a.last_ts))
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
         rows
@@ -2248,9 +2285,12 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                     || row.jid.to_lowercase().contains(&needle)
             })
             .collect();
+        // Pinned chats first (the live list keeps them above everything), then
+        // newest first.
         rows.sort_by(|a, b| {
-            b.last_ts
-                .cmp(&a.last_ts)
+            b.pinned
+                .cmp(&a.pinned)
+                .then_with(|| b.last_ts.cmp(&a.last_ts))
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
         rows
@@ -2825,6 +2865,10 @@ struct CachedChat {
     #[serde(default)]
     unread: i64,
     #[serde(default)]
+    pinned: bool,
+    #[serde(default)]
+    muted: bool,
+    #[serde(default)]
     last_ts: i64,
     #[serde(default)]
     community: bool,
@@ -2843,6 +2887,8 @@ impl Model {
                 jid: row.jid.clone(),
                 name: row.name.clone(),
                 unread: row.unread,
+                pinned: row.pinned,
+                muted: row.muted,
                 last_ts: row.last_ts,
                 community: row.community,
                 // Keep the file small: the newest 80 bubbles per chat.
@@ -2899,6 +2945,8 @@ impl Model {
                     name: row.name,
                     messages: row.messages,
                     unread: row.unread,
+                    pinned: row.pinned,
+                    muted: row.muted,
                     last_ts: row.last_ts,
                     community: row.community,
                     parent: None,

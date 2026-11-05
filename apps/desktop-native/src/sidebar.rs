@@ -245,19 +245,19 @@ impl WaDesk {
                 // A light snapshot: cloning whole `ChatRow`s copied every chat's
                 // message list on each frame (~250 bubbles each). The row only
                 // needs these five values.
-                let rows: Vec<(String, String, String, String, i64, bool)> = self
+                let rows: Vec<RowSnapshot> = self
                     .model
                     .visible_chats()
                     .into_iter()
-                    .map(|row| {
-                        (
-                            row.jid.clone(),
-                            self.model.row_title(row),
-                            self.model.row_preview(row),
-                            self.model.row_stamp(row),
-                            row.unread,
-                            row.name.is_empty(),
-                        )
+                    .map(|row| RowSnapshot {
+                        jid: row.jid.clone(),
+                        title: self.model.row_title(row),
+                        preview: self.model.row_preview(row),
+                        stamp: self.model.row_stamp(row),
+                        unread: row.unread,
+                        unnamed: row.name.is_empty(),
+                        pinned: row.pinned,
+                        muted: row.muted,
                     })
                     .collect();
 
@@ -267,28 +267,21 @@ impl WaDesk {
                     // rows shifted a few pixels sideways, which flickers.
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                     .show(ui, |ui| {
-                        for (jid, title, preview, stamp, unread, unnamed) in &rows {
-                            let selected = self.model.active.as_deref() == Some(jid.as_str());
-                            if *unnamed
-                                && jid.ends_with("@g.us")
-                                && self.groups_asked.insert(jid.clone())
+                        for row in &rows {
+                            let selected = self.model.active.as_deref() == Some(row.jid.as_str());
+                            if row.unnamed
+                                && row.jid.ends_with("@g.us")
+                                && self.groups_asked.insert(row.jid.clone())
                             {
                                 // History announced this group without a name.
-                                self.send(Command::GroupInfo { chat: jid.clone() });
+                                self.send(Command::GroupInfo {
+                                    chat: row.jid.clone(),
+                                });
                             }
-                            self.ensure_avatar(ui.ctx(), jid);
-                            let avatar = self.avatar_for(jid).cloned();
-                            if chat_row(
-                                ui,
-                                &palette,
-                                *unread,
-                                title,
-                                preview,
-                                stamp,
-                                selected,
-                                avatar.as_ref(),
-                            ) {
-                                let jid = jid.clone();
+                            self.ensure_avatar(ui.ctx(), &row.jid);
+                            let avatar = self.avatar_for(&row.jid).cloned();
+                            if chat_row(ui, &palette, row, selected, avatar.as_ref()) {
+                                let jid = row.jid.clone();
                                 let empty = self
                                     .model
                                     .chats
@@ -316,16 +309,35 @@ impl WaDesk {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The five values a chat row paints, plus the flags its badges read. Built
+/// once per frame; cloning whole `ChatRow`s copied every chat's messages.
+struct RowSnapshot {
+    jid: String,
+    title: String,
+    preview: String,
+    stamp: String,
+    unread: i64,
+    unnamed: bool,
+    pinned: bool,
+    muted: bool,
+}
+
 fn chat_row(
     ui: &mut egui::Ui,
     palette: &crate::theme::Palette,
-    unread: i64,
-    title: &str,
-    preview: &str,
-    stamp: &str,
+    row: &RowSnapshot,
     selected: bool,
     texture: Option<&egui::TextureHandle>,
 ) -> bool {
+    let RowSnapshot {
+        title,
+        preview,
+        stamp,
+        unread,
+        pinned,
+        muted,
+        ..
+    } = row;
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 72.0), egui::Sense::click());
     let painter = ui.painter();
@@ -389,7 +401,7 @@ fn chat_row(
         palette.text,
     );
     if !stamp.is_empty() {
-        let color = if unread > 0 {
+        let color = if *unread > 0 {
             palette.accent
         } else {
             palette.secondary
@@ -401,6 +413,23 @@ fn chat_row(
             egui::FontId::proportional(11.5),
             color,
         );
+    }
+    // The live list marks a muted chat with a crossed bell and a pinned one
+    // with a pin, both tucked under the clock.
+    if *muted || *pinned {
+        // An unread pill occupies the same corner, so the badges step left.
+        let mut x = right - if *unread > 0 { 24.0 } else { 0.0 };
+        for (icon, shown) in [(Icon::Pin, *pinned), (Icon::BellOff, *muted)] {
+            if !shown {
+                continue;
+            }
+            let badge = egui::Rect::from_center_size(
+                egui::pos2(x - 6.0, rect.top() + 47.0),
+                egui::vec2(13.0, 13.0),
+            );
+            draw_icon(ui, badge, icon, palette.secondary);
+            x -= 17.0;
+        }
     }
     painter.text(
         egui::pos2(left, rect.top() + 47.0),
@@ -415,7 +444,7 @@ fn chat_row(
         egui::FontId::proportional(13.0),
         palette.secondary,
     );
-    if unread > 0 {
+    if *unread > 0 {
         let pill = egui::Rect::from_center_size(
             egui::pos2(right - 4.0, rect.bottom() - 16.0),
             egui::vec2(20.0, 18.0),

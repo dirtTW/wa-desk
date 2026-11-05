@@ -2202,6 +2202,8 @@ pub(crate) enum Icon {
     Info,
     Sparkle,
     Mail,
+    Pin,
+    BellOff,
 }
 
 /// The forward picker's square checkbox: an outlined box when it is clear, the
@@ -2318,6 +2320,8 @@ impl Icon {
             Icon::Info => "info",
             Icon::Sparkle => "auto_awesome",
             Icon::Mail => "mail",
+            Icon::Pin => "push_pin",
+            Icon::BellOff => "notifications_off",
         }
     }
 }

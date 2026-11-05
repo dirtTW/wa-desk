@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.84] - 2026-11-05
+
+- **Pinned and muted chats are visible, and stay that way.** The live list marks a pinned chat with a
+  pin under the clock and a muted one with a crossed bell, and keeps pinned chats above everything
+  (`target/live_now.jpg`, `live_settings.jpg`). Ours dropped the app-state payload on the floor: the
+  `ChatPin`/`ChatMute` events only remembered the JID, so nothing could be shown, sorted or persisted.
+- `ChatRow` gained `pinned` and `muted`; the events now fold `pinned` and `until != 0` (an app-state
+  mute of 0 is "mute off"); both orders of `visible_chats` sort pinned first, then newest; the cache
+  round-trips both flags, so a restart keeps them; the row paints the pin and the crossed bell under
+  the clock (stepping left when the unread pill is there).
+- Two new Material glyphs: `push_pin` and `notifications_off`.
+- The chat-row snapshot from rc.82 became a named `RowSnapshot` and `chat_row` takes it, which also
+  cleared clippy's "too many arguments" and "very complex type" complaints.
+- Evidence: `target/our_rows.png` - Ada pinned at the top with its pin, Deploys carrying the muted bell.
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.83] - 2026-11-05
 
 - **The empty conversation pane is the live one now.** Sampled `web.whatsapp.com` with no chat open
