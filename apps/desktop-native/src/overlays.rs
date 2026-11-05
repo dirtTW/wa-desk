@@ -246,11 +246,25 @@ impl WaDesk {
                 // ---- the media itself ------------------------------------
                 let strip = 74.0;
                 let counter_row = 26.0;
+                // The caption is measured first so the stage stops short of it:
+                // it used to overlap the filmstrip on long captions.
+                let caption_galley = (!description.trim().is_empty()).then(|| {
+                    painter.layout(
+                        description.clone(),
+                        egui::FontId::proportional(14.0),
+                        egui::Color32::from_gray(226),
+                        (screen.width() - 120.0).max(160.0),
+                    )
+                });
+                let caption_height = caption_galley
+                    .as_ref()
+                    .map(|galley| galley.size().y + 10.0)
+                    .unwrap_or(0.0);
                 let stage = egui::Rect::from_min_max(
                     egui::pos2(screen.left() + 24.0, screen.top() + header),
                     egui::pos2(
                         screen.right() - 24.0,
-                        screen.bottom() - strip - counter_row - 12.0,
+                        screen.bottom() - strip - counter_row - 12.0 - caption_height,
                     ),
                 );
                 let mut media_rect = stage;
@@ -330,6 +344,16 @@ impl WaDesk {
                     }
                 }
 
+                // Clicking the frame plays or pauses, like the official viewer.
+                let hit = ui.interact(
+                    media_rect,
+                    ui.id().with("media-stage"),
+                    egui::Sense::click(),
+                );
+                if hit.clicked() && kind == "video" {
+                    toggle = true;
+                }
+
                 // Previous / next arrows in the gutters, like the official
                 // viewer (they only appear when the chat has more than one).
                 if items_len > 1 {
@@ -358,16 +382,6 @@ impl WaDesk {
                             nav = Some(step);
                         }
                     }
-                }
-
-                // Clicking the frame plays or pauses, like the official viewer.
-                let hit = ui.interact(
-                    media_rect,
-                    ui.id().with("media-stage"),
-                    egui::Sense::click(),
-                );
-                if hit.clicked() && kind == "video" {
-                    toggle = true;
                 }
 
                 // ---- video transport overlay ------------------------------
@@ -491,21 +505,13 @@ impl WaDesk {
                 }
 
                 // ---- caption and the filmstrip (the chevron hides them) -----
-                // The live viewer prints the caption as plain centred text under
-                // the stage (no box, no counter).
-                if !description.trim().is_empty() {
-                    let galley = painter.layout(
-                        description.clone(),
-                        egui::FontId::proportional(14.0),
-                        egui::Color32::from_gray(226),
-                        (screen.width() - 80.0).max(120.0),
-                    );
+                if let Some(galley) = &caption_galley {
                     painter.galley(
                         egui::pos2(
                             screen.center().x - galley.size().x / 2.0,
-                            stage.bottom() + 4.0,
+                            stage.bottom() + 6.0,
                         ),
-                        galley,
+                        galley.clone(),
                         egui::Color32::from_gray(226),
                     );
                 }
@@ -1026,10 +1032,31 @@ impl WaDesk {
             self.video_textures.remove(&old);
         }
 
-        // The frame itself, otherwise the nearest one behind it.
+        // The frame itself, otherwise the nearest cached one in either
+        // direction: a seek lands where nothing is decoded yet, and dropping to
+        // "Loading frame." mid-drag is what made scrubbing flicker.
         let key = format!("{dir_key}#{index}");
         if let Some(Some(texture)) = self.video_textures.get(&key) {
             return Some(texture.clone());
+        }
+        let nearest = self
+            .video_textures
+            .iter()
+            .filter_map(|(key, texture)| {
+                let number = key
+                    .strip_prefix(&dir_key)?
+                    .strip_prefix('#')?
+                    .parse::<usize>()
+                    .ok()?;
+                texture.as_ref()?;
+                Some((number.abs_diff(index), number))
+            })
+            .min_by_key(|(distance, _)| *distance);
+        if let Some((_, number)) = nearest {
+            let key = format!("{dir_key}#{number}");
+            if let Some(Some(texture)) = self.video_textures.get(&key) {
+                return Some(texture.clone());
+            }
         }
         for behind in 1..=8 {
             if behind > index {

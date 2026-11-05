@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.9] - 2026-11-05
+
+- **Video in the media viewer, focused fixes** (reported: scrubbing flickered "Loading frame.", prev/next
+  did nothing on a video, the caption ran over the filmstrip):
+  - **The stage swallowed the arrows' clicks.** The full-frame click target was registered *after* the
+    prev/next discs, and egui gives a click to the last widget under the pointer, so the discs never
+    fired - most visible on video, where the stage is the entire frame. The stage is registered first now.
+  - **Scrubbing paints the nearest decoded frame** in either direction instead of only eight frames
+    behind the playhead. A drag lands where nothing is decoded yet, so the fallback used to miss and the
+    stage showed "Loading frame."; it now always has something to paint where any frame near the target
+    is cached.
+  - **The caption is measured before the stage** and the stage's bottom is raised by its height, so a
+    long caption (the PKWT "Materi: 1. Forging …" list) no longer paints over the filmstrip.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.8] - 2026-11-05
 
 - **Viewer filmstrip**: the strip now spans the stage width (centring only when the items fit), and
