@@ -2727,11 +2727,21 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 (digits.len() >= 7).then(|| wa_ui::text::format_phone(&digits))
             })
             .or_else(|| self.number_of(&jid));
+        // The address book is keyed by bare digits, so the sender's phone has to
+        // be normalised before the lookup: a formatted "+62 811-…" used to miss
+        // and put a `~` on a saved contact's name.
         let saved = self.is_saved_contact(&jid)
             || message
                 .sender_phone
                 .as_deref()
-                .is_some_and(|phone| self.saved_contacts.contains(phone));
+                .map(|phone| {
+                    phone
+                        .chars()
+                        .filter(char::is_ascii_digit)
+                        .collect::<String>()
+                })
+                .filter(|digits| digits.len() >= 7)
+                .is_some_and(|digits| self.saved_contacts.contains(&digits));
         let name = match push {
             Some(name) => name,
             None => number.clone().unwrap_or_default(),
@@ -4512,5 +4522,40 @@ mod sticker_send_tests {
             Some(path.as_str())
         );
         assert!(model.media_path(&local).is_none());
+    }
+}
+
+#[cfg(test)]
+mod sender_row_tests {
+    use super::*;
+
+    fn group_message(sender: &str, phone: Option<&str>, name: &str) -> MessageView {
+        let mut message = view("1203@g.us", "Team", "m1", "hi", 1_770_000_000_000, false);
+        message.is_group = true;
+        message.sender = Some(sender.to_string());
+        message.sender_name = Some(name.to_string());
+        message.sender_phone = phone.map(str::to_string);
+        message
+    }
+
+    /// A saved contact never carries the `~` marker, even when the address book
+    /// stores bare digits and the message carries a formatted number.
+    #[test]
+    fn a_saved_contact_has_no_tilde() {
+        let mut model = Model::new();
+        model.saved_contacts.insert("628111000111".to_string());
+        let message = group_message("999@lid", Some("+62 811-1000-111"), "Ada Lovelace");
+        let (name, beside) = model.sender_row(&message).expect("a sender row");
+        assert_eq!(name, "Ada Lovelace", "a saved contact has no tilde prefix");
+        assert_eq!(beside, None, "and no number beside the name");
+    }
+
+    /// Someone outside the address book is marked `~ name`.
+    #[test]
+    fn an_unsaved_sender_gets_the_tilde() {
+        let model = Model::new();
+        let message = group_message("628222000222@s.whatsapp.net", Some("628222000222"), "Budi");
+        let (name, _) = model.sender_row(&message).expect("a sender row");
+        assert_eq!(name, "~ Budi");
     }
 }

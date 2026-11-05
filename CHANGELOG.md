@@ -4,6 +4,44 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.68] - 2026-11-05
+
+- **Saved contacts no longer carry the `~` in group bubbles.** `Model::sender_row` compared the sender's
+  phone against the address book verbatim, so a message whose `sender_phone` was formatted
+  (`+62 811-1000-111`) never matched the bare digits stored in `saved_contacts` and a saved person came
+  out as `~ Ada Lovelace`. The lookup normalises to digits before comparing.
+- The rule is pinned by tests: `sender_row_tests::a_saved_contact_has_no_tilde` (saved, even with a
+  formatted number and a LID sender, renders `Ada Lovelace` with no number beside) and
+  `sender_row_tests::an_unsaved_sender_gets_the_tilde` (`~ Budi`). The prefix stays **group-bubble
+  only** - `sender_row` returns nothing for 1:1 chats, so a private chat keeps the plain name with the
+  number in the header.
+- Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
+
+## [0.2.1-rc.67] - 2026-11-05
+
+- **Group info was read from the live pane (the user opened it) and its row list is now ours.** The live
+  panel lists, in this order: the group name with `Group · N members`, `Add` / `Search`, the creator
+  card, the description with **Read more**, then **Media, links and docs**, **Starred messages**,
+  **Notification settings**, **Chat theme**, **Encryption**, **Disappearing messages**,
+  **Advanced chat privacy**, the member list with **View all (N more)** and **See member changes**, and
+  finally Add to list / Export chat / Clear chat / Exit group / Report group.
+- Ours now carries the same rows in that order: **Media, links and docs** and **Starred messages** open
+  their screens, Notification settings states that muting lives in the chat menu, Encryption explains
+  end-to-end, and **Advanced chat privacy** reads "Off" (phone-owned). `target/our_group.png`
+  (`WA_DESK_SCREEN=group`).
+- Not matched yet, recorded: the creator card, "Read more", Chat theme, "View all (N more)" /
+  "See member changes", and the Add to list / Export / Clear / Report footer rows.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
+## [0.2.1-rc.66] - 2026-11-05
+
+- **The sticker `+` now lands somewhere useful.** The live control opens the WhatsApp Sticker Store
+  (Greetings / Happy / Sad / Angry / Celebrate plus Create sticker), which a linked device cannot browse
+  here; ours now jumps to the **Packs** tab and asks the session for the packs it knows about
+  (`Command::StickerPacks`), so a pack someone shared appears instead of a dead toast.
+- `docs/PARITY.md` keeps the store-browse delta recorded next to the row.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.65] - 2026-11-05
 
 - **The sticker panel's recorded deltas are closed.** Matched to the live sample: the tab row is now

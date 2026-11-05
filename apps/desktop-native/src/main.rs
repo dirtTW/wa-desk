@@ -396,7 +396,7 @@ fn main() {
     let call_video = call_video_wanted.clone();
     // Media downloads run in their own tasks; three at a time keeps the UI
     // responsive without flooding the CDN or the phone.
-    let media_limit = Arc::new(tokio::sync::Semaphore::new(8));
+    let media_limit = Arc::new(tokio::sync::Semaphore::new(16));
     // Commands from the UI thread are executed on the runtime.
     let slot = session_slot.clone();
     handle.spawn(async move {
@@ -493,10 +493,14 @@ fn main() {
                         let Ok(_permit) = limit.acquire_owned().await else {
                             return;
                         };
+                        let started = std::time::Instant::now();
                         let reply = session.fetch_media(&id).await;
+                        let took = started.elapsed().as_millis();
                         match &reply {
-                            Ok(path) => app::diag(&format!("media {id}: {path}")),
-                            Err(err) => app::diag(&format!("media {id} failed: {err}")),
+                            Ok(path) => app::diag(&format!("media {id} in {took} ms: {path}")),
+                            Err(err) => {
+                                app::diag(&format!("media {id} failed in {took} ms: {err}"))
+                            }
                         }
                         let _ = media_tx.send((id, reply));
                     });

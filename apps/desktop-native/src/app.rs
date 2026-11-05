@@ -11,7 +11,7 @@ use wa_types::{MessageView, UiEvent};
 use crate::login_ui::demo_qr_svg;
 use crate::model::{BubbleAction, ChatRow, Command, Model};
 use crate::settings::NativeSettings;
-use crate::settings_ui::{settings_card, settings_radio_row, settings_row};
+use crate::settings_ui::{settings_card, settings_link, settings_radio_row, settings_row};
 use crate::updates::{self, Release, UpdateMsg, UpdateState};
 use crate::widgets::paint_avatar;
 
@@ -1550,28 +1550,76 @@ impl WaDesk {
                                     });
                                     ui.add_space(10.0);
                                 }
+                                // The row list the live Group info pane shows,
+                                // in its order (sampled 2026-11-05).
                                 settings_card(ui, &palette, "GROUP", |ui| {
-                                    settings_row(
-                                        ui,
-                                        &palette,
-                                        "Add members",
-                                        "Pick contacts from the address book.",
-                                        |_ui| {},
-                                    );
+                                    let mut media = false;
+                                    let mut starred = false;
                                     settings_row(
                                         ui,
                                         &palette,
                                         "Media, links and docs",
                                         "Everything shared in this group.",
+                                        |ui| {
+                                            if settings_link(ui, &palette, "Open") {
+                                                media = true;
+                                            }
+                                        },
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Starred messages",
+                                        "Messages you saved from this chat.",
+                                        |ui| {
+                                            if settings_link(ui, &palette, "Open") {
+                                                starred = true;
+                                            }
+                                        },
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Notification settings",
+                                        "Per-chat mute state.",
+                                        |ui| {
+                                            // Muting is a chat action here, not a
+                                            // stored per-chat flag yet.
+                                            ui.label(
+                                                egui::RichText::new("Manage in the chat menu")
+                                                    .size(13.0)
+                                                    .color(palette.secondary),
+                                            );
+                                        },
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Encryption",
+                                        "Messages are end-to-end encrypted.",
                                         |_ui| {},
                                     );
                                     settings_row(
                                         ui,
                                         &palette,
-                                        "Group settings",
-                                        "Send messages, edit info, disappearing messages.",
-                                        |_ui| {},
+                                        "Advanced chat privacy",
+                                        "Owned by the phone.",
+                                        |ui| {
+                                            ui.label(
+                                                egui::RichText::new("Off")
+                                                    .size(13.0)
+                                                    .color(palette.secondary),
+                                            );
+                                        },
                                     );
+                                    if media {
+                                        self.show_media = true;
+                                        self.show_group = false;
+                                    }
+                                    if starred {
+                                        self.show_starred = true;
+                                        self.show_group = false;
+                                    }
                                 });
                                 ui.add_space(10.0);
                                 // Disappearing messages: a linked device can set
