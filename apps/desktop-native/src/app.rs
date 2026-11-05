@@ -3403,35 +3403,59 @@ fn bubble_content(
                 tile_size,
             );
             painter.rect_filled(tile, egui::CornerRadius::same(6), palette.hover);
-            // A play disc for a video, a picture glyph for a photo.
-            let disc = egui::Rect::from_center_size(tile.center(), egui::vec2(46.0, 46.0));
-            painter.circle_filled(disc.center(), 23.0, egui::Color32::from_black_alpha(90));
-            draw_icon(
-                ui,
-                disc.shrink(12.0),
-                if message.kind == "video" {
-                    Icon::Play
-                } else {
-                    Icon::Document
-                },
-                egui::Color32::from_gray(235),
-            );
-            let kind_label = if message.kind == "video" {
-                "video"
-            } else {
-                "photo"
-            };
-            let label = match &failed {
-                Some(err) => format!("Couldn't load the {kind_label} - tap to retry ({err})"),
-                None => format!("Loading the {kind_label}…"),
-            };
-            painter.text(
-                egui::pos2(tile.center().x, tile.bottom() - 12.0),
-                egui::Align2::CENTER_BOTTOM,
-                label,
-                egui::FontId::proportional(11.0),
-                palette.secondary,
-            );
+            // The sender's client embedded a few-kilobyte JPEG; painting it now
+            // is what makes a photo appear the moment it arrives, the way the
+            // official client does, instead of a grey "loading" tile.
+            let preview = thumb_texture(ctx, textures, &message.id, message.thumb.as_deref());
+            match &preview {
+                Some(texture) => {
+                    let size = texture.size_vec2();
+                    let scale =
+                        (tile.width() / size.x.max(1.0)).max(tile.height() / size.y.max(1.0));
+                    let drawn = egui::Rect::from_center_size(tile.center(), size * scale);
+                    painter
+                        .with_clip_rect(tile.intersect(painter.clip_rect()))
+                        .image(
+                            texture.id(),
+                            drawn,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                }
+                None => {
+                    // A play disc for a video, a picture glyph for a photo.
+                    let disc = egui::Rect::from_center_size(tile.center(), egui::vec2(46.0, 46.0));
+                    painter.circle_filled(disc.center(), 23.0, egui::Color32::from_black_alpha(90));
+                    draw_icon(
+                        ui,
+                        disc.shrink(12.0),
+                        if message.kind == "video" {
+                            Icon::Play
+                        } else {
+                            Icon::Document
+                        },
+                        egui::Color32::from_gray(235),
+                    );
+                    let kind_label = if message.kind == "video" {
+                        "video"
+                    } else {
+                        "photo"
+                    };
+                    let label = match &failed {
+                        Some(err) => {
+                            format!("Couldn't load the {kind_label} - tap to retry ({err})")
+                        }
+                        None => format!("Loading the {kind_label}…"),
+                    };
+                    painter.text(
+                        egui::pos2(tile.center().x, tile.bottom() - 12.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        label,
+                        egui::FontId::proportional(11.0),
+                        palette.secondary,
+                    );
+                }
+            }
             let mut y = tile.bottom() + 5.0;
             if let Some(galley) = &caption_galley {
                 let caption_height = galley.size().y;

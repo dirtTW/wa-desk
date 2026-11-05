@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.34] - 2026-11-05
+
+- **Media appears the moment it arrives, like the official client.** Every photo/video/document
+  message ships a few-kilobyte JPEG thumbnail. `util::inline_thumb` turns it into a `data:` URI,
+  `MessageView.thumb` carries it with the event (serde-defaulted, so old caches still load), and the
+  bubble paints it inside the media tile while the full file downloads - cover-scaled and clipped to
+  the tile, with the caption and clock already in place. The grey "Loading the photo…" tile is now
+  only what a message with no thumbnail at all shows.
+- Downloads run **eight at a time** instead of four (the semaphore in `main.rs`), and the preview
+  texture is cached under `thumb-<id>` in the same LRU pool as the full images, so a gallery fills in
+  visibly faster.
+- Test: `wa-core::contact_tests::an_inline_thumbnail_becomes_a_data_uri` (also checks a message
+  without a thumbnail stays quiet). Capture: `target/our_thumb.png` (`WA_DESK_THUMB=1`).
+- `docs/PARITY.md` records the thumbnail-first media bubble.
+- Tests: 124 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.33] - 2026-11-05
 
 - **WhatsApp markup renders instead of showing its asterisks.** `rich_text::spans` parses `*bold*`,
