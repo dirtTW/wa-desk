@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.79] - 2026-11-05
+
+- **The Group info head now matches the live drawer.** Opening a chat on `web.whatsapp.com` and
+  clicking the header kebab gave the real Group info panel (`target/live_chat_menu2.jpg`): a 96 px
+  photo with a green **camera badge** on its lower-right corner, the subject beside an **edit pencil**,
+  "Group · N members", then four labelled discs - **Voice, Video, Add, Search** - and a green
+  **Add group description** link when the group has none.
+- Ours now paints exactly that head: the avatar is drawn into a rect we own so the camera badge always
+  lands on its corner (the first attempt used the layout cursor and floated it beside the photo), the
+  pencil sits with the name, the four discs are 46 px circles with their labels and the missing
+  description shows the link. Each reports where the action really happens (rename/description live on
+  the phone).
+- Evidence: `target/our_group.png` beside `target/live_chat_menu2.jpg`.
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.78] - 2026-11-05
 
 - **The Calls screen is the live drawer now.** Sampled `web.whatsapp.com` (`target/live_calls.jpg`,

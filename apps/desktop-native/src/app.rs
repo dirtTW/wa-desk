@@ -1555,13 +1555,63 @@ impl WaDesk {
                         ui.add_space(20.0);
                         ui.vertical_centered(|ui| {
                             let avatar = self.avatar_for(&info.jid).cloned();
-                            paint_avatar(ui, &info.subject, 96.0, avatar.as_ref());
-                            ui.add_space(10.0);
-                            ui.label(
-                                egui::RichText::new(&info.subject)
-                                    .size(21.0)
-                                    .color(palette.text),
+                            // The live pane paints a green camera badge on the
+                            // group photo so it can be changed from here.
+                            // Paint the photo into a rect we own, so the camera
+                            // badge can sit on its corner regardless of layout.
+                            let (photo, _) = ui
+                                .allocate_exact_size(egui::vec2(96.0, 96.0), egui::Sense::hover());
+                            if let Some(texture) = avatar.as_ref() {
+                                ui.painter().image(
+                                    texture.id(),
+                                    photo,
+                                    egui::Rect::from_min_max(
+                                        egui::pos2(0.0, 0.0),
+                                        egui::pos2(1.0, 1.0),
+                                    ),
+                                    egui::Color32::WHITE,
+                                );
+                            } else {
+                                ui.painter().circle_filled(
+                                    photo.center(),
+                                    48.0,
+                                    crate::widgets::avatar_color(&info.subject),
+                                );
+                                ui.painter().text(
+                                    photo.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    crate::widgets::initials(&info.subject),
+                                    egui::FontId::proportional(34.0),
+                                    egui::Color32::WHITE,
+                                );
+                            }
+                            let badge = egui::pos2(photo.right() - 14.0, photo.bottom() - 14.0);
+                            ui.painter().circle_filled(badge, 14.0, palette.accent);
+                            draw_icon(
+                                ui,
+                                egui::Rect::from_center_size(badge, egui::vec2(16.0, 16.0)),
+                                Icon::PersonAdd,
+                                egui::Color32::from_rgb(11, 20, 26),
                             );
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
+                                // The name sits beside its edit pencil, as live.
+                                ui.add_space((ui.available_width() - 260.0).max(0.0) / 2.0);
+                                ui.label(
+                                    egui::RichText::new(&info.subject)
+                                        .size(21.0)
+                                        .color(palette.text),
+                                );
+                                if icon_button(ui, Icon::Edit, &palette)
+                                    .on_hover_text("Edit group name")
+                                    .clicked()
+                                {
+                                    self.notice = Some((
+                                        "Renaming a group happens on the phone".to_string(),
+                                        std::time::Instant::now(),
+                                    ));
+                                }
+                            });
                             // `group_member_count` already reads
                             // "Group · N members"; a community only needs its own
                             // name in front.
@@ -1576,6 +1626,53 @@ impl WaDesk {
                                     .size(13.0)
                                     .color(palette.secondary),
                             );
+                            ui.add_space(12.0);
+                            ui.horizontal(|ui| {
+                                // Voice / Video / Add / Search discs with labels.
+                                ui.spacing_mut().item_spacing.x = 26.0;
+                                ui.add_space(
+                                    ((ui.available_width() - 4.0 * 46.0 - 3.0 * 26.0) / 2.0)
+                                        .max(0.0),
+                                );
+                                let actions = [
+                                    (Icon::Phone, "Voice"),
+                                    (Icon::VideoCall, "Video"),
+                                    (Icon::PersonAdd, "Add"),
+                                    (Icon::Search, "Search"),
+                                ];
+                                for (icon, label) in actions {
+                                    ui.vertical(|ui| {
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(46.0, 46.0),
+                                            egui::Sense::click(),
+                                        );
+                                        ui.painter().circle_filled(
+                                            rect.center(),
+                                            23.0,
+                                            palette.hover,
+                                        );
+                                        if response.hovered() {
+                                            ui.painter().circle_filled(
+                                                rect.center(),
+                                                23.0,
+                                                palette.selected,
+                                            );
+                                        }
+                                        draw_icon(ui, rect.shrink(12.0), icon, palette.accent);
+                                        if response.clicked() {
+                                            self.notice = Some((
+                                                format!("{label} opens from the group screen"),
+                                                std::time::Instant::now(),
+                                            ));
+                                        }
+                                        ui.label(
+                                            egui::RichText::new(label)
+                                                .size(11.5)
+                                                .color(palette.secondary),
+                                        );
+                                    });
+                                }
+                            });
                             ui.add_space(14.0);
                         });
 
@@ -1647,6 +1744,19 @@ impl WaDesk {
                                         self.group_desc_open = !self.group_desc_open;
                                     }
                                     ui.add_space(10.0);
+                                } else {
+                                    // The live pane offers the link instead of an
+                                    // empty card when the group has no description.
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(4.0);
+                                        if settings_link(ui, &palette, "Add group description") {
+                                            self.notice = Some((
+                                                "Descriptions are set on the phone".to_string(),
+                                                std::time::Instant::now(),
+                                            ));
+                                        }
+                                    });
+                                    ui.add_space(6.0);
                                 }
                                 // The row list the live Group info pane shows,
                                 // in its order (sampled 2026-11-05).
