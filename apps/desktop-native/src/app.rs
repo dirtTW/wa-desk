@@ -10,9 +10,16 @@ use wa_types::{MessageView, UiEvent};
 
 use crate::bubbles::{context_menu, day_chip, pills_row};
 use crate::login::LoginState;
+use crate::login_ui::{
+    demo_qr_svg, draw_laptop, draw_whatsapp_mark, gate_card, gate_link, gate_step,
+};
 use crate::model::{BubbleAction, ChatRow, Command, Model};
-use crate::rich_text::{clean_text, emoji_only, has_emoji, layout_body, paint_body};
+use crate::rich_text::{clean_text, emoji_only, has_emoji, has_markup, layout_body, paint_body};
 use crate::settings::NativeSettings;
+use crate::settings_ui::{
+    settings_card, settings_field, settings_file, settings_link, settings_list_row,
+    settings_radio_row, settings_row, settings_switch,
+};
 use crate::updates::{self, Release, UpdateMsg, UpdateState};
 use crate::widgets::{
     avatar_color, dialog_button, dialog_card, fit_text, hex_colour, initials, paint_avatar,
@@ -88,6 +95,10 @@ pub struct WaDesk {
     location_draft: Option<crate::app::LocationDraft>,
     /// The name being typed for a new custom list.
     list_draft: Option<String>,
+    /// `WA_DESK_SEND_ONCE` has fired (a smoke test of the send path).
+    smoke_sent: bool,
+    /// `WA_DESK_SCROLL_TOP` parks the conversation at its first message.
+    preview_scroll_top: bool,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
@@ -273,6 +284,8 @@ impl WaDesk {
             contact_draft: None,
             location_draft: None,
             list_draft: None,
+            smoke_sent: false,
+            preview_scroll_top: std::env::var("WA_DESK_SCROLL_TOP").is_ok(),
             status_compose: None,
             status_compose_background: 0,
             status_compose_font: 0,
@@ -431,6 +444,43 @@ impl WaDesk {
                 let jid = first.jid.clone();
                 self.model.open_status(&jid);
             }
+        }
+        if std::env::var("WA_DESK_THUMB").is_ok() {
+            self.model.active = Some("1203@g.us".to_string());
+            self.model.demo_photo_thumb("1203@g.us", "thumb-demo");
+        }
+        if std::env::var("WA_DESK_MARKUP").is_ok() {
+            self.model.active = Some("1203@g.us".to_string());
+            self.model.demo_note(
+                "1203@g.us",
+                "markup-demo",
+                "Waduh benar, tadi cuma sampai 7 \u{1F601} Ini nomor 8. **Responsif & konsisten di semua ukuran layar**  Pastikan layout rapi di HP, tablet, dan desktop. Jangan ada teks/tombol kepotong atau jarak berantakan saat layar berubah. Mau aku lanjut kasih checklist UI rapi versi lengkap? \u{1F60A}",
+                false,
+            );
+        }
+        if std::env::var("WA_DESK_SENT").is_ok() {
+            let chat = "1203@g.us".to_string();
+            self.model.active = Some(chat.clone());
+            self.model.add_own_text(
+                &chat,
+                "Sent from this window: the bubble is here before the stanza leaves.",
+                None,
+            );
+        }
+        if std::env::var("WA_DESK_FORWARD").is_ok() {
+            let chat = "1203@g.us".to_string();
+            self.model.active = Some(chat.clone());
+            let target = self.model.chats.get(&chat).and_then(|row| {
+                row.messages
+                    .iter()
+                    .find(|message| message.kind == "text")
+                    .cloned()
+            });
+            if let Some(message) = target {
+                self.model.start_forward(&message);
+            }
+            self.model.forward_chosen = ["1@s.whatsapp.net".to_string()].to_vec();
+            self.model.forward_search.clear();
         }
         if std::env::var("WA_DESK_LOCATION").is_ok() {
             self.model
@@ -2620,7 +2670,16 @@ impl WaDesk {
                 let query = self.model.chat_search.clone();
                 let focus = current.filter(|_| self.scrolled_hit != self.model.search_hit);
 
-                let height = ui.available_height() - 64.0;
+                // The composer is painted *after* the list, so its real height
+                // is measured for the next frame instead of guessed: a fixed
+                // 64 px reserve clipped the field's bottom edge against the
+                // window border as soon as the banner or the recording row made
+                // the bar taller.
+                let composer_height: f32 = ctx.data(|data| {
+                    data.get_temp(egui::Id::new("composer-height"))
+                        .unwrap_or(64.0)
+                });
+                let height = (ui.available_height() - composer_height - 10.0).max(120.0);
                 // WhatsApp anchors a short conversation to the composer; the
                 // previous frame's content height tells us how much to pad.
                 // Keyed by chat: a *global* height padded the new chat with the
@@ -2630,75 +2689,140 @@ impl WaDesk {
                 let spare = (height - content_height).max(0.0);
                 let mut chosen: Option<BubbleAction> = None;
                 let playback = self.audio.state();
-                egui::ScrollArea::vertical()
+                let mut list = egui::ScrollArea::vertical()
                     .stick_to_bottom(focus.is_none())
                     .auto_shrink([false, false])
-                    .max_height(height.max(120.0))
-                    .show(ui, |ui| {
-                        let ctx = ui.ctx().clone();
-                        // Breathing room from the window edge: the official
-                        // list never lets a bubble touch the panel border. A
-                        // frame margin insets *both* sides, which `add_space`
-                        // cannot do for a right-aligned bubble.
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(20, 0))
-                            .show(ui, |ui| {
-                                let now = self.model.now;
-                                for (index, message) in row.messages.iter().enumerate() {
-                                    // The official client separates days with a chip.
-                                    if Model::starts_new_day(&row.messages, index, now) {
-                                        day_chip(
-                                            ui,
-                                            &palette,
-                                            &wa_ui::labels::day_of(message.timestamp, now),
-                                        );
-                                    }
-                                    // ...and marks where the unread block began.
-                                    if self
-                                        .model
-                                        .unread_anchor
-                                        .get(&row.jid)
-                                        .is_some_and(|id| id == &message.id)
-                                    {
-                                        unread_divider(ui, &palette);
-                                    }
-                                    let is_hit = hits.contains(&index);
-                                    let head = Model::starts_run(&row.messages, index);
-                                    let avatar = if row.jid.ends_with("@g.us")
-                                        && !message.from_me
-                                        && head
-                                        && let Some(sender) = message.sender.as_deref()
-                                    {
-                                        self.ensure_avatar(ui.ctx(), sender);
-                                        self.avatar_for(sender).cloned()
-                                    } else {
-                                        None
-                                    };
-                                    if let Some(action) = bubble(
+                    .max_height(height.max(120.0));
+                // A freshly opened chat (or a message we just sent) must be
+                // visible, even when the history is far taller than the window:
+                // `stick_to_bottom` alone only holds once the view is there, so
+                // the content asks egui to scroll to its own bottom.
+                let want_bottom = self.model.scroll_bottom > 0;
+                if want_bottom {
+                    self.model.scroll_bottom -= 1;
+                    ui.ctx().request_repaint();
+                }
+                // `WA_DESK_SCROLL_TOP=1` parks the view at the first message so
+                // the floating "newest message" disc can be checked.
+                if self.preview_scroll_top {
+                    list = list.vertical_scroll_offset(0.0);
+                }
+                let list_output = list.show(ui, |ui| {
+                    let ctx = ui.ctx().clone();
+                    // Breathing room from the window edge: the official
+                    // list never lets a bubble touch the panel border. A
+                    // frame margin insets *both* sides, which `add_space`
+                    // cannot do for a right-aligned bubble.
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::symmetric(20, 0))
+                        .show(ui, |ui| {
+                            let now = self.model.now;
+                            for (index, message) in row.messages.iter().enumerate() {
+                                // The official client separates days with a chip.
+                                if Model::starts_new_day(&row.messages, index, now) {
+                                    day_chip(
                                         ui,
                                         &palette,
-                                        &self.model,
-                                        message,
-                                        &mut self.textures,
-                                        &ctx,
-                                        if is_hit { Some(query.as_str()) } else { None },
-                                        focus == Some(index),
-                                        &playback,
-                                        Model::ends_run(&row.messages, index),
-                                        avatar.as_ref(),
-                                        head,
-                                    ) {
-                                        chosen = Some(action);
-                                    }
-                                }
-                                ctx.data_mut(|data| {
-                                    data.insert_temp(
-                                        height_key,
-                                        (ui.min_rect().height() - spare).max(0.0),
+                                        &wa_ui::labels::day_of(message.timestamp, now),
                                     );
-                                });
+                                }
+                                // ...and marks where the unread block began.
+                                if self
+                                    .model
+                                    .unread_anchor
+                                    .get(&row.jid)
+                                    .is_some_and(|id| id == &message.id)
+                                {
+                                    unread_divider(ui, &palette);
+                                }
+                                let is_hit = hits.contains(&index);
+                                let head = Model::starts_run(&row.messages, index);
+                                let avatar = if row.jid.ends_with("@g.us")
+                                    && !message.from_me
+                                    && head
+                                    && let Some(sender) = message.sender.as_deref()
+                                {
+                                    self.ensure_avatar(ui.ctx(), sender);
+                                    self.avatar_for(sender).cloned()
+                                } else {
+                                    None
+                                };
+                                if let Some(action) = bubble(
+                                    ui,
+                                    &palette,
+                                    &self.model,
+                                    message,
+                                    &mut self.textures,
+                                    &ctx,
+                                    if is_hit { Some(query.as_str()) } else { None },
+                                    focus == Some(index),
+                                    &playback,
+                                    Model::ends_run(&row.messages, index),
+                                    avatar.as_ref(),
+                                    head,
+                                ) {
+                                    chosen = Some(action);
+                                }
+                            }
+                            ctx.data_mut(|data| {
+                                data.insert_temp(
+                                    height_key,
+                                    (ui.min_rect().height() - spare).max(0.0),
+                                );
                             });
-                    });
+                        });
+                    // Ask now that the content has a height; egui applies it at
+                    // the end of this frame.
+                    if want_bottom && !self.preview_scroll_top {
+                        ui.scroll_to_rect(ui.min_rect(), Some(egui::Align::BOTTOM));
+                    }
+                });
+                // The floating "jump to the newest message" disc the official
+                // client shows once you scroll up in a long history: a 44 px
+                // circle with a chevron, just above the composer.
+                let viewport = list_output.inner_rect;
+                let max_offset = (list_output.content_size.y - viewport.height()).max(0.0);
+                if max_offset > 1.0 && list_output.state.offset.y < max_offset - 2.0 {
+                    let center = egui::pos2(viewport.right() - 42.0, viewport.bottom() - 30.0);
+                    let rect = egui::Rect::from_center_size(center, egui::vec2(44.0, 44.0));
+                    let response = ui
+                        .interact(
+                            rect,
+                            egui::Id::new("scroll-to-latest"),
+                            egui::Sense::click(),
+                        )
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .on_hover_text("Scroll to the latest message");
+                    let fill = if response.hovered() {
+                        palette.hover
+                    } else {
+                        palette.elevated
+                    };
+                    let painter = ui.painter();
+                    painter.circle_filled(center, 22.0, fill);
+                    painter.circle_stroke(center, 21.5, egui::Stroke::new(1.0_f32, palette.border));
+                    // The icon table has no "expand more", and two strokes stay
+                    // crisp at any scale.
+                    let chevron = egui::Stroke::new(2.0_f32, palette.text);
+                    painter.line_segment(
+                        [
+                            center + egui::vec2(-6.0, -3.0),
+                            center + egui::vec2(0.0, 3.0),
+                        ],
+                        chevron,
+                    );
+                    painter.line_segment(
+                        [
+                            center + egui::vec2(0.0, 3.0),
+                            center + egui::vec2(6.0, -3.0),
+                        ],
+                        chevron,
+                    );
+                    if response.clicked() {
+                        self.model.scroll_bottom = 3;
+                        ui.ctx().request_repaint();
+                    }
+                }
                 if let Some(action) = chosen {
                     self.run_action(&row, action);
                 }
@@ -2713,6 +2837,7 @@ impl WaDesk {
                     self.model.search_hit = -1;
                 }
 
+                let composer_top = ui.cursor().top();
                 ui.separator();
 
                 // The reply / edit card above the composer.
@@ -2889,6 +3014,10 @@ impl WaDesk {
                                         } else {
                                             Some(reply.text.clone())
                                         };
+                                        // WhatsApp does not echo our own
+                                        // messages back, so the bubble has to
+                                        // exist before the stanza leaves.
+                                        self.model.add_own_text(&jid, &text, Some(&reply));
                                         self.send(Command::SendReply {
                                             chat: jid.clone(),
                                             text,
@@ -2896,6 +3025,7 @@ impl WaDesk {
                                             quoted,
                                         });
                                     } else {
+                                        self.model.add_own_text(&jid, &text, None);
                                         self.send(Command::SendText {
                                             chat: jid.clone(),
                                             text,
@@ -2909,6 +3039,12 @@ impl WaDesk {
                                     self.typing_sent = false;
                                 }
                             }
+                        });
+                        ctx.data_mut(|data| {
+                            data.insert_temp(
+                                egui::Id::new("composer-height"),
+                                (ui.min_rect().bottom() - composer_top).max(0.0),
+                            );
                         });
                     });
             });
@@ -3363,6 +3499,10 @@ fn bubble_content(
                         PHOTO_PX,
                     )
                 })
+                // Nothing on disk yet: the few-kilobyte JPEG the sender's
+                // client embedded paints immediately, which is what makes the
+                // official bubble appear the moment a photo arrives.
+                .or_else(|| thumb_texture(ctx, textures, &message.id, message.thumb.as_deref()))
         {
             // The photo/video sits inside the same bubble as text: padding,
             // rounded corners with the run's tail, caption and clock inside.
@@ -3910,7 +4050,7 @@ fn bubble_content(
         // Emoji are painted as colour pictures (the text font has outlines only,
         // which is why they used to show as boxes); emoji-only messages get the
         // larger cell the official client uses.
-        let rich = search.is_none() && has_emoji(&body);
+        let rich = search.is_none() && (has_emoji(&body) || has_markup(&body));
         let rich_body = rich.then(|| {
             let px = if emoji_only(&body) { 44 } else { 19 };
             layout_body(ui, &body, palette.text, max_text, px)
@@ -4167,6 +4307,36 @@ pub(crate) fn texture_at(
     let frame = ctx.cumulative_frame_nr();
     ctx.data_mut(|data| data.insert_temp(egui::Id::new(("texture-use", key)), frame));
     Some(texture)
+}
+
+/// Decode the inline thumbnail (a `data:image/jpeg;base64,…` URI) into a
+/// texture, cached under `thumb-<id>`. Used only while the real file is still
+/// downloading, so the bubble is never an empty placeholder.
+fn thumb_texture(
+    ctx: &egui::Context,
+    cache: &mut std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    id: &str,
+    thumb: Option<&str>,
+) -> Option<egui::TextureHandle> {
+    use base64::Engine as _;
+    let data = thumb?;
+    let key = format!("thumb-{id}");
+    if let Some(texture) = cache.get(&key) {
+        return texture.clone();
+    }
+    let encoded = data.split_once(',').map(|(_, body)| body).unwrap_or(data);
+    let texture = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()
+        .and_then(|bytes| image::load_from_memory(&bytes).ok())
+        .map(|image| {
+            let image = image.to_rgba8();
+            let size = [image.width() as usize, image.height() as usize];
+            let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+            ctx.load_texture(key.clone(), color, egui::TextureOptions::LINEAR)
+        });
+    cache.insert(key, texture.clone());
+    texture
 }
 
 /// Keep the texture caches bounded: drop the least-recently-painted entries
@@ -5462,6 +5632,7 @@ fn status_as_message(update: &wa_ui::status::StatusUpdateView) -> MessageView {
         contact: None,
         poll: None,
         location: None,
+        thumb: None,
     }
 }
 
@@ -6889,169 +7060,6 @@ fn unread_divider(ui: &mut egui::Ui, palette: &crate::theme::Palette) {
     ui.add_space(4.0);
 }
 
-/// A dummy QR bitmap for `--preview` (`WA_DESK_LOGIN=qr`): it looks like a
-/// code without being one, which is all a layout screenshot needs.
-fn demo_qr_svg() -> String {
-    let modules = 25;
-    let mut path = String::new();
-    let mut seed = 0x2545_F491_4F6C_DD1Du64;
-    for y in 0..modules {
-        for x in 0..modules {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            if seed % 100 < 46 {
-                path.push_str(&format!("M{x} {y}h1v1h-1z"));
-            }
-        }
-    }
-    format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"300\" height=\"300\" \
-         viewBox=\"0 0 {modules} {modules}\">\
-         <rect width=\"{modules}\" height=\"{modules}\" fill=\"#ffffff\"/>\
-         <path d=\"{path}\" fill=\"#111b21\"/></svg>"
-    )
-}
-
-/// One card of the login page: rounded, bordered, generous padding.
-fn gate_card(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    width: f32,
-    contents: impl FnOnce(&mut egui::Ui),
-) {
-    let margin = 26.0;
-    ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
-        egui::Frame::new()
-            .fill(palette.elevated)
-            .stroke(egui::Stroke::new(
-                1.0_f32,
-                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 22),
-            ))
-            .corner_radius(egui::CornerRadius::same(24))
-            .inner_margin(egui::Margin::same(margin as i8))
-            .show(ui, |ui| {
-                ui.set_width(width - margin * 2.0);
-                contents(ui);
-            });
-    });
-}
-
-/// One numbered step of the scan card: the outlined disc and its text.
-fn gate_step(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    number: i32,
-    contents: impl FnOnce(&mut egui::Ui, &crate::theme::Palette),
-) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::hover());
-        ui.painter().circle_stroke(
-            rect.center(),
-            11.0,
-            egui::Stroke::new(1.2_f32, palette.secondary),
-        );
-        ui.painter().text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            number.to_string(),
-            egui::FontId::proportional(12.5),
-            palette.secondary,
-        );
-        ui.add_space(8.0);
-        contents(ui, palette);
-    });
-}
-
-/// A green underlined link, the way the official page draws them.
-fn gate_link(ui: &mut egui::Ui, palette: &crate::theme::Palette, text: &str) -> egui::Response {
-    let galley = ui.painter().layout_no_wrap(
-        text.to_string(),
-        egui::FontId::proportional(14.0),
-        palette.accent,
-    );
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(galley.size().x, galley.size().y + 2.0),
-        egui::Sense::click(),
-    );
-    let color = if response.hovered() {
-        palette.accent.gamma_multiply(0.85)
-    } else {
-        palette.accent
-    };
-    let underline_y = rect.bottom() - 1.0;
-    ui.painter().line_segment(
-        [
-            egui::pos2(rect.left(), underline_y),
-            egui::pos2(rect.right(), underline_y),
-        ],
-        egui::Stroke::new(1.0_f32, color),
-    );
-    ui.painter()
-        .galley(egui::pos2(rect.left(), rect.top()), galley, color);
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-/// The WhatsApp glyph: a speech bubble outline with a handset inside.
-fn draw_whatsapp_mark(ui: &egui::Ui, rect: egui::Rect, color: egui::Color32) {
-    let radius = rect.width() * 0.42;
-    ui.painter()
-        .circle_stroke(rect.center(), radius, egui::Stroke::new(1.6_f32, color));
-    // The tail: a small triangle at the bottom left.
-    let center = rect.center();
-    ui.painter().add(egui::Shape::convex_polygon(
-        vec![
-            egui::pos2(center.x - radius * 0.72, center.y + radius * 0.68),
-            egui::pos2(center.x - radius * 0.30, center.y + radius * 0.74),
-            egui::pos2(center.x - radius * 0.62, center.y + radius * 1.16),
-        ],
-        color,
-        egui::Stroke::NONE,
-    ));
-    // The handset: a short thick stroke on a diagonal inside the disc.
-    ui.painter().line_segment(
-        [
-            egui::pos2(center.x - radius * 0.34, center.y + radius * 0.30),
-            egui::pos2(center.x + radius * 0.36, center.y - radius * 0.34),
-        ],
-        egui::Stroke::new(rect.width() * 0.22, color),
-    );
-}
-
-/// The laptop drawing of the download card, in the accent green.
-fn draw_laptop(ui: &egui::Ui, rect: egui::Rect, palette: &crate::theme::Palette) {
-    let painter = ui.painter();
-    let green = palette.accent;
-    let screen = egui::Rect::from_min_size(
-        egui::pos2(
-            rect.left() + rect.width() * 0.13,
-            rect.top() + rect.height() * 0.06,
-        ),
-        egui::vec2(rect.width() * 0.74, rect.height() * 0.62),
-    );
-    painter.rect_stroke(
-        screen,
-        egui::CornerRadius::same(6),
-        egui::Stroke::new(2.0_f32, green),
-        egui::StrokeKind::Inside,
-    );
-    let bar = egui::Rect::from_min_size(
-        screen.min + egui::vec2(6.0, 6.0),
-        egui::vec2(screen.width() * 0.34, screen.height() - 12.0),
-    );
-    painter.rect_filled(bar, egui::CornerRadius::same(3), green);
-    let phone = egui::Rect::from_min_size(
-        egui::pos2(screen.right() - 26.0, screen.top() + 10.0),
-        egui::vec2(18.0, 30.0),
-    );
-    painter.rect_filled(phone, egui::CornerRadius::same(4), green);
-    let base = egui::Rect::from_min_size(
-        egui::pos2(rect.left() + rect.width() * 0.06, screen.bottom() + 3.0),
-        egui::vec2(rect.width() * 0.88, 5.0),
-    );
-    painter.rect_filled(base, egui::CornerRadius::same(3), green);
-}
-
 /// The poll composer's state.
 #[derive(Clone, Default)]
 pub struct PollDraft {
@@ -7434,245 +7442,6 @@ fn sticker_tab(
     response
 }
 
-/// One row of the settings section list.
-fn settings_list_row(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    icon: Icon,
-    title: &str,
-    subtitle: Option<&str>,
-    selected: bool,
-    color: egui::Color32,
-) -> egui::Response {
-    ui.horizontal(|ui| {
-        ui.add_space(10.0);
-        let height = if subtitle.is_some() { 54.0 } else { 44.0 };
-        let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width() - 10.0, height),
-            egui::Sense::click(),
-        );
-        if selected || response.hovered() {
-            ui.painter().rect_filled(
-                rect,
-                egui::CornerRadius::same(10),
-                if selected {
-                    palette.selected
-                } else {
-                    palette.hover
-                },
-            );
-        }
-        draw_icon(
-            ui,
-            egui::Rect::from_center_size(
-                egui::pos2(rect.left() + 24.0, rect.center().y),
-                egui::vec2(20.0, 20.0),
-            ),
-            icon,
-            if selected { palette.accent } else { color },
-        );
-        let text_left = rect.left() + 46.0;
-        match subtitle {
-            Some(subtitle) => {
-                ui.painter().text(
-                    egui::pos2(text_left, rect.center().y - 9.0),
-                    egui::Align2::LEFT_CENTER,
-                    title,
-                    egui::FontId::proportional(14.0),
-                    palette.text,
-                );
-                ui.painter().text(
-                    egui::pos2(text_left, rect.center().y + 10.0),
-                    egui::Align2::LEFT_CENTER,
-                    subtitle,
-                    egui::FontId::proportional(11.5),
-                    palette.secondary,
-                );
-            }
-            None => {
-                ui.painter().text(
-                    egui::pos2(text_left, rect.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    title,
-                    egui::FontId::proportional(14.0),
-                    color,
-                );
-            }
-        }
-        response
-    })
-    .inner
-}
-
-/// A card in the detail pane: raised surface, green uppercase title.
-fn settings_card(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    title: &str,
-    body: impl FnOnce(&mut egui::Ui),
-) {
-    ui.add_space(16.0);
-    egui::Frame::new()
-        .fill(palette.elevated)
-        .corner_radius(egui::CornerRadius::same(14))
-        .inner_margin(egui::Margin::symmetric(18, 14))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-            ui.label(
-                egui::RichText::new(title)
-                    .size(11.5)
-                    .strong()
-                    .color(palette.accent),
-            );
-            ui.add_space(10.0);
-            body(ui);
-        });
-}
-
-/// A label + description row with an optional trailing control.
-fn settings_row(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    title: &str,
-    description: &str,
-    control: impl FnOnce(&mut egui::Ui),
-) {
-    ui.horizontal_top(|ui| {
-        // Two fixed columns: egui would otherwise wrap the control onto the
-        // next line once the wrapping label had taken the whole width. Both
-        // columns scale with the pane, so nothing is clipped when it is narrow.
-        let width = ui.available_width();
-        let control_width = (width * 0.36).clamp(84.0, 168.0);
-        let text_width = (width - control_width - 12.0).max(90.0);
-        ui.allocate_ui_with_layout(
-            egui::vec2(text_width, 0.0),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                ui.set_width(text_width);
-                ui.label(egui::RichText::new(title).size(14.0).color(palette.text));
-                if !description.is_empty() {
-                    ui.add_space(2.0);
-                    ui.label(
-                        egui::RichText::new(description)
-                            .size(12.0)
-                            .color(palette.secondary),
-                    );
-                }
-            },
-        );
-        ui.allocate_ui_with_layout(
-            egui::vec2(control_width, 0.0),
-            egui::Layout::right_to_left(egui::Align::Center),
-            |ui| {
-                ui.set_width(control_width);
-                control(ui)
-            },
-        );
-    });
-    ui.add_space(10.0);
-}
-
-/// A full-width radio row (the theme choices).
-fn settings_radio_row(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    label: &str,
-    selected: bool,
-) -> egui::Response {
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
-    if response.hovered() {
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(8), palette.hover);
-    }
-    let center = egui::pos2(rect.right() - 18.0, rect.center().y);
-    ui.painter().circle_stroke(
-        center,
-        8.0,
-        egui::Stroke::new(
-            1.8_f32,
-            if selected {
-                palette.accent
-            } else {
-                palette.secondary
-            },
-        ),
-    );
-    if selected {
-        ui.painter().circle_filled(center, 4.4, palette.accent);
-    }
-    ui.painter().text(
-        egui::pos2(rect.left() + 2.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(14.0),
-        palette.text,
-    );
-    response
-}
-
-/// A Material 3 switch.
-fn settings_switch(ui: &mut egui::Ui, palette: &crate::theme::Palette, on: bool) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 22.0), egui::Sense::click());
-    let track = if on {
-        palette.accent
-    } else {
-        egui::Color32::from_gray(120)
-    };
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::same(11), track);
-    let knob_x = if on {
-        rect.right() - 11.0
-    } else {
-        rect.left() + 11.0
-    };
-    ui.painter().circle_filled(
-        egui::pos2(knob_x, rect.center().y),
-        8.0,
-        egui::Color32::WHITE,
-    );
-    response
-}
-
-/// An accent-coloured text action.
-fn settings_link(ui: &mut egui::Ui, palette: &crate::theme::Palette, label: &str) -> bool {
-    ui.add(
-        egui::Button::new(egui::RichText::new(label).size(13.0).color(palette.accent)).frame(false),
-    )
-    .clicked()
-}
-
-/// A labelled single-line field.
-fn settings_field(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    label: &str,
-    hint: &str,
-    value: &mut String,
-    password: bool,
-) {
-    ui.label(
-        egui::RichText::new(label)
-            .size(12.5)
-            .color(palette.secondary),
-    );
-    ui.add_space(3.0);
-    let mut edit = egui::TextEdit::singleline(value)
-        .desired_width(f32::INFINITY)
-        .hint_text(hint);
-    if password {
-        edit = edit.password(true);
-    }
-    ui.add(edit);
-    ui.add_space(10.0);
-}
-
-/// Where the native app keeps its own settings.
-fn settings_file() -> std::path::PathBuf {
-    crate::settings::NativeSettings::data_dir().join("settings.json")
-}
-
 impl WaDesk {
     /// Group info: subject, description, member count and the member list
     /// with admin chips.
@@ -7879,6 +7648,7 @@ impl WaDesk {
 
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.smoke_send();
         // Texture caches are capped so memory does not grow with a long session.
         prune_textures(ctx, &mut self.textures, 96);
         prune_textures(ctx, &mut self.sticker_textures, 240);
@@ -8998,55 +8768,357 @@ impl WaDesk {
         }
     }
 
-    /// The forward picker: search, multi-select, then one send for all chats.
+    /// `WA_DESK_SEND_ONCE="<chat title>|<text>"` sends one message once the chat
+    /// list is loaded. It exists so the send path can be smoke-tested against a
+    /// real session without driving the mouse; it never runs unless it is set.
+    fn smoke_send(&mut self) {
+        if self.smoke_sent {
+            return;
+        }
+        let Ok(spec) = std::env::var("WA_DESK_SEND_ONCE") else {
+            return;
+        };
+        let Some((title, body)) = spec.split_once('|') else {
+            return;
+        };
+        let body = body.trim();
+        if body.is_empty() {
+            return;
+        }
+        let Some(jid) = self
+            .model
+            .chats
+            .values()
+            .find(|row| self.model.row_title(row) == title.trim())
+            .map(|row| row.jid.clone())
+        else {
+            return;
+        };
+        self.smoke_sent = true;
+        self.model.open_chat(&jid);
+        self.model.add_own_text(&jid, body, None);
+        self.send(Command::SendText {
+            chat: jid,
+            text: body.to_string(),
+        });
+        diag(&format!("smoke send to {title}: {body}"));
+    }
+
+    /// The forward picker, in the official shape: a floating card with the close
+    /// control and the title on top, the send action pinned right, a rounded
+    /// search field, the "My status" row, and the recent chats with a square
+    /// checkbox each.
     fn forward_window(&mut self, ctx: &egui::Context) {
         let Some(target) = self.model.forward_target.clone() else {
             return;
         };
-        let mut open = true;
-        egui::Window::new("Forward to")
-            .open(&mut open)
-            .default_width(320.0)
+        // Snapshot the mutable bits: the card paints and collects actions, the
+        // model is only touched once the card is closed.
+        let palette = self.palette.clone();
+        let mut search = self.model.forward_search.clone();
+        let mut chosen = self.model.forward_chosen.clone();
+        let mut toggle: Option<String> = None;
+        let mut send = false;
+        let mut close = false;
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.model.forward_target = None;
+            return;
+        }
+
+        let viewport = ctx.screen_rect();
+        let width = 400.0_f32.min(viewport.width() - 40.0);
+        let height = (viewport.height() * 0.74).min(640.0);
+
+        // Avatars are fetched while the rows are collected, so the card itself
+        // only paints (a `&mut self` inside the area closure would fight the
+        // model borrows).
+        let jids: Vec<String> = self
+            .model
+            .forward_rows()
+            .iter()
+            .map(|row| row.jid.clone())
+            .collect();
+        let mut rows: Vec<(String, String, String, Option<egui::TextureHandle>)> = Vec::new();
+        for jid in jids {
+            self.ensure_avatar(ctx, &jid);
+            let (title, preview) = match self.model.chats.get(&jid) {
+                Some(row) => (self.model.row_title(row), self.model.row_preview(row)),
+                None => (jid.clone(), String::new()),
+            };
+            let avatar = self.avatar_for(&jid).cloned();
+            rows.push((jid, title, preview, avatar));
+        }
+
+        egui::Area::new(egui::Id::new("forward-card"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(
+                viewport.center().x - width / 2.0,
+                viewport.center().y - height / 2.0,
+            ))
             .show(ctx, |ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.model.forward_search)
-                        .hint_text("Search chats")
-                        .desired_width(f32::INFINITY),
-                );
-                let rows: Vec<(String, String)> = self
-                    .model
-                    .forward_rows()
-                    .iter()
-                    .map(|row| (row.jid.clone(), self.model.title(row)))
-                    .collect();
-                egui::ScrollArea::vertical()
-                    .max_height(240.0)
+                egui::Frame::new()
+                    .fill(palette.elevated)
+                    .stroke(egui::Stroke::new(1.0_f32, palette.border))
+                    .corner_radius(egui::CornerRadius::same(16))
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 12],
+                        blur: 32,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(150),
+                    })
+                    .inner_margin(egui::Margin::symmetric(18, 14))
                     .show(ui, |ui| {
-                        for (jid, name) in rows {
-                            let mut chosen = self.model.forward_chosen.contains(&jid);
-                            if ui.checkbox(&mut chosen, name).changed() {
-                                self.model.toggle_forward(&jid);
+                        ui.set_width(width);
+                        ui.set_height(height);
+
+                        // Header: close, title, send.
+                        ui.horizontal(|ui| {
+                            let (rect, response) = ui
+                                .allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
+                            if response.hovered() {
+                                ui.painter()
+                                    .circle_filled(rect.center(), 16.0, palette.hover);
+                            }
+                            draw_icon(
+                                ui,
+                                egui::Rect::from_center_size(rect.center(), egui::vec2(18.0, 18.0)),
+                                Icon::Close,
+                                palette.text,
+                            );
+                            if response
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                close = true;
+                            }
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new("Forward message to")
+                                    .size(16.0)
+                                    .color(palette.text),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let ready = !chosen.is_empty();
+                                    let (rect, response) = ui.allocate_exact_size(
+                                        egui::vec2(32.0, 32.0),
+                                        egui::Sense::click(),
+                                    );
+                                    if ready && response.hovered() {
+                                        ui.painter().circle_filled(
+                                            rect.center(),
+                                            16.0,
+                                            palette.hover,
+                                        );
+                                    }
+                                    draw_icon(
+                                        ui,
+                                        egui::Rect::from_center_size(
+                                            rect.center(),
+                                            egui::vec2(20.0, 20.0),
+                                        ),
+                                        Icon::Send,
+                                        if ready {
+                                            palette.accent
+                                        } else {
+                                            palette.secondary
+                                        },
+                                    );
+                                    if ready
+                                        && response
+                                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                            .clicked()
+                                    {
+                                        send = true;
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(12.0);
+
+                        // The search field: rounded, accent hairline, magnifier
+                        // inside like the official box.
+                        egui::Frame::new()
+                            .fill(palette.panel)
+                            .stroke(egui::Stroke::new(1.0_f32, palette.accent))
+                            .corner_radius(egui::CornerRadius::same(12))
+                            .inner_margin(egui::Margin::symmetric(14, 7))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(18.0, 18.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    draw_icon(ui, rect, Icon::Search, palette.accent);
+                                    ui.add_space(4.0);
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut search)
+                                            .frame(false)
+                                            .hint_text("Search name, number or @username")
+                                            .desired_width(ui.available_width()),
+                                    );
+                                });
+                            });
+                        ui.add_space(10.0);
+
+                        // "My status": the official second row. This client
+                        // posts statuses from the Status screen, so the row is
+                        // shown but not selectable here.
+                        let (rect, response) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 58.0),
+                            egui::Sense::hover(),
+                        );
+                        if response.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                egui::CornerRadius::same(10),
+                                palette.hover,
+                            );
+                        }
+                        forward_checkbox(ui, &palette, rect.left() + 12.0, rect.center().y, false);
+                        let disc = egui::pos2(rect.left() + 52.0, rect.center().y);
+                        ui.painter().circle_filled(disc, 20.0, palette.accent);
+                        draw_icon(
+                            ui,
+                            egui::Rect::from_center_size(disc, egui::vec2(20.0, 20.0)),
+                            Icon::Status,
+                            egui::Color32::from_rgb(11, 20, 26),
+                        );
+                        ui.painter().text(
+                            egui::pos2(rect.left() + 82.0, rect.center().y - 9.0),
+                            egui::Align2::LEFT_CENTER,
+                            "My status",
+                            egui::FontId::proportional(14.5),
+                            palette.text,
+                        );
+                        ui.painter().text(
+                            egui::pos2(rect.left() + 82.0, rect.center().y + 10.0),
+                            egui::Align2::LEFT_CENTER,
+                            "Contacts excluded",
+                            egui::FontId::proportional(12.5),
+                            palette.secondary,
+                        );
+
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new("Recent chats")
+                                .size(13.0)
+                                .color(palette.secondary),
+                        );
+                        ui.add_space(4.0);
+
+                        let list_height = (ui.available_height() - 34.0).max(120.0);
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .max_height(list_height)
+                            .scroll_bar_visibility(
+                                egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+                            )
+                            .show(ui, |ui| {
+                                for (jid, name, preview, avatar) in &rows {
+                                    let picked = chosen.contains(jid);
+                                    let (rect, response) = ui.allocate_exact_size(
+                                        egui::vec2(ui.available_width(), 60.0),
+                                        egui::Sense::click(),
+                                    );
+                                    if response.hovered() {
+                                        ui.painter().rect_filled(
+                                            rect,
+                                            egui::CornerRadius::same(10),
+                                            palette.hover,
+                                        );
+                                    }
+                                    forward_checkbox(
+                                        ui,
+                                        &palette,
+                                        rect.left() + 12.0,
+                                        rect.center().y,
+                                        picked,
+                                    );
+                                    let disc = egui::pos2(rect.left() + 54.0, rect.center().y);
+                                    if let Some(texture) = avatar {
+                                        ui.painter().image(
+                                            texture.id(),
+                                            egui::Rect::from_center_size(
+                                                disc,
+                                                egui::vec2(40.0, 40.0),
+                                            ),
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(0.0, 0.0),
+                                                egui::pos2(1.0, 1.0),
+                                            ),
+                                            egui::Color32::WHITE,
+                                        );
+                                    } else {
+                                        let clean = name.trim_start_matches('~').trim();
+                                        ui.painter().circle_filled(
+                                            disc,
+                                            20.0,
+                                            crate::widgets::avatar_color(clean),
+                                        );
+                                        ui.painter().text(
+                                            disc,
+                                            egui::Align2::CENTER_CENTER,
+                                            crate::widgets::initials(clean),
+                                            egui::FontId::proportional(14.0),
+                                            egui::Color32::WHITE,
+                                        );
+                                    }
+                                    ui.painter().text(
+                                        egui::pos2(rect.left() + 84.0, rect.center().y - 9.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        fit_text(
+                                            ui.painter(),
+                                            name,
+                                            egui::FontId::proportional(14.5),
+                                            palette.text,
+                                            rect.width() - 100.0,
+                                        ),
+                                        egui::FontId::proportional(14.5),
+                                        palette.text,
+                                    );
+                                    ui.painter().text(
+                                        egui::pos2(rect.left() + 84.0, rect.center().y + 10.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        fit_text(
+                                            ui.painter(),
+                                            &crate::widgets::single_line(preview),
+                                            egui::FontId::proportional(12.5),
+                                            palette.secondary,
+                                            rect.width() - 100.0,
+                                        ),
+                                        egui::FontId::proportional(12.5),
+                                        palette.secondary,
+                                    );
+                                    if response
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                        .clicked()
+                                    {
+                                        toggle = Some(jid.clone());
+                                    }
+                                }
+                            });
+
+                        if let Some(jid) = &toggle {
+                            if let Some(index) = chosen.iter().position(|item| item == jid) {
+                                chosen.remove(index);
+                            } else {
+                                chosen.push(jid.clone());
                             }
                         }
                     });
-                ui.horizontal(|ui| {
-                    let count = self.model.forward_chosen.len();
-                    if ui
-                        .add_enabled(count > 0, egui::Button::new(format!("Send to {count}")))
-                        .clicked()
-                    {
-                        self.send(Command::Forward {
-                            chats: self.model.forward_chosen.clone(),
-                            id: target.id.clone(),
-                        });
-                        self.model.forward_target = None;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.model.forward_target = None;
-                    }
-                });
             });
-        if !open {
+
+        self.model.forward_search = search;
+        self.model.forward_chosen = chosen;
+        if send {
+            self.send(Command::Forward {
+                chats: self.model.forward_chosen.clone(),
+                id: target.id.clone(),
+            });
+            self.model.forward_target = None;
+        } else if close {
             self.model.forward_target = None;
         }
     }
@@ -9697,6 +9769,36 @@ pub(crate) enum Icon {
     MarkRead,
     Lock,
     Check,
+}
+
+/// The forward picker's square checkbox: an outlined box when it is clear, the
+/// accent fill with a dark tick when it is set.
+fn forward_checkbox(
+    ui: &egui::Ui,
+    palette: &crate::theme::Palette,
+    left: f32,
+    center_y: f32,
+    checked: bool,
+) {
+    let box_rect =
+        egui::Rect::from_center_size(egui::pos2(left + 10.0, center_y), egui::vec2(20.0, 20.0));
+    if checked {
+        ui.painter()
+            .rect_filled(box_rect, egui::CornerRadius::same(5), palette.accent);
+        draw_icon(
+            ui,
+            box_rect.shrink(3.0),
+            Icon::Check,
+            egui::Color32::from_rgb(11, 20, 26),
+        );
+    } else {
+        ui.painter().rect_stroke(
+            box_rect,
+            egui::CornerRadius::same(5),
+            egui::Stroke::new(1.5_f32, palette.secondary),
+            egui::StrokeKind::Inside,
+        );
+    }
 }
 
 fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {

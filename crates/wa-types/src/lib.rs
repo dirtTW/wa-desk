@@ -373,6 +373,11 @@ pub struct MessageView {
     /// A shared contact card (`contactMessage` / `contactsArrayMessage`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact: Option<ContactCardView>,
+    /// Inline JPEG thumbnail shipped with a photo/video/document, as a data
+    /// URI. The bubble paints it while the full file downloads, which is what
+    /// makes the official client feel instant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb: Option<String>,
     /// A location (`locationMessage` / `liveLocationMessage`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<LocationView>,

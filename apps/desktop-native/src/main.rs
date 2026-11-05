@@ -29,11 +29,13 @@ mod gif;
 mod icon;
 mod icons;
 mod login;
+mod login_ui;
 mod mic;
 mod model;
 mod notify;
 mod rich_text;
 mod settings;
+mod settings_ui;
 mod spawn;
 mod sticker;
 mod theme;
@@ -385,7 +387,7 @@ fn main() {
     let call_video = call_video_wanted.clone();
     // Media downloads run in their own tasks; three at a time keeps the UI
     // responsive without flooding the CDN or the phone.
-    let media_limit = Arc::new(tokio::sync::Semaphore::new(4));
+    let media_limit = Arc::new(tokio::sync::Semaphore::new(8));
     // Commands from the UI thread are executed on the runtime.
     let slot = session_slot.clone();
     handle.spawn(async move {

@@ -352,6 +352,33 @@ pub(crate) fn media_kind(message: &wa::Message) -> Option<&'static str> {
     }
 }
 
+/// The inline JPEG thumbnail WhatsApp ships inside a photo/video/document
+/// message, as a data URI. A few kilobytes that arrive with the message, so the
+/// bubble can show something before the full file is downloaded.
+pub(crate) fn inline_thumb(message: &wa::Message) -> Option<String> {
+    use base64::Engine as _;
+    let base = message.get_base_message();
+    let bytes = base
+        .image_message
+        .as_option()
+        .and_then(|image| image.jpeg_thumbnail.as_deref())
+        .or_else(|| {
+            base.video_message
+                .as_option()
+                .and_then(|video| video.jpeg_thumbnail.as_deref())
+        })
+        .or_else(|| {
+            base.document_message
+                .as_option()
+                .and_then(|document| document.jpeg_thumbnail.as_deref())
+        })?;
+    if bytes.is_empty() {
+        return None;
+    }
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:image/jpeg;base64,{encoded}"))
+}
+
 /// A shared location. The protobuf splits the degrees into a signed integer
 /// plus millionths of a degree, which is what `degrees()` recombines.
 pub(crate) fn location_view(message: &wa::Message) -> Option<LocationView> {
@@ -1044,6 +1071,22 @@ mod contact_tests {
         let plain = "BEGIN:VCARD\nFN:Bob\nTEL;type=CELL:+62 812-3456-7890\nEND:VCARD";
         assert_eq!(phone_from_vcard(plain).as_deref(), Some("6281234567890"));
         assert_eq!(phone_from_vcard("nothing here"), None);
+    }
+
+    #[test]
+    fn an_inline_thumbnail_becomes_a_data_uri() {
+        let message = wa::Message {
+            image_message: MessageField::some(wa::message::ImageMessage {
+                jpeg_thumbnail: Some(vec![0xFF, 0xD8, 0xFF, 0xD9]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let thumb = inline_thumb(&message).expect("a thumbnail");
+        assert!(thumb.starts_with("data:image/jpeg;base64,"));
+        assert!(thumb.len() > "data:image/jpeg;base64,".len());
+        // A message without one stays quiet.
+        assert_eq!(inline_thumb(&wa::Message::default()), None);
     }
 
     #[test]

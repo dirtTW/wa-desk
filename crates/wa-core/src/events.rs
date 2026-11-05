@@ -510,6 +510,7 @@ pub(crate) fn dispatch(
                         contact: contact_view(body),
                         poll: poll_view(body),
                         location: location_view(body),
+                        thumb: inline_thumb(body),
                     }));
                 }
                 tracing::debug!(
@@ -650,6 +651,7 @@ pub(crate) fn dispatch(
                 contact: None,
                 poll: None,
                 location: None,
+                thumb: None,
             }));
         }
         Event::Receipt(receipt) => {
@@ -1001,6 +1003,7 @@ pub(crate) fn dispatch(
                         contact: None,
                         poll: None,
                         location: None,
+                        thumb: None,
                     };
                     remember_message(
                         messages,
@@ -1051,6 +1054,7 @@ pub(crate) fn dispatch(
                     contact: contact_view(&inbound.message),
                     poll: poll_view(&inbound.message),
                     location: location_view(&inbound.message),
+                    thumb: inline_thumb(&inbound.message),
                 }));
             }
         }

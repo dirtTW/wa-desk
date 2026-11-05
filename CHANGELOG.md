@@ -4,6 +4,91 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.33] - 2026-11-05
+
+- **WhatsApp markup renders instead of showing its asterisks.** `rich_text::spans` parses `*bold*`,
+  `_italic_`, `~strike~` and ``` ```mono``` ``` with the phone's rules (an opener must be followed by
+  a non-space, a closer preceded by one, so `snake_case` stays literal) and a run of markers counts
+  as one delimiter, which is how `**bold**` and ``` ```mono``` ``` are actually typed. Bold paints a
+  second pass 0.4 px to the right (the bundled faces carry no bold weight), strike draws a hairline
+  through the run, mono lays the run out in the monospace face. A body with markup now takes the rich
+  layout path too, so `**` never reaches the screen. Tests: `markup_tests::{bold_italic_strike_and_mono_are_styles_not_characters, a_run_of_markers_is_one_delimiter, an_unpaired_marker_stays_literal, markup_is_detected_for_the_layout_switch}`.
+- **The paragraph spacing bug is fixed.** Two defects in `layout_body`: words were measured with
+  `layout_no_wrap("word ")`, which trims the trailing space from the measured width - and that width
+  is what advances the pen, so every word sat tight against the next and the text drifted; and the
+  row advance used the font height (~17 px) while a 19 px emoji cell (44 px for emoji-only) was
+  painted into it, so lines overlapped and the measured body height was short. Lines now advance by
+  `max(font row, emoji cell)`, the space width is added back per word, and `size.y` is measured with
+  that row - which also stops the clock from landing on the last line.
+  Capture: `target/our_markup.png` (`WA_DESK_MARKUP=1`).
+- **The composer no longer clips against the window border.** The message list reserved a fixed 64 px
+  for the composer, so once the reply banner or the recording row made the bar taller its field was
+  cut at the bottom edge. The composer is painted after the list, so its real height is now measured
+  into `ctx.data("composer-height")` and the list reserves exactly that plus 10 px.
+- **Opening a chat lands on its newest message, and the jump-to-latest disc is back.** The first
+  attempt used `vertical_scroll_offset(f32::INFINITY)`, which egui clamps against the *previous*
+  frame and which scrolled the entire conversation out of view (the blank chat in
+  `target/real_send2.png`). It is now `ui.scroll_to_rect(ui.min_rect(), Align::BOTTOM)` once the
+  content has a height. A 44 px chevron disc appears above the composer whenever the view is above
+  the end, and clicking it returns to the newest bubble.
+- Real-session evidence (Test group, sent with the user's permission): `target/real_scroll.png`
+  opens at the end with both own bubbles and their ticks, `target/real_scroll_top.png` shows the
+  history top with the floating disc (`WA_DESK_SCROLL_TOP=1`).
+- `crates/wa-core`: received `pollCreationMessage`/`contactMessage`/`locationMessage` mapping and
+  `send_location`, custom chat lists, and the live-sampled attach/forward/Account/status-viewer
+  surfaces from rc.21-rc.32 are all in this tree as well.
+- Tests: 124 native + 42 wa-core + 232 wa-ui, clippy clean.
+
+## [0.2.1-rc.32] - 2026-11-05
+
+- **Sending shows the bubble at once.** WhatsApp never echoes a device's own messages back to the
+  device that sent them, so `send_text` only emitted `UiEvent::Sent` and the chat stayed empty until
+  the next reload. `Model::add_own_text(chat, text, reply)` now inserts the bubble optimistically
+  (id `local-<ms>-<n>`, `sent` tick, the quote card for a reply), the composer calls it before the
+  stanza leaves, and `UiEvent::Sent` binds the server id to the **oldest pending bubble of that
+  chat** (a queue, so two quick sends cannot swap ids). The echo, when one does arrive, dedupes by
+  that id instead of adding a second bubble.
+- Tests: `send_tests::a_sent_message_shows_its_bubble_at_once` (bubble exists with a `local-` id and
+  a `sent` tick, `Sent` renames it, the own-message echo does not duplicate) and
+  `send_tests::an_optimistic_reply_keeps_the_quote`. Capture: `target/our_sent.png`
+  (`WA_DESK_SENT=1`).
+- **The conversation lands on its newest message.** Opening a chat (and sending) sets
+  `Model::scroll_bottom`; the list asks egui to scroll to `ui.min_rect()` with `Align::BOTTOM`
+  now that the content has a height, so a long history opens at the end instead of the top of
+  the archive. The first attempt set `vertical_scroll_offset(f32::INFINITY)`, which egui clamped
+  against the previous frame and scrolled the whole conversation out of view (a blank chat in the
+  real-session capture); `scroll_to_rect` is the API that is meant for this.
+- **The floating "scroll to the latest message" disc.** The official client shows a 44 px circle
+  with a chevron just above the composer once you scroll up in a long history; ours now does too
+  (`list_output.state.offset` vs `content_size - viewport` decides), with a hover highlight and
+  `WA_DESK_SCROLL_TOP=1` parking the view at the first message so the disc can be checked.
+- **The forward picker is the vision client's own card now, not an egui window.** Compared against
+  the official screen and redrawn: a floating rounded panel over the conversation with `✕` +
+  "Forward message to" + the send icon on the header row (accent-coloured and clickable only once
+  something is chosen), an accent-bordered search field hinting "Search name, number or @username",
+  the "My status" row with a green status disc and a "Contacts excluded" line, then a "Recent chats"
+  section whose rows carry a square checkbox, the avatar (photo or initials disc), the title and the
+  chat's last line. Hover highlights, Esc closes, and the scrollbar is always reserved.
+- **The forward search also matches a number**: `forward_rows` compares the digits of the needle
+  (4+) with the digits of the JID. Test: `forward_tests::forward_search_matches_a_number`.
+- Capture: `target/our_forward.png` (`WA_DESK_FORWARD=1`); `docs/PARITY.md` records the official
+  layout next to ours. Real-session check: `target/real_send.png` and `target/real_scroll.png`.
+- Tests: 120 native + 42 wa-core + 232 wa-ui, clippy clean.
+
+## [0.2.1-rc.31] - 2026-11-05
+
+- **`app.rs` split, modules 4 and 5: `src/settings_ui.rs` and `src/login_ui.rs`.** The Settings
+  widgets (section list row, raised card, label + description row, theme radio, M3 switch, accent
+  link, labelled field, the settings-file path) moved to `settings_ui.rs` (245 lines) and the login
+  gate's artwork (demo QR payload, card shell, numbered step, link line, WhatsApp mark, laptop
+  illustration) moved to `login_ui.rs` (165 lines). Both are `pub(crate)` painters over a `Ui` and
+  the palette - neither touches the window - and `app.rs` imports them.
+- `app.rs` is down from 10,069 to **9,574 lines** across the five extractions
+  (`widgets.rs`, `rich_text.rs`, `bubbles.rs`, `settings_ui.rs`, `login_ui.rs`).
+- Verified visually after the move: `target/our_settings_account.png` (section list, cards, rows) and
+  `target/our_login.png` (`WA_DESK_LOGIN=1`: banner, steps, QR, footer) both render identically.
+- Tests: 117 native + 42 wa-core + 232 wa-ui, clippy clean, selftest green.
+
 ## [0.2.1-rc.30] - 2026-11-05
 
 - **Status viewer header now matches the live sample.** rc.29 recorded the delta: the official viewer

@@ -18,6 +18,14 @@ The live client is reached through the browser MCP. Two things matter:
   `Channels`, `Communities`, `You`; the composer's attach button is `Attach`; the settings rows and
   the attach entries are plain `role=button` rows with their label as inner text.
 
+Compared on 2026-11-05: the official **forward picker** (message menu → Forward) is a floating card
+over the conversation: `✕` + "Forward message to" + a send icon on the header row, an accent-bordered
+search field hinting "Search name, number or @username", a "My status" row with a green status disc
+and a "2 contacts excluded" line, then a "Recent chats" section whose rows carry a square checkbox on
+the left, the avatar, the name and the chat's second line. This client's picker now draws exactly
+that card (`target/our_forward.png`); the entries are still forwarded through `Command::Forward`,
+one send for every chosen chat.
+
 Opened on 2026-11-05: the **status viewer** (rail `Status`, then a `aria-label="View status"`
 row). The official chrome is: the poster's name and the timestamp as **two lines** top-left
 ("Daffa" / "Yesterday at 10:29 PM"), the thin segmented progress bar across the very top, the story
@@ -66,7 +74,7 @@ the chat row was targeted.
 | Emoji picker 40 px cells | yes | ✅ |
 | Voice notes: record (mic in an empty composer), play, waveform, seek | recording captured at 16 kHz through cpal, encoded to Opus and muxed into Ogg (`src/voicenote.rs`), posted as `ptt` with a 64-bar waveform via `Session::send_voice_note`; playback, waveform and seek were already there | ✅ (`target/our_mic_crop.png`) |
 | Documents card | yes | ✅ |
-| Reply, react, forward, star, edit, delete | yes | ✅ |
+| Reply, react, forward, star, edit, delete | yes, through the message menu; **forward** is the vision client's own card now - floating rounded panel, close + "Forward message to" + send on the header row, accent-outlined search field (name, number or @username), the "My status" row, "Recent chats" with a square checkbox, the avatar and the chat's last line per row | ✅ (`target/our_forward.png`, `WA_DESK_FORWARD=1`) |
 | Attach menu: **sampled live 2026-11-05** - Photos & videos, Camera, Document, Audio, Contact, Poll | the same order in a rounded card, plus Location (this client's extra) last; file-backed entries open the picker, Poll/Contact/Location open their card dialogs | ✅ menu (`target/our_attach.png`, `target/our_poll_dialog.png`) |
 | Locations (pin + live): receive, render, send | `media_kind` maps `locationMessage`/`liveLocationMessage`, `location_view` reads the doubles (and the caption as the live name); the bubble draws the map tile, place, coordinates and address (or a "Live location" line); `Session::send_location` sends a pin and the attach menu opens a *Share a location* dialog | ✅ receive/render (`target/our_location.png`), send (dialog) |
 | Polls and contact cards: compose, send, receive, render | **send**: attach menu → *Create poll* / *Share a contact* dialogs → `SendPoll`/`SendContact` → `polls().create` / `contactMessage` + vCard. **receive**: `media_kind` maps `pollCreationMessage` / `contactMessage` / `contactsArrayMessage`, `poll_view`/`contact_view` build the views (options, `selectable_options_count`, number parsed out of the vCard) and the bubbles draw the question + option rows or the initials disc card | ✅ (`target/our_poll.png`, `target/our_poll_dialog.png`, `target/our_contact_dialog.png`) |
@@ -83,6 +91,8 @@ the chat row was targeted.
 | Recent / Viewed sections with 72 px rows and rings | `Model::status_sections()` splits unseen (Recent) from fully-seen (Viewed); both sections render with their headings and rings | ✅ (`target/our_status4.png`) |
 | Text status with the colour/font palette | the composer shows the official 20-colour array from `wa_ui::composer::BACKGROUNDS` as selectable discs (the chosen one ringed), the four fonts (`system/serif/script/bold`), a preview box in the chosen colour, and Send posts `background = wa_ui::composer::argb(hex)` + the font name | ✅ (`target/our_status_compose.png`) |
 | Photo and video status | `Command::PostStatusMedia` via the file picker | ✅ |
+| WhatsApp markup `*bold*` `_italic_` `~strike~` ``` ```mono``` ``` | parsed with the phone's rules (opener before a non-space, closer after one, runs of markers are one delimiter); bold is double-painted, strike a hairline, mono the monospace face | ✅ (`target/our_markup.png`, `WA_DESK_MARKUP=1`) |
+| Conversation scroll: newest message on open/send, floating jump-to-latest disc | opening a chat or sending pins the view to the last bubble (`ui.scroll_to_rect(..., Align::BOTTOM)`); scrolling up reveals the official 44 px chevron disc above the composer | ✅ (`target/real_scroll.png`, `WA_DESK_SCROLL_TOP=1`) |
 | Story viewer with progress bars, reply, react, delete | **header sampled live 2026-11-05**: name on one line with the timestamp under it, segmented progress bar across the top, body centred, close top-right; reply/react/delete from the composer row, prev/next by tap zones and arrows | ✅ chrome (`target/our_status_viewer.png`, `WA_DESK_STATUS_VIEWER=1`) |
 
 ## Channels, communities, calls, settings

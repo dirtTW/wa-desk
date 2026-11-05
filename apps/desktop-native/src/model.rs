@@ -374,6 +374,13 @@ pub struct Model {
     pub editing: Option<MessageView>,
     /// The message whose delete dialog is open.
     pub delete_target: Option<MessageView>,
+    /// Frames left to force the conversation to the bottom: opening a chat or
+    /// sending a message sets it, the scroll area consumes one per frame.
+    pub scroll_bottom: u8,
+    /// Bubbles waiting for their server id: (chat, local id), oldest first.
+    pub pending_local: Vec<(String, String)>,
+    /// Monotonic counter for the optimistic bubble ids.
+    pub local_seq: u64,
     /// The message being forwarded, its chat search and chosen chats.
     pub forward_target: Option<MessageView>,
     pub forward_search: String,
@@ -511,6 +518,45 @@ impl Model {
         self.apply(&UiEvent::Message(message));
         self.media
             .insert(id.to_string(), MediaState::Path(path.to_string()));
+    }
+
+    /// A photo message that only has its inline thumbnail, for `--preview`:
+    /// proves the bubble paints before the file exists.
+    pub fn demo_photo_thumb(&mut self, chat: &str, id: &str) {
+        use base64::Engine as _;
+        let mut image = image::RgbImage::new(96, 72);
+        for (x, y, pixel) in image.enumerate_pixels_mut() {
+            *pixel = image::Rgb([(x * 2) as u8, (y * 3) as u8, 180]);
+        }
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 80);
+        let _ = encoder.encode(
+            image.as_raw(),
+            image.width(),
+            image.height(),
+            image::ExtendedColorType::Rgb8,
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let mut message = view(chat, &chat_name, id, "thumbnail first", self.now, false);
+        message.kind = "image".to_string();
+        message.thumb = Some(format!("data:image/jpeg;base64,{encoded}"));
+        self.apply(&UiEvent::Message(message));
+    }
+
+    /// A plain text message for `--preview` (markup and emoji included).
+    pub fn demo_note(&mut self, chat: &str, id: &str, text: &str, from_me: bool) {
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let message = view(chat, &chat_name, id, text, self.now - 20_000, from_me);
+        self.apply(&UiEvent::Message(message));
     }
 
     /// A location message for `--preview`.
@@ -1052,15 +1098,28 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             } => {
                 self.ticks.insert(id.clone(), "sent".to_string());
                 self.unread_anchor.remove(chat);
-                if let Some(last) = self
-                    .chats
-                    .get_mut(chat)
-                    .and_then(|row| row.messages.last_mut())
-                    && last.from_me
-                    && last.id.starts_with("local-")
-                {
-                    last.id = id.clone();
-                    last.timestamp = *timestamp;
+                // The oldest optimistic bubble in this chat is the one this id
+                // belongs to; sends can overlap, so match the queue, not the
+                // last message.
+                let local = self
+                    .pending_local
+                    .iter()
+                    .position(|(jid, _)| jid == chat)
+                    .map(|index| self.pending_local.remove(index).1);
+                if let Some(row) = self.chats.get_mut(chat) {
+                    let index = local
+                        .as_ref()
+                        .and_then(|local| row.messages.iter().position(|m| &m.id == local))
+                        .or_else(|| {
+                            row.messages
+                                .iter()
+                                .rposition(|m| m.from_me && m.id.starts_with("local-"))
+                        });
+                    if let Some(index) = index {
+                        row.messages[index].id = id.clone();
+                        row.messages[index].timestamp = *timestamp;
+                        row.messages.sort_by_key(|m| m.timestamp);
+                    }
                 }
             }
             UiEvent::ChatReadMark { chat, read } => {
@@ -1614,6 +1673,7 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 contact: None,
                 poll: None,
                 location: None,
+                thumb: None,
             });
             added += 1;
         }
@@ -1735,6 +1795,42 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         (output.title, output.can_everyone)
     }
 
+    /// The bubble for a message we just sent. WhatsApp does not echo a
+    /// device's own messages back to it, so without this the chat showed
+    /// nothing until the next reload. `UiEvent::Sent` then binds the server id
+    /// to this bubble, and the echo (when one does arrive) dedupes by that id.
+    pub fn add_own_text(&mut self, chat: &str, text: &str, reply: Option<&MessageView>) -> String {
+        self.local_seq += 1;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as i64)
+            .unwrap_or(self.now);
+        let id = format!("local-{stamp}-{}", self.local_seq);
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_default();
+        let mut message = view(chat, &chat_name, &id, text, stamp, true);
+        if let Some(quoted) = reply {
+            message.reply_to = Some(wa_types::ReplyView {
+                id: quoted.id.clone(),
+                sender: quoted.sender.clone(),
+                sender_name: quoted.sender_name.clone(),
+                kind: quoted.kind.clone(),
+                text: quoted.text.clone(),
+                thumb: None,
+            });
+        }
+        self.now = self.now.max(stamp);
+        // The bubble just landed at the end of the list: bring it into view.
+        self.scroll_bottom = 3;
+        self.ticks.insert(id.clone(), "sent".to_string());
+        self.pending_local.push((chat.to_string(), id.clone()));
+        self.upsert(message);
+        id
+    }
+
     pub fn start_forward(&mut self, message: &MessageView) {
         self.forward_target = Some(message.clone());
         self.forward_search.clear();
@@ -1748,7 +1844,22 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             .chats
             .values()
             .filter(|row| !row.jid.ends_with("@newsletter"))
-            .filter(|row| needle.is_empty() || row.name.to_lowercase().contains(&needle))
+            .filter(|row| {
+                if needle.is_empty() {
+                    return true;
+                }
+                if row.name.to_lowercase().contains(&needle) {
+                    return true;
+                }
+                // The official field also matches a bare number: compare the
+                // digits of the needle with the digits of the JID.
+                let wanted: String = needle.chars().filter(char::is_ascii_digit).collect();
+                if wanted.len() < 4 {
+                    return false;
+                }
+                let digits: String = row.jid.chars().filter(char::is_ascii_digit).collect();
+                digits.contains(&wanted)
+            })
             .collect();
         rows.sort_by(|a, b| {
             b.last_ts
@@ -2351,6 +2462,9 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
     /// belongs to the chat it was started in, so it resets.
     pub fn open_chat(&mut self, jid: &str) {
         self.active = Some(jid.to_string());
+        // An opened conversation starts at its newest message, never at the
+        // top of the history.
+        self.scroll_bottom = 3;
         // Remember the first unread message before the badge is cleared, so the
         // conversation can show the official "Unread messages" divider.
         if let Some(row) = self.chats.get(jid) {
@@ -3163,6 +3277,7 @@ fn view(chat: &str, name: &str, id: &str, text: &str, ts: i64, from_me: bool) ->
         contact: None,
         poll: None,
         location: None,
+        thumb: None,
     }
 }
 
@@ -4103,5 +4218,124 @@ mod tests {
     fn the_selftest_passes() {
         let report = selftest().expect("selftest");
         assert!(report.contains("\"group_members\":2"));
+    }
+}
+
+#[cfg(test)]
+mod forward_tests {
+    use super::*;
+
+    /// The forward search also matches a number typed into the box.
+    #[test]
+    fn forward_search_matches_a_number() {
+        let mut model = Model::new();
+        model.apply(&UiEvent::Message(view(
+            "628111000111@s.whatsapp.net",
+            "Ada",
+            "f1",
+            "hi",
+            1_770_000_000_000,
+            false,
+        )));
+        model.apply(&UiEvent::Message(view(
+            "628222000222@s.whatsapp.net",
+            "Budi",
+            "f2",
+            "hi",
+            1_770_000_001_000,
+            false,
+        )));
+        model.forward_search = "8111".to_string();
+        let rows = model.forward_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Ada");
+        model.forward_search = "nothing".to_string();
+        assert!(model.forward_rows().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod send_tests {
+    use super::*;
+
+    /// Sending shows the bubble immediately, and the server id replaces the
+    /// placeholder without duplicating the echo.
+    #[test]
+    fn a_sent_message_shows_its_bubble_at_once() {
+        let mut model = Model::new();
+        model.apply(&UiEvent::Message(view(
+            "1203@g.us",
+            "Team",
+            "m1",
+            "hi",
+            1_770_000_000_000,
+            false,
+        )));
+        let local = model.add_own_text("1203@g.us", "hello", None);
+        assert!(local.starts_with("local-"));
+        {
+            let row = &model.chats["1203@g.us"];
+            let last = row.messages.last().expect("a bubble");
+            assert_eq!(last.id, local);
+            assert!(last.from_me);
+            assert_eq!(last.text, "hello");
+            assert_eq!(last.kind, "text");
+        }
+        let shown = model.chats["1203@g.us"].messages.last().cloned().unwrap();
+        assert_eq!(model.tick_status(&shown), "sent");
+
+        model.apply(&UiEvent::Sent {
+            chat: "1203@g.us".to_string(),
+            id: "srv-1".to_string(),
+            timestamp: 1_770_000_002_000,
+        });
+        {
+            let row = &model.chats["1203@g.us"];
+            assert!(
+                row.messages
+                    .iter()
+                    .any(|m| m.id == "srv-1" && m.text == "hello")
+            );
+            assert!(!row.messages.iter().any(|m| m.id.starts_with("local-")));
+        }
+        assert!(model.pending_local.is_empty());
+
+        // The echo of our own message must not duplicate the bubble.
+        model.apply(&UiEvent::Message(view(
+            "1203@g.us",
+            "Team",
+            "srv-1",
+            "hello",
+            1_770_000_002_000,
+            true,
+        )));
+        assert_eq!(
+            model.chats["1203@g.us"]
+                .messages
+                .iter()
+                .filter(|m| m.text == "hello")
+                .count(),
+            1
+        );
+    }
+
+    /// A reply keeps its quote card on the optimistic bubble.
+    #[test]
+    fn an_optimistic_reply_keeps_the_quote() {
+        let mut model = Model::new();
+        let quoted = view(
+            "1203@g.us",
+            "Team",
+            "m1",
+            "the plan",
+            1_770_000_000_000,
+            false,
+        );
+        model.apply(&UiEvent::Message(quoted.clone()));
+        model.add_own_text("1203@g.us", "sounds good", Some(&quoted));
+        let last = &model.chats["1203@g.us"].messages.last().cloned().unwrap();
+        let card = last.reply_to.as_ref().expect("a quote card");
+        assert_eq!(card.id, "m1");
+        assert_eq!(card.text, "the plan");
     }
 }
