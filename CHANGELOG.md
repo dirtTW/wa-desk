@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.5] - 2026-11-05
+
+- **Channels' suggestion footer now has the live shape.** From `target/live_channels.jpg`: the
+  "Find channels to follow" section ends with a hairline, then a **Discover more** row carrying the grid
+  glyph, the label and a **chevron** on the right. Ours had the glyph and label only, with no divider.
+- The divider is inset 14 px on both sides (the first attempt ran past the drawer's edge into the
+  messages pane - visible in the interim capture) and the chevron clears the edge.
+- The suggestion **rows with Follow pills** stay unimplemented on purpose: the directory is not
+  reachable from a linked device, so the section keeps the live furniture and an honest line instead of
+  invented channels. That remains the one open Channels row in `docs/PARITY.md`.
+- Evidence: `target/our_channels.png` beside `target/live_channels.jpg`.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.4] - 2026-11-05
 
 - **Meta AI has a real entry point now, in the live rail position.** The rail carries a **sparkle button

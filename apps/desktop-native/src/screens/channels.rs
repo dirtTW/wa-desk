@@ -134,10 +134,11 @@ impl WaDesk {
                             });
                         }
 
-                        // The live drawer's suggestion section. The directory
-                        // itself is not reachable from a linked device, so the
-                        // heading and its "Discover more" footer say where the
-                        // real list comes from instead of faking rows.
+                        // The live drawer's suggestion section. Rows with a
+                        // Follow pill need the channel directory, which a linked
+                        // device cannot reach; the section keeps the live shape -
+                        // heading, muted line, divider, "Discover more" with its
+                        // chevron - so nothing is faked.
                         ui.add_space(14.0);
                         ui.horizontal(|ui| {
                             ui.add_space(14.0);
@@ -160,28 +161,63 @@ impl WaDesk {
                             );
                         });
                         ui.add_space(10.0);
+                        // The hairline the live footer sits under, inset on both
+                        // sides so it never crosses the drawer's edge.
                         ui.horizontal(|ui| {
                             ui.add_space(14.0);
-                            let (grid, _) = ui
-                                .allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
-                            draw_icon(ui, grid, Icon::Groups, palette.accent);
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("Discover more")
-                                            .size(13.0)
-                                            .color(palette.accent),
-                                    )
-                                    .frame(false),
-                                )
-                                .clicked()
-                            {
-                                self.notice = Some((
-                                    "The channel directory lives on the phone".to_string(),
-                                    std::time::Instant::now(),
-                                ));
-                            }
+                            let (line, _) = ui.allocate_exact_size(
+                                egui::vec2((ui.available_width() - 14.0).max(0.0), 1.0),
+                                egui::Sense::hover(),
+                            );
+                            ui.painter().rect_filled(
+                                line,
+                                egui::CornerRadius::ZERO,
+                                palette.border,
+                            );
                         });
+                        ui.add_space(6.0);
+                        let (footer, footer_hit) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 38.0),
+                            egui::Sense::click(),
+                        );
+                        if footer_hit.hovered() {
+                            ui.painter().rect_filled(
+                                footer.shrink2(egui::vec2(8.0, 0.0)),
+                                egui::CornerRadius::same(8),
+                                palette.hover,
+                            );
+                        }
+                        draw_icon(
+                            ui,
+                            egui::Rect::from_center_size(
+                                egui::pos2(footer.left() + 22.0, footer.center().y),
+                                egui::vec2(16.0, 16.0),
+                            ),
+                            Icon::Groups,
+                            palette.accent,
+                        );
+                        ui.painter().text(
+                            egui::pos2(footer.left() + 40.0, footer.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            "Discover more",
+                            egui::FontId::proportional(13.0),
+                            palette.accent,
+                        );
+                        draw_icon(
+                            ui,
+                            egui::Rect::from_center_size(
+                                egui::pos2(footer.right() - 28.0, footer.center().y),
+                                egui::vec2(14.0, 14.0),
+                            ),
+                            Icon::ChevronRight,
+                            palette.secondary,
+                        );
+                        if footer_hit.clicked() {
+                            self.notice = Some((
+                                "The channel directory lives on the phone".to_string(),
+                                std::time::Instant::now(),
+                            ));
+                        }
                     });
             });
 
