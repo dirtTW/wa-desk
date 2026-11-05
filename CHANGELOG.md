@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.42] - 2026-11-05
+
+- **`src/screens/` gains the Channels and Communities screens.** `channels_panel` (the header, the
+  "Discover channels" card with its Create/Explore tiles, the followed list and the read-only post
+  view) moved to `screens/channels.rs` (189 lines) and `communities_panel` (the parent card with its
+  group count, then the announcement group first and the child groups) to `screens/communities.rs`
+  (249 lines). `app.rs` is down to **8,634 lines**, from 9,059 after the Calls move and 10,069 before
+  this run of extractions.
+- Only imports changed: `status_share_tile`, `paint_avatar`, `avatar_color`, `initials`, `fit_text`
+  and `Command` are pulled in by the new modules; no logic moved.
+- Verified after the move: `target/our_channels.png` and `target/our_communities.png`
+  (`WA_DESK_SCREEN=channels|communities`) render exactly as before.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.41] - 2026-11-05
 
 - **`app.rs` split, module 7: `src/screens/`.** The Calls screen left first because it is the
