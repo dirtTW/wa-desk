@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.58] - 2026-11-05
+
+- **The window itself left `app.rs`: `src/app_impl.rs` (470 lines).** `WaDesk::new` (settings load,
+  session wiring, the preview/`WA_DESK_*` hooks, the viewport) and the `eframe::App` impl - one
+  `update` that prunes the texture caches, pumps events, applies the theme and picks which screen
+  paints - plus the `Drop` hook that saves the chat cache, now live in their own module.
+- `app.rs` is down to **2,144 lines**, from 10,069 when this run of extractions started (-79 %). What
+  is left there is the window state itself: `NativeApp`, the `WaDesk` struct and its fields, the small
+  helpers (`send`, `ensure_avatar`, `avatar_for`, `run_action`, `pick_attachment`,
+  `import_chat_export`), the shared painters (`icon_button`, `pill_button`, `rail_button`,
+  `dialog_*`), the `Icon` table and the unit tests.
+- Verified after the move: `--selftest` still folds the scripted sequence
+  (`{"chats":3,"status":"Connected","viewer_items":1,…}`) and `target/our_chat.png`
+  (`WA_DESK_OPEN_FIRST=1`) draws the list, the header, the bubbles and the composer unchanged.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.57] - 2026-11-05
 
 - **Image and video statuses render for real now, with the official blurred backdrop.** `wa-core`

@@ -16,6 +16,7 @@
 mod aec;
 mod ai;
 mod app;
+mod app_impl;
 mod audio;
 mod autostart;
 mod bubbles;
