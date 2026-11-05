@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.92] - 2026-11-05
+
+- **The Status screen was compared against the live client and fixed row by row.** Live sample
+  (`target/live_status.jpg`, the rail's Status button): the header carries a **kebab and a circle-plus**
+  (no pencil, no close), the own row reads **"My status"** with a **green plus badge** on the photo, rows
+  print the newest update's time (**"Today at 2:36 PM"**), and the right pane is a centred empty state -
+  a large grey ring, "Share statuses", one body line, then **two round discs** (Text status / Photo and
+  video).
+- Ours had a pencil + X header, the account name as the own row, "1 update(s)" subtitles and two
+  full-width rows in the right pane. All four are now the live shape; the ring and discs replace the
+  rows, and the compose button opens the text-status composer (the kebab says status settings live on
+  the phone).
+- Evidence: `target/our_status.png` beside `target/live_status.jpg`.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.91] - 2026-11-05
 
 - **Shared paint helpers moved to `paint.rs`.** `palette_thumb`, `circular_avatar`, `sender_color`,

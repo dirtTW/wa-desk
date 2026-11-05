@@ -3,7 +3,7 @@
 
 use crate::app::{Icon, WaDesk, icon_button, status_as_message};
 use crate::model::Command;
-use crate::widgets::{avatar_color, hex_colour, initials, status_send_button, status_share_tile};
+use crate::widgets::{avatar_color, hex_colour, initials, status_send_button};
 
 impl WaDesk {
     /// The Status screen: the official list on the left (a 64 px header, the
@@ -26,156 +26,171 @@ impl WaDesk {
             .exact_width(320.0)
             .frame(egui::Frame::new().fill(palette.panel))
             .show(ctx, |ui| {
-                ui.add_space(22.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(20.0);
-                    ui.vertical(|ui| {
-                        ui.label(
-                            egui::RichText::new("Share statuses")
-                                .size(20.0)
-                                .color(palette.text),
-                        );
-                        ui.add_space(6.0);
-                        ui.label(
-                            egui::RichText::new(
-                                "Share photos, videos and text that disappear after 24 hours.",
-                            )
-                            .size(13.5)
-                            .color(palette.secondary),
-                        );
-                        ui.add_space(18.0);
-                        // Two tiles: text first, then photo/video, as official.
-                        if status_share_tile(ui, &palette, Icon::Edit, "Text status") {
+                ui.add_space((ui.available_height() * 0.22).clamp(20.0, 180.0));
+                ui.vertical_centered(|ui| {
+                    // The live empty state opens with the big grey status ring.
+                    let (ring, _) =
+                        ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
+                    ui.painter().circle_stroke(
+                        ring.center(),
+                        22.0,
+                        egui::Stroke::new(5.0_f32, egui::Color32::from_gray(70)),
+                    );
+                    ui.add_space(10.0);
+                    ui.label(
+                        egui::RichText::new("Share statuses")
+                            .size(23.0)
+                            .strong()
+                            .color(palette.text),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(
+                            "Share photos, videos and text that disappear after 24 hours.",
+                        )
+                        .size(13.5)
+                        .color(palette.secondary),
+                    );
+                    ui.add_space(16.0);
+                    // The live pair: two round discs with captions under.
+                    let mut photo = false;
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 26.0;
+                        let total = 2.0 * 72.0 + 26.0;
+                        ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
+                        if crate::app::action_button(ui, &palette, Icon::Edit, "Text status") {
                             self.status_compose = Some(String::new());
                         }
-                        ui.add_space(10.0);
-                        if status_share_tile(ui, &palette, Icon::Document, "Photo and video")
-                            && let Some(path) = rfd::FileDialog::new()
-                                .add_filter("Photo or video", &["jpg", "jpeg", "png", "mp4"])
-                                .pick_file()
-                        {
-                            self.send(Command::PostStatusMedia {
-                                path: path.to_string_lossy().into_owned(),
-                                caption: String::new(),
-                            });
-                        }
-                        if self.status_compose.is_some() {
-                            ui.add_space(16.0);
-                            // The official composer row: Emoji, Font, Palette,
-                            // Send, and a close control.
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new("Text status")
-                                        .size(13.0)
-                                        .color(palette.accent),
-                                );
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if icon_button(ui, Icon::Close, &palette)
-                                            .on_hover_text("Close status posting view")
-                                            .clicked()
-                                        {
-                                            self.status_compose = None;
-                                        }
-                                        if icon_button(ui, Icon::Emoji, &palette)
-                                            .on_hover_text("Emoji")
-                                            .clicked()
-                                        {
-                                            self.model.emoji_open = !self.model.emoji_open;
-                                        }
-                                    },
-                                );
-                            });
-                            // The box takes the chosen background, like the
-                            // official composer, and the palette below is the
-                            // official 20-colour array from `wa-ui`.
-                            let swatches = wa_ui::composer::palette();
-                            let background = swatches
-                                .backgrounds
-                                .get(self.status_compose_background)
-                                .cloned()
-                                .unwrap_or_else(|| "#A62C71".to_string());
-                            let fill = hex_colour(&background);
-                            let mut draft = self.status_compose.clone().unwrap_or_default();
-                            egui::Frame::new()
-                                .fill(fill)
-                                .corner_radius(egui::CornerRadius::same(10))
-                                .inner_margin(egui::Margin::symmetric(10, 8))
-                                .show(ui, |ui| {
-                                    ui.add_sized(
-                                        [240.0, 64.0],
-                                        egui::TextEdit::multiline(&mut draft)
-                                            .frame(false)
-                                            .hint_text("Type a status"),
-                                    );
-                                });
-                            self.status_compose = Some(draft.clone());
-                            ui.add_space(8.0);
-                            ui.horizontal_wrapped(|ui| {
-                                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-                                for (index, hex) in swatches.backgrounds.iter().enumerate() {
-                                    let (rect, response) = ui.allocate_exact_size(
-                                        egui::vec2(20.0, 20.0),
-                                        egui::Sense::click(),
-                                    );
-                                    ui.painter().circle_filled(
-                                        rect.center(),
-                                        10.0,
-                                        hex_colour(hex),
-                                    );
-                                    if index == self.status_compose_background {
-                                        ui.painter().circle_stroke(
-                                            rect.center(),
-                                            9.0,
-                                            egui::Stroke::new(2.0_f32, palette.text),
-                                        );
-                                    }
-                                    if response.clicked() {
-                                        self.status_compose_background = index;
-                                    }
-                                }
-                            });
-                            ui.add_space(6.0);
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 6.0;
-                                for (index, name) in swatches.font_names.iter().enumerate() {
-                                    let selected = index == self.status_compose_font;
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                egui::RichText::new(name).size(12.5).color(
-                                                    if selected {
-                                                        palette.accent
-                                                    } else {
-                                                        palette.secondary
-                                                    },
-                                                ),
-                                            )
-                                            .frame(false),
-                                        )
+                        photo = crate::app::action_button(
+                            ui,
+                            &palette,
+                            Icon::Document,
+                            "Photo and video",
+                        );
+                    });
+                    if photo
+                        && let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Photo or video", &["jpg", "jpeg", "png", "mp4"])
+                            .pick_file()
+                    {
+                        self.send(Command::PostStatusMedia {
+                            path: path.to_string_lossy().into_owned(),
+                            caption: String::new(),
+                        });
+                    }
+                    if self.status_compose.is_some() {
+                        ui.add_space(16.0);
+                        // The official composer row: Emoji, Font, Palette,
+                        // Send, and a close control.
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Text status")
+                                    .size(13.0)
+                                    .color(palette.accent),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if icon_button(ui, Icon::Close, &palette)
+                                        .on_hover_text("Close status posting view")
                                         .clicked()
                                     {
-                                        self.status_compose_font = index;
+                                        self.status_compose = None;
                                     }
-                                }
+                                    if icon_button(ui, Icon::Emoji, &palette)
+                                        .on_hover_text("Emoji")
+                                        .clicked()
+                                    {
+                                        self.model.emoji_open = !self.model.emoji_open;
+                                    }
+                                },
+                            );
+                        });
+                        // The box takes the chosen background, like the
+                        // official composer, and the palette below is the
+                        // official 20-colour array from `wa-ui`.
+                        let swatches = wa_ui::composer::palette();
+                        let background = swatches
+                            .backgrounds
+                            .get(self.status_compose_background)
+                            .cloned()
+                            .unwrap_or_else(|| "#A62C71".to_string());
+                        let fill = hex_colour(&background);
+                        let mut draft = self.status_compose.clone().unwrap_or_default();
+                        egui::Frame::new()
+                            .fill(fill)
+                            .corner_radius(egui::CornerRadius::same(10))
+                            .inner_margin(egui::Margin::symmetric(10, 8))
+                            .show(ui, |ui| {
+                                ui.add_sized(
+                                    [240.0, 64.0],
+                                    egui::TextEdit::multiline(&mut draft)
+                                        .frame(false)
+                                        .hint_text("Type a status"),
+                                );
                             });
-                            ui.add_space(8.0);
-                            if status_send_button(ui, &palette) && !draft.trim().is_empty() {
-                                let font = swatches
-                                    .fonts
-                                    .get(self.status_compose_font)
-                                    .cloned()
-                                    .unwrap_or_else(|| "system".to_string());
-                                self.send(Command::PostStatusText {
-                                    text: draft.trim().to_string(),
-                                    background: wa_ui::composer::argb(&background),
-                                    font,
-                                });
-                                self.status_compose = None;
+                        self.status_compose = Some(draft.clone());
+                        ui.add_space(8.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                            for (index, hex) in swatches.backgrounds.iter().enumerate() {
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(20.0, 20.0),
+                                    egui::Sense::click(),
+                                );
+                                ui.painter()
+                                    .circle_filled(rect.center(), 10.0, hex_colour(hex));
+                                if index == self.status_compose_background {
+                                    ui.painter().circle_stroke(
+                                        rect.center(),
+                                        9.0,
+                                        egui::Stroke::new(2.0_f32, palette.text),
+                                    );
+                                }
+                                if response.clicked() {
+                                    self.status_compose_background = index;
+                                }
                             }
+                        });
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            for (index, name) in swatches.font_names.iter().enumerate() {
+                                let selected = index == self.status_compose_font;
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new(name).size(12.5).color(
+                                                if selected {
+                                                    palette.accent
+                                                } else {
+                                                    palette.secondary
+                                                },
+                                            ),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .clicked()
+                                {
+                                    self.status_compose_font = index;
+                                }
+                            }
+                        });
+                        ui.add_space(8.0);
+                        if status_send_button(ui, &palette) && !draft.trim().is_empty() {
+                            let font = swatches
+                                .fonts
+                                .get(self.status_compose_font)
+                                .cloned()
+                                .unwrap_or_else(|| "system".to_string());
+                            self.send(Command::PostStatusText {
+                                text: draft.trim().to_string(),
+                                background: wa_ui::composer::argb(&background),
+                                font,
+                            });
+                            self.status_compose = None;
                         }
-                    });
+                    }
                 });
             });
 
@@ -193,17 +208,22 @@ impl WaDesk {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if icon_button(ui, Icon::Close, &palette)
-                                        .on_hover_text("Back to chats")
-                                        .clicked()
-                                    {
-                                        self.show_status = false;
-                                    }
-                                    if icon_button(ui, Icon::Edit, &palette)
-                                        .on_hover_text("Text status")
+                                    // The live header carries a kebab and a
+                                    // circle-plus compose button.
+                                    if icon_button(ui, Icon::Add, &palette)
+                                        .on_hover_text("Add status update")
                                         .clicked()
                                     {
                                         self.status_compose = Some(String::new());
+                                    }
+                                    if icon_button(ui, Icon::Menu, &palette)
+                                        .on_hover_text("Status settings")
+                                        .clicked()
+                                    {
+                                        self.notice = Some((
+                                            "Status settings live on the phone".to_string(),
+                                            std::time::Instant::now(),
+                                        ));
                                     }
                                 },
                             );
@@ -214,10 +234,19 @@ impl WaDesk {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         // My status: the own avatar with a dashed "add" ring.
-                        let own = self.model.own_name();
                         self.ensure_avatar(ui.ctx(), &self.model.me_jid.clone());
                         let avatar = self.avatar_for(&self.model.me_jid.clone()).cloned();
-                        if status_row(ui, &palette, &own, "", avatar.as_ref(), false, true) {
+                        // The live row reads "My status" with the green plus badge
+                        // on the photo, not the account name.
+                        if status_row(
+                            ui,
+                            &palette,
+                            "My status",
+                            "Click to add status update",
+                            avatar.as_ref(),
+                            false,
+                            true,
+                        ) {
                             self.status_compose = Some(String::new());
                         }
                         let (recent, viewed) = self.model.status_sections();
@@ -249,7 +278,23 @@ impl WaDesk {
                             for group in groups.iter() {
                                 self.ensure_avatar(ui.ctx(), &group.jid);
                                 let avatar = self.avatar_for(&group.jid).cloned();
-                                let stamp = format!("{} update(s)", group.count);
+                                // The live list prints the newest update's time
+                                // ("Today at 2:36 PM"); the count is the fallback.
+                                let newest = self
+                                    .model
+                                    .statuses
+                                    .get(&group.jid)
+                                    .and_then(|row| row.updates.iter().map(|u| u.timestamp).max())
+                                    .unwrap_or(0);
+                                let stamp = if newest > 0 {
+                                    format!(
+                                        "{} at {}",
+                                        wa_ui::labels::day_of(newest, crate::app::now_ms()),
+                                        wa_ui::labels::clock_label(newest)
+                                    )
+                                } else {
+                                    format!("{} update(s)", group.count)
+                                };
                                 if status_row(
                                     ui,
                                     &palette,
@@ -630,6 +675,18 @@ fn status_row(
     };
     ui.painter()
         .circle_stroke(center, 26.0, egui::Stroke::new(2.5_f32, ring));
+    if mine {
+        // The live own row sits a green plus on the photo's corner.
+        let badge = egui::pos2(center.x + 18.0, center.y + 18.0);
+        ui.painter().circle_filled(badge, 9.0, palette.accent);
+        ui.painter().text(
+            badge,
+            egui::Align2::CENTER_CENTER,
+            "+",
+            egui::FontId::proportional(12.0),
+            egui::Color32::from_rgb(11, 20, 26),
+        );
+    }
     if let Some(texture) = avatar {
         ui.painter().image(
             texture.id(),
