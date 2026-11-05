@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.1] - 2026-11-05
+
+(The rc counter stops at 99 for a patch: this rolls to the next patch and starts again at rc.1.)
+
+- **The Media screen compared against the live panel.** Live sample (`target/live_media.jpg`, the rail's
+  Media button): four-column thumbnail grid with a **day heading per run** ("Yesterday",
+  "November 4, 2026"), a **film badge** in the top-left of a video tile, and the **sender's name under
+  each tile**; the header carries the Media/Docs/Links tabs, a search field, a filter, select and close.
+- Ours had a loose two-column grid with "Video from Ada: look at this wave" captions. It is now the live
+  grid: four columns with a hairline gap, the day heading above each day's run, the sender's name under
+  the tile, and the play badge on video tiles. Tapping still opens the chat and the viewer.
+- Evidence: `target/our_media.png` beside `target/live_media.jpg`.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.99] - 2026-11-05
 
 - **The download path is healthy; media problems now leave a trail by themselves.** A cold-cache run on

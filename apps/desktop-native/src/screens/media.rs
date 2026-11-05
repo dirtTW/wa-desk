@@ -4,7 +4,7 @@
 
 use crate::app::{Icon, WaDesk, draw_icon, icon_button};
 use crate::bubbles::{PHOTO_PX, texture_at};
-use crate::widgets::single_line;
+use wa_types::MessageView;
 
 impl WaDesk {
     /// The Media screen, sampled from the live client on 2026-11-05: the dialog
@@ -126,93 +126,120 @@ impl WaDesk {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-                            for (chat, message) in &rows {
-                                let texture = texture_at(
-                                    ui.ctx(),
-                                    &mut self.textures,
-                                    &format!("media-{}", message.id),
-                                    self.model.media_path(&message.id),
-                                    PHOTO_PX,
-                                );
-                                let (rect, response) = ui.allocate_exact_size(
-                                    egui::vec2(150.0, 150.0),
-                                    egui::Sense::click(),
-                                );
-                                ui.painter().rect_filled(
-                                    rect,
-                                    egui::CornerRadius::same(10),
-                                    palette.hover,
-                                );
-                                if let Some(texture) = texture {
-                                    let size = texture.size_vec2();
-                                    let scale = (rect.width() / size.x.max(1.0))
-                                        .max(rect.height() / size.y.max(1.0));
-                                    let drawn =
-                                        egui::Rect::from_center_size(rect.center(), size * scale);
-                                    ui.painter().with_clip_rect(rect).image(
-                                        texture.id(),
-                                        drawn,
-                                        egui::Rect::from_min_max(
-                                            egui::pos2(0.0, 0.0),
-                                            egui::pos2(1.0, 1.0),
-                                        ),
-                                        egui::Color32::WHITE,
-                                    );
-                                } else {
-                                    draw_icon(
-                                        ui,
-                                        egui::Rect::from_center_size(
-                                            rect.center(),
-                                            egui::vec2(28.0, 28.0),
-                                        ),
-                                        if message.kind == "video" {
-                                            Icon::Play
-                                        } else {
-                                            Icon::Document
-                                        },
-                                        palette.secondary,
-                                    );
-                                }
-                                let who = message
-                                    .sender_name
-                                    .clone()
-                                    .unwrap_or_else(|| "you".to_string());
-                                // The official caption starts "Image from …" /
-                                // "Video from …"; ours keeps that shape.
-                                let kind = if message.kind == "video" {
-                                    "Video"
-                                } else if message.kind == "document" {
-                                    "Document"
-                                } else {
-                                    "Image"
-                                };
-                                let caption = if message.text.trim().is_empty() {
-                                    format!("{kind} from {who}")
-                                } else {
-                                    format!("{kind} from {who}: {}", single_line(&message.text))
-                                };
-                                let galley = ui.painter().layout(
-                                    caption,
-                                    egui::FontId::proportional(11.5),
-                                    palette.secondary,
-                                    rect.width(),
-                                );
-                                ui.painter().galley(
-                                    egui::pos2(rect.left(), rect.bottom() + 3.0),
-                                    galley,
-                                    palette.secondary,
-                                );
-                                ui.add_space(14.0);
-                                if response.clicked() {
-                                    let target = chat.clone();
-                                    self.model.open_chat(&target);
-                                    self.show_media = false;
-                                    self.model.open_viewer(&message.id);
-                                }
+                        // The live grid: four columns, a hairline gap, a day
+                        // heading per run and the sender's name under each tile.
+                        let cols = 4usize;
+                        let gap = 3.0;
+                        let tile = ((ui.available_width() - gap * (cols as f32 - 1.0))
+                            / cols as f32)
+                            .max(80.0);
+                        let mut groups: Vec<(String, Vec<&(String, MessageView)>)> = Vec::new();
+                        for row in &rows {
+                            let day = wa_ui::labels::day_of(row.1.timestamp, crate::app::now_ms());
+                            match groups.last_mut() {
+                                Some((last, items)) if *last == day => items.push(row),
+                                _ => groups.push((day, vec![row])),
                             }
-                        });
+                        }
+                        for (day, items) in groups {
+                            ui.add_space(8.0);
+                            ui.label(egui::RichText::new(day).size(12.5).color(palette.secondary));
+                            ui.add_space(2.0);
+                            for chunk in items.chunks(cols) {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = gap;
+                                    for (chat, message) in chunk {
+                                        let texture = texture_at(
+                                            ui.ctx(),
+                                            &mut self.textures,
+                                            &format!("media-{}", message.id),
+                                            self.model.media_path(&message.id),
+                                            PHOTO_PX,
+                                        );
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(tile, tile),
+                                            egui::Sense::click(),
+                                        );
+                                        ui.painter().rect_filled(
+                                            rect,
+                                            egui::CornerRadius::ZERO,
+                                            palette.hover,
+                                        );
+                                        if let Some(texture) = texture {
+                                            let size = texture.size_vec2();
+                                            let scale = (rect.width() / size.x.max(1.0))
+                                                .max(rect.height() / size.y.max(1.0));
+                                            let drawn = egui::Rect::from_center_size(
+                                                rect.center(),
+                                                size * scale,
+                                            );
+                                            ui.painter().with_clip_rect(rect).image(
+                                                texture.id(),
+                                                drawn,
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(0.0, 0.0),
+                                                    egui::pos2(1.0, 1.0),
+                                                ),
+                                                egui::Color32::WHITE,
+                                            );
+                                        } else {
+                                            draw_icon(
+                                                ui,
+                                                egui::Rect::from_center_size(
+                                                    rect.center(),
+                                                    egui::vec2(26.0, 26.0),
+                                                ),
+                                                if message.kind == "video" {
+                                                    Icon::Play
+                                                } else {
+                                                    Icon::Document
+                                                },
+                                                palette.secondary,
+                                            );
+                                        }
+                                        if message.kind == "video" {
+                                            // The live tile carries a film badge
+                                            // in its top-left corner.
+                                            let badge = egui::Rect::from_min_size(
+                                                egui::pos2(rect.left() + 4.0, rect.top() + 4.0),
+                                                egui::vec2(16.0, 13.0),
+                                            );
+                                            ui.painter().rect_filled(
+                                                badge,
+                                                egui::CornerRadius::same(3),
+                                                egui::Color32::from_black_alpha(140),
+                                            );
+                                            draw_icon(
+                                                ui,
+                                                badge.shrink(2.0),
+                                                Icon::Play,
+                                                egui::Color32::from_gray(235),
+                                            );
+                                        }
+                                        if response.clicked() {
+                                            let target = chat.clone();
+                                            self.model.open_chat(&target);
+                                            self.show_media = false;
+                                            self.model.open_viewer(&message.id);
+                                        }
+                                        // The sender's name sits under the tile,
+                                        // like the live grid.
+                                        let who = message
+                                            .sender_name
+                                            .clone()
+                                            .unwrap_or_else(|| "you".to_string());
+                                        ui.vertical(|ui| {
+                                            ui.add_space(2.0);
+                                            ui.label(
+                                                egui::RichText::new(who)
+                                                    .size(11.0)
+                                                    .color(palette.secondary),
+                                            );
+                                        });
+                                    }
+                                });
+                            }
+                        }
                     });
             });
     }
