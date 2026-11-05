@@ -37,6 +37,7 @@ impl WaDesk {
             show_status: false,
             show_calls: false,
             calls_query: String::new(),
+            channels_query: String::new(),
             show_communities: false,
             show_media: std::env::var("WA_DESK_SCREEN")
                 .map(|screen| screen == "media")

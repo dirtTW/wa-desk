@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.93] - 2026-11-05
+
+- **Channels compared against the live drawer, partially matched.** Live sample
+  (`target/live_channels.jpg`): the header is "Channels" with a **circle-plus** (no close button), the
+  drawer opens with a **Search** field, followed channels are rows with a preview line, a time and a
+  green unread pill, then a **"Find channels to follow"** section (suggestion rows with **Follow**
+  pills) and a **"Discover more"** footer; the right pane holds the centred "Discover channels" empty
+  state with two round discs.
+- Matched in this release: the header's circle-plus (creating a channel says it needs the phone), the
+  Search field (`channels_query`), the "Find channels to follow" heading and the bold empty-state
+  title. Evidence: `target/our_channels.png` beside `target/live_channels.jpg`.
+- **Still different, and recorded as such in `docs/PARITY.md`**: Channels is still a full-window screen
+  rather than a drawer beside an empty right pane, the "Discover channels" block still uses two
+  full-width tiles instead of round discs, and there are no discovery suggestion rows with **Follow**
+  pills (the channel directory is not reachable from a linked device here) or the "Discover more"
+  footer.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.92] - 2026-11-05
 
 - **The Status screen was compared against the live client and fixed row by row.** Live sample

@@ -24,16 +24,47 @@ impl WaDesk {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if icon_button(ui, Icon::Close, &palette)
-                                        .on_hover_text("Back to chats")
+                                    // The live drawer's only header control is
+                                    // the circle-plus that creates a channel.
+                                    if icon_button(ui, Icon::Add, &palette)
+                                        .on_hover_text("Create channel")
                                         .clicked()
                                     {
-                                        self.show_channels = false;
+                                        self.notice = Some((
+                                            "Creating channels needs the phone".to_string(),
+                                            std::time::Instant::now(),
+                                        ));
                                     }
                                 },
                             );
                         });
                     });
+
+                // The live drawer's search field.
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    egui::Frame::new()
+                        .fill(palette.elevated)
+                        .corner_radius(egui::CornerRadius::same(9))
+                        .inner_margin(egui::Margin::symmetric(10, 5))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(15.0, 15.0),
+                                    egui::Sense::hover(),
+                                );
+                                crate::app::draw_icon(ui, rect, Icon::Search, palette.secondary);
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.channels_query)
+                                        .frame(false)
+                                        .hint_text("Search")
+                                        .desired_width(ui.available_width() - 8.0),
+                                );
+                            });
+                        });
+                    ui.add_space(12.0);
+                });
 
                 // "Discover channels" - the official empty-state copy.
                 ui.add_space(14.0);
@@ -43,6 +74,7 @@ impl WaDesk {
                         ui.label(
                             egui::RichText::new("Discover channels")
                                 .size(17.0)
+                                .strong()
                                 .color(palette.text),
                         );
                         ui.add_space(4.0);
@@ -75,6 +107,16 @@ impl WaDesk {
 
                 let rows = self.model.channel_rows();
                 if rows.is_empty() {
+                    ui.add_space(14.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(
+                            egui::RichText::new("Find channels to follow")
+                                .size(12.5)
+                                .strong()
+                                .color(palette.secondary),
+                        );
+                    });
                     ui.add_space(26.0);
                     ui.vertical_centered(|ui| {
                         ui.label(
