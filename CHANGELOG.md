@@ -4,6 +4,31 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.15] - 2026-11-05
+
+- **A saved contact arriving from a LID no longer keeps its `~`.** Reported on "Test group" with
+  "Yi Chi Fauzi": the row printed `~ Yi Chi Fauzi  +62 858-8205-3062` although the number is in the
+  address book. `sender_row` decided "saved" from `sender_phone` only; a LID sender carries no PN in its
+  JID, so when that field was absent the check fell back to the LID (never in an address book keyed by
+  digits) and added the tilde. The check now also uses the number resolved for display, which is what the
+  row shows anyway.
+- Tests: 132 native + 43 wa-core + 232 wa-ui (the two `sender_row` tests still pass), clippy
+  `-D warnings` clean.
+
+## [0.2.2-rc.14] - 2026-11-05
+
+- **The album grid is confirmed on real data.** `target/real_album_final.png` (`Test group`,
+  `WA_DESK_SCROLL_TO=20`) shows one bubble holding three photos in a 2-column grid with a single clock.
+  Getting there needed the last piece: `album_bubble` now takes the same `scroll` flag `bubble()` has and
+  calls `scroll_to_rect` on its own rect, because the grid's height differs from the bubbles it replaced
+  and the old index-based jump left it ~2,600 px off-screen (the trace that finally showed it:
+  `album_bubble n=3 size=[264,283] top=2661`). The temporary magenta marker is gone.
+- **Texture cache caps raised** (96 -> 256, stickers 240 -> 400): a scroll through a media-heavy chat was
+  evicting textures still on screen, which re-decoded on the next frame and read as flicker while
+  scrolling. Whether that is the whole story for the reported hover/scroll flicker is unconfirmed - the
+  frame-pacing lines in `diagnostics.log` are the way to tell.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.13] - 2026-11-05
 
 - **A diagnostic for the album run** (`WA_DESK_DIAG=1`): the conversation now logs the run index, the span

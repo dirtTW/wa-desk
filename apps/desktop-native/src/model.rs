@@ -1270,6 +1270,12 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 }
             }
             UiEvent::ChatReadMark { chat, read } => {
+                if crate::app::diag_enabled() {
+                    crate::app::diag(&format!(
+                        "read mark {chat} read={read} was={}",
+                        self.chats.get(chat).map(|row| row.unread).unwrap_or(-1)
+                    ));
+                }
                 if let Some(row) = self.chats.get_mut(chat) {
                     if *read {
                         row.unread = 0;
@@ -1280,6 +1286,9 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
                 }
             }
             UiEvent::Receipt { chat, ids, status } => {
+                if crate::app::diag_enabled() {
+                    crate::app::diag(&format!("receipt {chat} {} ids -> {status}", ids.len()));
+                }
                 // A read (or played) receipt means the phone has read the chat:
                 // the local badge must go, not just the bubble ticks.
                 let read = matches!(status.as_str(), "read" | "played");
@@ -2991,9 +3000,23 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
         // The address book is keyed by bare digits, so the sender's phone has to
         // be normalised before the lookup: a formatted "+62 811-…" used to miss
         // and put a `~` on a saved contact's name.
+        // The address book is keyed by bare digits. A LID sender carries no PN in
+        // its JID, so the check has to use the number we resolved for display as
+        // well - otherwise a saved contact whose message arrives from a LID kept
+        // its `~` even though the number was right there in the row.
         let saved = self.is_saved_contact(&jid)
             || message
                 .sender_phone
+                .as_deref()
+                .map(|phone| {
+                    phone
+                        .chars()
+                        .filter(char::is_ascii_digit)
+                        .collect::<String>()
+                })
+                .filter(|digits| digits.len() >= 7)
+                .is_some_and(|digits| self.saved_contacts.contains(&digits))
+            || number
                 .as_deref()
                 .map(|phone| {
                     phone

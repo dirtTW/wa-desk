@@ -257,6 +257,7 @@ pub(crate) fn album_bubble(
     ctx: &egui::Context,
     max_width: f32,
     tail: bool,
+    scroll: bool,
 ) -> Option<BubbleAction> {
     let first = messages.first()?;
     let from_me = first.from_me;
@@ -302,20 +303,12 @@ pub(crate) fn album_bubble(
             height += galley.size().y + 6.0;
         }
         let (rect, _) = ui.allocate_exact_size(egui::vec2(inner, height), egui::Sense::hover());
-        ui.painter().rect_filled(
-            rect,
-            egui::CornerRadius {
-                nw: 7,
-                ne: 7,
-                sw: if tail && !from_me { 0 } else { 7 },
-                se: if tail && from_me { 0 } else { 7 },
-            },
-            if from_me {
-                palette.bubble_out
-            } else {
-                palette.bubble_in
-            },
-        );
+        if scroll {
+            // A search hit or `WA_DESK_SCROLL_TO` must land on the album itself:
+            // the grid's height differs from the bubbles it replaced, so framing
+            // the old index left it thousands of pixels off-screen.
+            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+        }
         for (index, message) in messages.iter().enumerate() {
             let column = index % columns;
             let row = index / columns;

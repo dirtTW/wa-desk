@@ -436,32 +436,31 @@ impl WaDesk {
                                 // A burst of photos/videos from one sender paints as the official
                                 // album grid, one bubble with one caption and one clock.
                                 let span = Model::album_span(&row.messages, index);
-                                // `WA_DESK_DIAG=1`: say why a media run did not
-                                // become an album. Indices 20-22 of "Test group"
-                                // satisfy the rule on paper but paint alone.
-                                if span <= 1
-                                    && (message.kind == "image" || message.kind == "video")
-                                    && (index == 0
-                                        || !matches!(
-                                            row.messages[index - 1].kind.as_str(),
-                                            "image" | "video"
-                                        ))
+                                // `WA_DESK_DIAG=1`: log every media index with the
+                                // span the album rule produced, so a run that should
+                                // group but does not can be traced.
+                                if (message.kind == "image" || message.kind == "video")
                                     && crate::app::diag_enabled()
                                 {
                                     let mut note = format!(
-                                        "album run at {index} span {span}: {}",
-                                        message.kind
+                                        "media {index} span {span} total {}: {} sender={:?} ts={} me={}",
+                                        row.messages.len(),
+                                        message.kind,
+                                        message.sender,
+                                        message.timestamp,
+                                        message.from_me
                                     );
                                     for look in index..(index + 3).min(row.messages.len()) {
                                         let item = &row.messages[look];
                                         note.push_str(&format!(
-                                            " | {look} {} sender={:?} ts={} me={}",
+                                            " || {look} {} s={:?} ts={} me={}",
                                             item.kind, item.sender, item.timestamp, item.from_me
                                         ));
                                     }
                                     diag(&note);
                                 }
                                 if span > 1 {
+                                    diag(&format!("album draw at {index} with {span} items"));
                                     let items: Vec<&wa_types::MessageView> =
                                         row.messages[index..index + span].iter().collect();
                                     let tail = Model::ends_run(&row.messages, index + span - 1);
@@ -474,6 +473,7 @@ impl WaDesk {
                                         &ctx,
                                         (ui.available_width() * 0.66).max(160.0),
                                         tail,
+                                        focus == Some(index),
                                     ) {
                                         chosen = Some(action);
                                     }

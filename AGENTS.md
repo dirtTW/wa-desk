@@ -46,10 +46,10 @@ reply quote recovered it.
 
 **Known open items**
 
-1. **Albums** are implemented: `Model::album_span` (same rule as `wa_ui::chat::album_at`) and
-   `bubbles::album_bubble` paint a burst as one grid bubble, each tile opening its own item. They were
-   lost in the JS -> egui move because only the shared markup had them; a pair more than 4 s apart
-   stays two bubbles, which is the official rule.
+1. **Albums** work and are confirmed on real data (`target/real_album_final.png`): `Model::album_span`
+   (same rule as `wa_ui::chat::album_at`) plus `bubbles::album_bubble` paint a burst as one grid bubble,
+   each tile opening its own item. The grid must `scroll_to_rect` its own rect - its height differs from
+   the bubbles it replaces, so an index-based jump lands thousands of pixels away.
 2. **Captures that need the user**, because WhatsApp Web ignores synthetic clicks on them: the media
    viewer, the sticker panel, a view-once message on live data, and the call overlay.
 3. **Protocol-limited, read-only by design**: linked devices / 2FA / block list, and Channels'
