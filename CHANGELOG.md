@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.88] - 2026-11-05
+
+- **Group info moved out of `app.rs`.** `screens/group.rs` now owns `group_panel`, `group_row` and
+  `group_media_thumbnails` (633 lines, with its own doc comment and imports). `app.rs` drops to
+  **1,780 lines** (2,559 two releases ago), so the window file is back to state, layout and the
+  shared widgets.
+- The first cut of this move clipped the `impl` block's closing brace and left orphaned doc comments,
+  which the compiler caught immediately; the repair removed the empty `impl WaDesk {}` and normalised
+  the moved block's tail. The final tree builds, and the earlier failed attempt is not in the history.
+- Evidence: `target/our_group.png` re-captured after the move - camera badge on the photo, subject with
+  the pencil, Voice/Video/Add/Search discs, creator card, description card and the flat icon rows with
+  "Default"/"Off" trailing values, all unchanged.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.87] - 2026-11-05
 
 - **Media viewer details, from the recorded tokens.** The caption now sits in a translucent rounded box
