@@ -68,7 +68,7 @@ the chat row was targeted.
 | Filters All / Unread / Favorites / Communities / Groups + "New list" | the same five in the official order with live counts; Favorites is a real filter (`Model::favourites`, toggled from the chat menu's **Add to / Remove from favourites**, persisted in `chats.json`) and **New list** creates custom lists (`ChatList`, `ChatFilter::List`) | ✅ filter + custom lists (`target/our_filters_crop.png`, `target/our_lists.png`) |
 | Search field `raised` (#2A3942) | same | ✅ |
 | Chat header 64 px | 64 px | ✅ |
-| Emoji panel: categories, accent search pill, "Smileys & People", nine-column grid | sampled live 2026-11-05 (real click on the combined smiley): eight category icons, the search pill ringed in the accent colour, the section label, the colour grid, then Emoji/GIF/Stickers | ✅ (`target/our_emoji.png`); deltas: our footer is text tabs with a Close button and our category row starts with a recents clock |
+| Emoji panel: eight categories, accent search pill, "Smileys & People", nine-column grid, icon footer | sampled live 2026-11-05 (real click on the combined smiley): eight category icons, the search pill ringed in the accent colour, the section label, the colour grid, then the emoji / GIF / sticker footer with the selected tab underlined and no Close control | ✅ (`target/our_emoji.png`) |
 | Composer: attach, one combined smiley, send/mic | live capture 2026-11-05: `Attach`, the rounded field with the single `Emojis, GIFs, Stickers` control, then send (or mic when the draft is empty); the sticker panel is the emoji panel's Stickers tab | ✅ (`target/our_chat.png`) |
 
 ## Conversation

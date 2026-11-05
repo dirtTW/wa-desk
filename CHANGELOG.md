@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.63] - 2026-11-05
+
+- **The two emoji-panel deltas from rc.62 are closed.** The live sample showed **eight** category icons (no
+  recents clock) and a footer of **three icon tabs** - smiley (accent, underlined), `GIF`, sticker - with
+  no Close control. Ours now does exactly that: the clock tab is gone, and the footer is the emoji glyph,
+  the `GIF` label and the sticker glyph, each with a 2 px accent underline when selected. The panel is
+  still toggled by the composer's smiley, which is how the live client closes it.
+- `target/our_emoji.png` re-captured: eight categories, accent search pill, "Smileys & People", the grid,
+  then the icon footer.
+- `docs/PARITY.md`'s emoji row loses its deltas list.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.62] - 2026-11-05
 
 - **The emoji panel was sampled from the live client with a real click** (the `browsermcp` `click` on the

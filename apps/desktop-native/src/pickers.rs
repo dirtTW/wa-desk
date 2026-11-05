@@ -22,7 +22,6 @@ impl WaDesk {
         let groups = wa_ui::emoji::groups();
         let mut clicked: Option<String> = None;
         let mut gif_send: Option<String> = None;
-        let mut close = false;
         let mut stickers = false;
 
         egui::Area::new(egui::Id::new("emoji-panel"))
@@ -38,13 +37,6 @@ impl WaDesk {
                         // Category tabs: recents first, then the catalogue.
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 1.0;
-                            let recent = self.emoji_texture(ui.ctx(), '\u{1F553}', 20);
-                            if emoji_category(ui, &palette, "🕘", recent, self.emoji_group == 0)
-                                .clicked()
-                            {
-                                self.emoji_group = 0;
-                                self.emoji_gif = false;
-                            }
                             for (index, group) in groups.iter().enumerate() {
                                 let glyph = group.icon.chars().next().unwrap_or('?');
                                 let texture = self.emoji_texture(ui.ctx(), glyph, 20);
@@ -53,11 +45,11 @@ impl WaDesk {
                                     &palette,
                                     &group.icon,
                                     texture,
-                                    self.emoji_group == index + 1 && !self.emoji_gif,
+                                    self.emoji_group == index && !self.emoji_gif,
                                 )
                                 .clicked()
                                 {
-                                    self.emoji_group = index + 1;
+                                    self.emoji_group = index;
                                     self.emoji_gif = false;
                                 }
                             }
@@ -204,60 +196,65 @@ impl WaDesk {
                                 }
                             });
 
-                        ui.add_space(6.0);
+                        ui.add_space(4.0);
                         ui.separator();
+                        // The live footer is three icon tabs with the selected one underlined;
+                        // there is no Close button (the smiley toggles the panel).
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 18.0;
-                            ui.label(
-                                egui::RichText::new("Emoji")
-                                    .size(12.5)
-                                    .strong()
-                                    .color(palette.accent),
-                            );
-                            if ui
+                            ui.spacing_mut().item_spacing.x = 26.0;
+                            ui.add_space(10.0);
+                            let active = |selected: bool| {
+                                if selected {
+                                    palette.accent
+                                } else {
+                                    palette.secondary
+                                }
+                            };
+                            let (emoji_rect, emoji_response) = ui
+                                .allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                            draw_icon(ui, emoji_rect, Icon::Emoji, active(!self.emoji_gif));
+                            if !self.emoji_gif {
+                                ui.painter().line_segment(
+                                    [
+                                        egui::pos2(emoji_rect.left(), emoji_rect.bottom() + 6.0),
+                                        egui::pos2(emoji_rect.right(), emoji_rect.bottom() + 6.0),
+                                    ],
+                                    egui::Stroke::new(2.0_f32, palette.accent),
+                                );
+                            }
+                            if emoji_response.clicked() {
+                                self.emoji_gif = false;
+                            }
+                            let gif = ui
                                 .add(
                                     egui::Button::new(
                                         egui::RichText::new("GIF")
-                                            .size(12.5)
-                                            .color(palette.secondary),
+                                            .size(13.0)
+                                            .strong()
+                                            .color(active(self.emoji_gif)),
                                     )
                                     .frame(false),
                                 )
-                                .clicked()
-                            {
+                                .on_hover_text("GIF");
+                            if self.emoji_gif {
+                                let rect = gif.rect;
+                                ui.painter().line_segment(
+                                    [
+                                        egui::pos2(rect.left(), rect.bottom() + 4.0),
+                                        egui::pos2(rect.right(), rect.bottom() + 4.0),
+                                    ],
+                                    egui::Stroke::new(2.0_f32, palette.accent),
+                                );
+                            }
+                            if gif.clicked() {
                                 self.emoji_gif = true;
                             }
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("Stickers")
-                                            .size(12.5)
-                                            .color(palette.secondary),
-                                    )
-                                    .frame(false),
-                                )
-                                .clicked()
-                            {
+                            let (sticker_rect, sticker_response) = ui
+                                .allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                            draw_icon(ui, sticker_rect, Icon::Sticker, palette.secondary);
+                            if sticker_response.clicked() {
                                 stickers = true;
                             }
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                egui::RichText::new("Close")
-                                                    .size(12.0)
-                                                    .color(palette.secondary),
-                                            )
-                                            .frame(false),
-                                        )
-                                        .clicked()
-                                    {
-                                        close = true;
-                                    }
-                                },
-                            );
                         });
                     });
             });
@@ -275,9 +272,6 @@ impl WaDesk {
             self.model.emoji_open = false;
             self.model.stickers_open = true;
             self.send(Command::FavoriteStickers);
-        }
-        if close {
-            self.model.emoji_open = false;
         }
     }
 
