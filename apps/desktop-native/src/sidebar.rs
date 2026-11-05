@@ -4,7 +4,6 @@
 use crate::app::{
     Icon, WaDesk, draw_icon, fab_button, icon_button, pill_button, pill_plus_button, rail_button,
 };
-use crate::model::ChatRow;
 use crate::model::Command;
 use crate::updates::UpdateState;
 use crate::widgets::{avatar_color, fit_text, initials, paint_avatar, single_line};
@@ -243,7 +242,24 @@ impl WaDesk {
                 }
                 ui.add_space(2.0);
 
-                let rows: Vec<ChatRow> = self.model.visible_chats().into_iter().cloned().collect();
+                // A light snapshot: cloning whole `ChatRow`s copied every chat's
+                // message list on each frame (~250 bubbles each). The row only
+                // needs these five values.
+                let rows: Vec<(String, String, String, String, i64, bool)> = self
+                    .model
+                    .visible_chats()
+                    .into_iter()
+                    .map(|row| {
+                        (
+                            row.jid.clone(),
+                            self.model.row_title(row),
+                            self.model.row_preview(row),
+                            self.model.row_stamp(row),
+                            row.unread,
+                            row.name.is_empty(),
+                        )
+                    })
+                    .collect();
 
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -251,33 +267,34 @@ impl WaDesk {
                     // rows shifted a few pixels sideways, which flickers.
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                     .show(ui, |ui| {
-                        for row in &rows {
-                            let selected = self.model.active.as_deref() == Some(row.jid.as_str());
-                            let title = self.model.row_title(row);
-                            let preview = self.model.row_preview(row);
-                            let stamp = self.model.row_stamp(row);
-                            if row.jid.ends_with("@g.us")
-                                && row.name.is_empty()
-                                && self.groups_asked.insert(row.jid.clone())
+                        for (jid, title, preview, stamp, unread, unnamed) in &rows {
+                            let selected = self.model.active.as_deref() == Some(jid.as_str());
+                            if *unnamed
+                                && jid.ends_with("@g.us")
+                                && self.groups_asked.insert(jid.clone())
                             {
-                                self.send(Command::GroupInfo {
-                                    chat: row.jid.clone(),
-                                });
+                                // History announced this group without a name.
+                                self.send(Command::GroupInfo { chat: jid.clone() });
                             }
-                            self.ensure_avatar(ui.ctx(), &row.jid);
-                            let avatar = self.avatar_for(&row.jid).cloned();
+                            self.ensure_avatar(ui.ctx(), jid);
+                            let avatar = self.avatar_for(jid).cloned();
                             if chat_row(
                                 ui,
                                 &palette,
-                                row,
-                                &title,
-                                &preview,
-                                &stamp,
+                                *unread,
+                                title,
+                                preview,
+                                stamp,
                                 selected,
                                 avatar.as_ref(),
                             ) {
-                                let jid = row.jid.clone();
-                                let empty = row.messages.is_empty();
+                                let jid = jid.clone();
+                                let empty = self
+                                    .model
+                                    .chats
+                                    .get(&jid)
+                                    .map(|row| row.messages.is_empty())
+                                    .unwrap_or(true);
                                 self.audio.stop();
                                 crate::gif::clear();
                                 crate::webp_anim::clear();
@@ -302,7 +319,7 @@ impl WaDesk {
 fn chat_row(
     ui: &mut egui::Ui,
     palette: &crate::theme::Palette,
-    row: &ChatRow,
+    unread: i64,
     title: &str,
     preview: &str,
     stamp: &str,
@@ -372,7 +389,7 @@ fn chat_row(
         palette.text,
     );
     if !stamp.is_empty() {
-        let color = if row.unread > 0 {
+        let color = if unread > 0 {
             palette.accent
         } else {
             palette.secondary
@@ -398,7 +415,7 @@ fn chat_row(
         egui::FontId::proportional(13.0),
         palette.secondary,
     );
-    if row.unread > 0 {
+    if unread > 0 {
         let pill = egui::Rect::from_center_size(
             egui::pos2(right - 4.0, rect.bottom() - 16.0),
             egui::vec2(20.0, 18.0),
@@ -407,7 +424,7 @@ fn chat_row(
         painter.text(
             pill.center(),
             egui::Align2::CENTER_CENTER,
-            row.unread.to_string(),
+            unread.to_string(),
             egui::FontId::proportional(11.0),
             egui::Color32::WHITE,
         );

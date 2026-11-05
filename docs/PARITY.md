@@ -134,3 +134,17 @@ the chat row was targeted.
   `WA_DESK_VIEWER=1`, `WA_DESK_EMOJI=1`, `WA_DESK_STICKER_WEBP=<file>` and `WA_DESK_OPEN_CHAT=<text>`.
 - `WA_DESK_DIAG=1` writes `memory:` and `paint:` lines so memory and frame pacing stay measurable.
 - `cargo test --workspace` (110 native, 38 wa-core, 232 wa-ui) plus `--selftest` gate every release.
+
+
+## Verification state (2026-11-05)
+
+Surfaces compared **live beside ours** over the browser MCP: the filter row (`live_filters.jpg`), the Calls drawer (`live_calls.jpg`), group info (`live_chat_menu2.jpg`) and Settings (`live_settings.jpg`).
+
+Surfaces still verified only against our own `--preview` captures: the media viewer, the sticker
+panel (its last live sample predates rc.75) and the Updates page (which has no official
+counterpart - the live client keeps "Check for updates" inside Help).
+
+Rows that cannot be closed without the user: the **call overlay** (needs a live call to capture
+the official sheet) and live **view-once** data (no view-once message has reached this linked
+device). **Meta AI** and **linked devices / 2FA / block list** have no linked-device API, so they
+stay read-only by design.

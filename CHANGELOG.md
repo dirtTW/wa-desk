@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.82] - 2026-11-05
+
+- **The chat list no longer deep-clones every chat per frame.** `sidebar()` collected
+  `visible_chats().into_iter().cloned()` - each `ChatRow` owns its message vector (up to 250 bubbles
+  per chat), so a 40-chat list copied thousands of `MessageView`s 4 times a second just to paint 72 px
+  rows that read five fields. It now builds a snapshot of `(jid, title, preview, stamp, unread,
+  unnamed)` and `chat_row` takes `unread: i64` instead of `&ChatRow`. The unnamed-group `GroupInfo`
+  request moved onto the snapshot too, so behaviour is unchanged.
+- Evidence: `target/our_chat_list.png` is pixel-identical in layout (avatars, previews, unread
+  badges, clocks) after the change; clippy and the suite stay green.
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.81] - 2026-11-05
 
 - **The Settings drawer matches the live one's header, search and rows.** Live sample from
