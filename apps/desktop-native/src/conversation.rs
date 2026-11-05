@@ -186,8 +186,10 @@ impl WaDesk {
                                 );
                                 let subtitle = if row.jid.ends_with("@g.us") {
                                     match self.model.group.as_ref() {
+                                        // The live header lists the participants
+                                        // ("Yi, You"), not the member count.
                                         Some(info) if info.jid == row.jid => {
-                                            wa_ui::labels::group_member_count(info.members.len())
+                                            self.model.group_subtitle(info)
                                         }
                                         _ => "Group".to_string(),
                                     }

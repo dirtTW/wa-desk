@@ -2006,18 +2006,11 @@ impl WaDesk {
                                         let show_all = self.group_members_all;
                                         let limit = if show_all { info.members.len() } else { 10 };
                                         for member in info.members.iter().take(limit) {
-                                            let name = member
-                                                .phone
-                                                .clone()
-                                                .map(|phone| wa_ui::text::format_phone(&phone))
-                                                .unwrap_or_else(|| {
-                                                    member
-                                                        .jid
-                                                        .split('@')
-                                                        .next()
-                                                        .unwrap_or(&member.jid)
-                                                        .to_string()
-                                                });
+                                            // The live list prints the participant name,
+                                            // not their number or JID.
+                                            let name = self
+                                                .model
+                                                .member_name(&member.jid, member.phone.as_deref());
                                             self.ensure_avatar(ui.ctx(), &member.jid);
                                             let avatar = self.avatar_for(&member.jid).cloned();
                                             ui.horizontal(|ui| {

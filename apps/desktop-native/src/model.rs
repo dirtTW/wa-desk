@@ -2806,6 +2806,65 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
 
     /// The sender row a group bubble carries: the name (`~` when the sender is
     /// not saved) and the number the official client prints at its right.
+    /// A participant's display name: the push name WhatsApp announced, else the
+    /// formatted phone, else the JID's user part. The live group header and
+    /// member list print names, not numbers.
+    pub fn member_name(&self, jid: &str, phone: Option<&str>) -> String {
+        if let Some(name) = self
+            .push_names
+            .get(jid)
+            .filter(|name| !name.trim().is_empty())
+        {
+            return name.clone();
+        }
+        if jid == self.me_jid
+            || jid
+                .split('@')
+                .next()
+                .is_some_and(|user| user == self.me_jid.split('@').next().unwrap_or(""))
+        {
+            return self.own_name();
+        }
+        if let Some(phone) = phone.filter(|phone| !phone.is_empty()) {
+            let digits: String = phone.chars().filter(char::is_ascii_digit).collect();
+            if digits.len() >= 7 {
+                return wa_ui::text::format_phone(&digits);
+            }
+        }
+        jid.split('@').next().unwrap_or(jid).to_string()
+    }
+
+    /// The live group header's second line: the participants' names ending with
+    /// "You", e.g. "Yi, You" (sampled from web.whatsapp.com 2026-11-05). Falls
+    /// back to the member count while the metadata is still loading.
+    pub fn group_subtitle(&self, info: &wa_types::GroupInfoView) -> String {
+        let me = self.me_jid.split('@').next().unwrap_or("").to_string();
+        let mut others: Vec<String> = Vec::new();
+        let mut mine = false;
+        for member in &info.members {
+            let user = member.jid.split('@').next().unwrap_or("");
+            if user == me {
+                mine = true;
+                continue;
+            }
+            let name = self.member_name(&member.jid, member.phone.as_deref());
+            if !name.is_empty() {
+                others.push(name);
+            }
+        }
+        if others.is_empty() && !mine {
+            return wa_ui::labels::group_member_count(info.members.len());
+        }
+        let mut shown: Vec<String> = others.iter().take(3).cloned().collect();
+        if others.len() > 3 {
+            shown.push(format!("and {} others", others.len() - 3));
+        }
+        if mine {
+            shown.push("You".to_string());
+        }
+        shown.join(", ")
+    }
+
     pub fn sender_row(&self, message: &MessageView) -> Option<(String, Option<String>)> {
         if !message.is_group || message.from_me {
             return None;
@@ -3511,6 +3570,48 @@ fn view(chat: &str, name: &str, id: &str, text: &str, ts: i64, from_me: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The group header lists participants and ends with "You", like the live
+    /// client ("Yi, You").
+    #[test]
+    fn group_subtitle_lists_names_then_you() {
+        let mut model = Model::new();
+        model.me_jid = "628111000111@s.whatsapp.net".to_string();
+        model
+            .push_names
+            .insert("628999@s.whatsapp.net".to_string(), "Ada".to_string());
+        model
+            .push_names
+            .insert("628888@s.whatsapp.net".to_string(), "Budi".to_string());
+        let info = wa_types::GroupInfoView {
+            jid: "1203@g.us".to_string(),
+            subject: "Team".to_string(),
+            description: None,
+            creator: None,
+            members: vec![
+                wa_types::GroupMemberView {
+                    jid: "628999@s.whatsapp.net".to_string(),
+                    phone: None,
+                    admin: false,
+                },
+                wa_types::GroupMemberView {
+                    jid: "628888@s.whatsapp.net".to_string(),
+                    phone: None,
+                    admin: false,
+                },
+                wa_types::GroupMemberView {
+                    jid: "628111000111@s.whatsapp.net".to_string(),
+                    phone: Some("+62 811-1000-111".to_string()),
+                    admin: true,
+                },
+            ],
+            ephemeral: None,
+            is_community: false,
+            is_announce: false,
+            parent_jid: None,
+        };
+        assert_eq!(model.group_subtitle(&info), "Ada, Budi, You");
+    }
 
     /// A view-once bubble gains its "Opened" state once, and a fanout without a
     /// file can never be opened (the linked device only gets the placeholder).

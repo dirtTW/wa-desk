@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.85] - 2026-11-05
+
+- **A group's header lists its participants, like the live client.** The live sample shows "Test group"
+  over **"Yi, You"** (`target/live_chat_open.jpg`); ours printed "Group · 3 members". `Model::group_subtitle`
+  now joins the participants' names (up to three, then "and N others") and ends with **You**, falling
+  back to the member count only while the metadata has not arrived.
+- `Model::member_name` gives a participant a real name - the push name WhatsApp announced, else the
+  formatted number, else the JID's user part - and the group-info member list uses it instead of
+  printing the phone/JID.
+- `group_subtitle_lists_names_then_you` pins the ordering ("Ada, Budi, You").
+- Evidence: `target/our_header.png` - the header reads "+62 811-1000-111, +62 811-1000-222, You" in the
+  demo, because the demo members have no push names (real members show names).
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.84] - 2026-11-05
 
 - **Pinned and muted chats are visible, and stay that way.** The live list marks a pinned chat with a
