@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.41] - 2026-11-05
+
+- **`app.rs` split, module 7: `src/screens/`.** The Calls screen left first because it is the
+  smallest of the full-window screens: `calls_panel` (the official 64 px header with the close
+  control, then the call log with avatar, direction glyph, time, duration and the call button) and
+  `call_row` now live in `screens/calls.rs` with `screens/mod.rs` listing the modules. `app.rs` is
+  down to **9,059 lines**.
+- To let a screen leave, the window's fields are `pub(crate)` (108 of them, a mechanical pass with no
+  behaviour change) and the handful of helpers a screen needs are crate-visible too: `send`,
+  `ensure_avatar`, `avatar_for`, `icon_button`, `now_ms`. That unblocks moving the status, channels,
+  communities and settings panels the same way.
+- Verified after the move with the same hook as before: `target/our_calls.png` (`WA_DESK_SCREEN=calls`)
+  draws the header, both log rows and the call buttons unchanged.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.40] - 2026-11-05
 
 - **Enter-to-send is verified end to end, not just by the unit test.** `WA_DESK_ENTER_TEST=1` seeds the

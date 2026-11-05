@@ -72,182 +72,184 @@ impl NativeApp {
 }
 
 pub struct WaDesk {
-    model: Model,
-    events: UnboundedReceiver<UiEvent>,
-    commands: Sender<Command>,
-    runtime: tokio::runtime::Handle,
-    typing_sent: bool,
+    pub(crate) model: Model,
+    pub(crate) events: UnboundedReceiver<UiEvent>,
+    pub(crate) commands: Sender<Command>,
+    pub(crate) runtime: tokio::runtime::Handle,
+    pub(crate) typing_sent: bool,
     /// The status panel is showing instead of a conversation.
-    show_status: bool,
+    pub(crate) show_status: bool,
     /// The calls panel is showing instead of a conversation.
-    show_calls: bool,
+    pub(crate) show_calls: bool,
     /// The Communities screen, and the community opened in it.
-    show_communities: bool,
-    communities_active: Option<String>,
+    pub(crate) show_communities: bool,
+    pub(crate) communities_active: Option<String>,
     /// The voice note being recorded from the composer's microphone button.
-    voice: Option<crate::voicenote::Recording>,
+    pub(crate) voice: Option<crate::voicenote::Recording>,
     /// The attach menu is open.
-    show_attach: bool,
+    pub(crate) show_attach: bool,
     /// Poll and contact-card drafts (the attach menu's two dialogs).
-    poll_draft: Option<crate::app::PollDraft>,
-    contact_draft: Option<crate::app::ContactDraft>,
-    location_draft: Option<crate::app::LocationDraft>,
+    pub(crate) poll_draft: Option<crate::app::PollDraft>,
+    pub(crate) contact_draft: Option<crate::app::ContactDraft>,
+    pub(crate) location_draft: Option<crate::app::LocationDraft>,
     /// The name being typed for a new custom list.
-    list_draft: Option<String>,
+    pub(crate) list_draft: Option<String>,
     /// `WA_DESK_SEND_ONCE` has fired (a smoke test of the send path).
-    smoke_sent: bool,
+    pub(crate) smoke_sent: bool,
     /// `WA_DESK_SCROLL_TOP` parks the conversation at its first message.
-    preview_scroll_top: bool,
+    pub(crate) preview_scroll_top: bool,
     /// `WA_DESK_ENTER_TEST` frames left before a synthetic Enter is pushed.
-    enter_test: u8,
+    pub(crate) enter_test: u8,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
-    status_compose: Option<String>,
-    status_compose_background: usize,
-    status_compose_font: usize,
+    pub(crate) status_compose: Option<String>,
+    pub(crate) status_compose_background: usize,
+    pub(crate) status_compose_font: usize,
     /// The settings screen is showing instead of a conversation.
-    show_settings: bool,
-    settings: NativeSettings,
-    settings_path: std::path::PathBuf,
+    pub(crate) show_settings: bool,
+    pub(crate) settings: NativeSettings,
+    pub(crate) settings_path: std::path::PathBuf,
     /// The last save result, shown under the form.
-    settings_note: String,
+    pub(crate) settings_note: String,
     /// The channels panel is showing instead of a conversation.
-    show_channels: bool,
+    pub(crate) show_channels: bool,
     /// Rasterised QR code, keyed by the SVG it came from so a rotating code
     /// is decoded once per rotation.
-    qr: Option<(String, egui::TextureHandle)>,
+    pub(crate) qr: Option<(String, egui::TextureHandle)>,
     /// The login gate is showing the phone-number form instead of the QR.
-    gate_phone: bool,
+    pub(crate) gate_phone: bool,
     /// Media download results, drained every frame.
-    media_rx: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
+    pub(crate) media_rx: std::sync::mpsc::Receiver<(String, Result<String, String>)>,
     /// Group metadata replies.
-    group_rx: std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
+    pub(crate) group_rx:
+        std::sync::mpsc::Receiver<(String, Result<wa_types::GroupInfoView, String>)>,
     /// The group info screen is open.
-    show_group: bool,
+    pub(crate) show_group: bool,
     /// Decoded media textures, keyed by message id.
-    textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    pub(crate) textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     /// Decoded sticker textures, keyed by sticker id or favourite id.
-    sticker_textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    pub(crate) sticker_textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     /// Favourite-sticker replies.
-    favorites_rx: std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
+    pub(crate) favorites_rx:
+        std::sync::mpsc::Receiver<Result<Vec<wa_types::FavoriteStickerView>, String>>,
     /// The search hit the list was last scrolled to.
-    scrolled_hit: i64,
+    pub(crate) scrolled_hit: i64,
     /// A short status line for the viewer (saved path, failures).
-    note: String,
+    pub(crate) note: String,
     /// A transient toast ("Use the contact screen to call"), a few seconds.
-    notice: Option<(String, std::time::Instant)>,
+    pub(crate) notice: Option<(String, std::time::Instant)>,
     /// Self-update state and its worker replies.
-    update: UpdateState,
-    update_tx: std::sync::mpsc::Sender<UpdateMsg>,
-    update_rx: std::sync::mpsc::Receiver<UpdateMsg>,
+    pub(crate) update: UpdateState,
+    pub(crate) update_tx: std::sync::mpsc::Sender<UpdateMsg>,
+    pub(crate) update_rx: std::sync::mpsc::Receiver<UpdateMsg>,
     /// The automatic check has already run once.
-    update_checked: bool,
+    pub(crate) update_checked: bool,
     /// The resolved WhatsApp palette for this frame.
-    palette: crate::theme::Palette,
+    pub(crate) palette: crate::theme::Palette,
     /// The OS dark-mode preference, captured before we install our own visuals.
-    system_dark: bool,
+    pub(crate) system_dark: bool,
     /// `--screenshot <path>`: save one frame and quit (used to verify the UI).
-    screenshot: Option<(std::path::PathBuf, std::time::Instant, bool)>,
+    pub(crate) screenshot: Option<(std::path::PathBuf, std::time::Instant, bool)>,
     /// The restart cache for the chat list (`chats.json` beside the session).
-    cache_path: std::path::PathBuf,
-    cache_dirty: bool,
-    cache_saved: std::time::Instant,
+    pub(crate) cache_path: std::path::PathBuf,
+    pub(crate) cache_dirty: bool,
+    pub(crate) cache_saved: std::time::Instant,
     /// Profile photos: jid -> circular texture (None once known to be missing).
-    avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    pub(crate) avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     /// Photos already asked for.
-    avatar_asked: std::collections::HashSet<String>,
+    pub(crate) avatar_asked: std::collections::HashSet<String>,
     /// JIDs whose photo was read from the disk cache.
-    avatar_disk: std::collections::HashSet<String>,
+    pub(crate) avatar_disk: std::collections::HashSet<String>,
     /// `WA_DESK_OPEN_FIRST`: opened the first chat once (screenshot testing).
-    auto_opened: bool,
-    avatar_rx: std::sync::mpsc::Receiver<(String, Option<String>)>,
-    avatar_img_tx: std::sync::mpsc::Sender<(String, Result<Vec<u8>, String>)>,
-    avatar_img_rx: std::sync::mpsc::Receiver<(String, Result<Vec<u8>, String>)>,
+    pub(crate) auto_opened: bool,
+    pub(crate) avatar_rx: std::sync::mpsc::Receiver<(String, Option<String>)>,
+    pub(crate) avatar_img_tx: std::sync::mpsc::Sender<(String, Result<Vec<u8>, String>)>,
+    pub(crate) avatar_img_rx: std::sync::mpsc::Receiver<(String, Result<Vec<u8>, String>)>,
     /// Attachment results, and the short note under the composer.
-    attach_rx: std::sync::mpsc::Receiver<Result<String, String>>,
-    attach_note: Option<(String, std::time::Instant)>,
+    pub(crate) attach_rx: std::sync::mpsc::Receiver<Result<String, String>>,
+    pub(crate) attach_note: Option<(String, std::time::Instant)>,
     /// True in `--preview`: never write the demo chats to the real cache.
-    preview: bool,
+    pub(crate) preview: bool,
     /// When the last `memory:` line was written (diagnostics only).
-    last_memory_log: std::time::Instant,
+    pub(crate) last_memory_log: std::time::Instant,
     /// Paint clock for the `paint:` diagnostic: the previous frame's time and
     /// the interval seen since the last report.
-    last_paint: std::time::Instant,
-    paint_gap_sum: f32,
-    paint_gap_count: u32,
+    pub(crate) last_paint: std::time::Instant,
+    pub(crate) paint_gap_sum: f32,
+    pub(crate) paint_gap_count: u32,
     /// Screenshot support: start the demo video as soon as it is decoded.
-    preview_autoplay: bool,
+    pub(crate) preview_autoplay: bool,
     /// Progressive history sync: batches left and when the last one went out.
-    sync_rounds: u8,
-    last_sync: std::time::Instant,
+    pub(crate) sync_rounds: u8,
+    pub(crate) last_sync: std::time::Instant,
     /// The "new chat" FAB asked the search box to take focus.
-    focus_search: bool,
+    pub(crate) focus_search: bool,
     /// The connection epoch the backfill already started for.
-    seen_epoch: u64,
+    pub(crate) seen_epoch: u64,
     /// When the chat app-state was last polled for read marks/mutes.
-    last_state_sync: std::time::Instant,
+    pub(crate) last_state_sync: std::time::Instant,
     /// When groups/status were last refreshed in full.
-    last_full_sync: std::time::Instant,
+    pub(crate) last_full_sync: std::time::Instant,
     /// Prepared videos and their frame textures.
-    videos: std::collections::HashMap<String, VideoState>,
-    video_tx: std::sync::mpsc::Sender<(String, Result<crate::video::Video, String>)>,
-    video_rx: std::sync::mpsc::Receiver<(String, Result<crate::video::Video, String>)>,
-    video_textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    pub(crate) videos: std::collections::HashMap<String, VideoState>,
+    pub(crate) video_tx: std::sync::mpsc::Sender<(String, Result<crate::video::Video, String>)>,
+    pub(crate) video_rx: std::sync::mpsc::Receiver<(String, Result<crate::video::Video, String>)>,
+    pub(crate) video_textures: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     /// Insertion order of `video_textures`, so old frames can be evicted.
-    video_order: std::collections::VecDeque<String>,
+    pub(crate) video_order: std::collections::VecDeque<String>,
     /// The clip whose frames are being decoded ahead, keyed by its directory.
-    video_prefetch: Option<(String, crate::frames::Prefetch)>,
-    video_playing: bool,
-    video_started: Option<std::time::Instant>,
-    video_offset: f32,
-    video_muted: bool,
+    pub(crate) video_prefetch: Option<(String, crate::frames::Prefetch)>,
+    pub(crate) video_playing: bool,
+    pub(crate) video_started: Option<std::time::Instant>,
+    pub(crate) video_offset: f32,
+    pub(crate) video_muted: bool,
     /// Group JIDs whose metadata has been requested.
-    groups_asked: std::collections::HashSet<String>,
+    pub(crate) groups_asked: std::collections::HashSet<String>,
     /// The Chats kebab menu is open.
-    show_chat_menu: bool,
+    pub(crate) show_chat_menu: bool,
     /// Which Settings section is open.
-    settings_section: usize,
+    pub(crate) settings_section: usize,
     /// The audio player, kept alive for the window's lifetime.
-    audio: crate::audio::Audio,
+    pub(crate) audio: crate::audio::Audio,
     /// True once the Packs tab asked the session for its packs.
-    packs_requested: bool,
+    pub(crate) packs_requested: bool,
     /// The sticker picker tab (0 recents, 1 favourites, 2 packs) and search.
-    sticker_tab: usize,
-    sticker_query: String,
+    pub(crate) sticker_tab: usize,
+    pub(crate) sticker_query: String,
     /// The emoji picker's selected category (0 = recents, 1.. = catalogue groups).
-    emoji_group: usize,
+    pub(crate) emoji_group: usize,
     /// The picker's GIF tab (no GIF search yet, so it explains itself).
-    emoji_gif: bool,
+    pub(crate) emoji_gif: bool,
     /// Colour emoji textures, keyed by (glyph, pixel size).
-    emoji_textures: std::collections::HashMap<(char, u32), Option<egui::TextureHandle>>,
+    pub(crate) emoji_textures: std::collections::HashMap<(char, u32), Option<egui::TextureHandle>>,
     /// The remote call video decoder, started on the first frame.
-    call_video: Option<crate::callvideo::CallVideo>,
+    pub(crate) call_video: Option<crate::callvideo::CallVideo>,
     /// The newest decoded remote frame, uploaded as a texture.
-    call_frame: Option<egui::TextureHandle>,
+    pub(crate) call_frame: Option<egui::TextureHandle>,
     /// Preview hook: an image used as the self-view in `--preview`.
-    call_self_source: Option<String>,
+    pub(crate) call_self_source: Option<String>,
     /// Our own camera preview shown in the call sheet corner.
-    call_self_frame: Option<egui::TextureHandle>,
+    pub(crate) call_self_frame: Option<egui::TextureHandle>,
     /// Which decoder generation call_frame holds.
-    call_frame_generation: u64,
+    pub(crate) call_frame_generation: u64,
     /// The Windows tray icon and menu (None when the shell refuses it).
-    tray: Option<crate::tray::Tray>,
+    pub(crate) tray: Option<crate::tray::Tray>,
     /// The open chat's actions menu.
-    show_chat_actions: bool,
+    pub(crate) show_chat_actions: bool,
     /// The new-chat picker and its search.
-    show_new_chat: bool,
-    new_chat_search: String,
-    contacts: Vec<(String, String)>,
-    contacts_rx: std::sync::mpsc::Receiver<Vec<(String, String)>>,
-    show_starred: bool,
-    show_new_group: bool,
-    new_group_subject: String,
-    new_group_members: std::collections::HashSet<String>,
-    show_new_contact: bool,
-    new_contact_phone: String,
-    new_contact_name: String,
-    group_add_open: bool,
-    group_add_members: std::collections::HashSet<String>,
+    pub(crate) show_new_chat: bool,
+    pub(crate) new_chat_search: String,
+    pub(crate) contacts: Vec<(String, String)>,
+    pub(crate) contacts_rx: std::sync::mpsc::Receiver<Vec<(String, String)>>,
+    pub(crate) show_starred: bool,
+    pub(crate) show_new_group: bool,
+    pub(crate) new_group_subject: String,
+    pub(crate) new_group_members: std::collections::HashSet<String>,
+    pub(crate) show_new_contact: bool,
+    pub(crate) new_contact_phone: String,
+    pub(crate) new_contact_name: String,
+    pub(crate) group_add_open: bool,
+    pub(crate) group_add_members: std::collections::HashSet<String>,
 }
 
 impl WaDesk {
@@ -2179,7 +2181,7 @@ impl WaDesk {
         }
     }
 
-    fn send(&self, command: Command) {
+    pub(crate) fn send(&self, command: Command) {
         let _ = self.commands.send(command);
     }
 
@@ -2213,7 +2215,7 @@ impl WaDesk {
     }
 
     /// Ask for a contact's photo once; `paint_avatar` falls back to initials.
-    fn ensure_avatar(&mut self, ctx: &egui::Context, jid: &str) {
+    pub(crate) fn ensure_avatar(&mut self, ctx: &egui::Context, jid: &str) {
         if jid.is_empty() {
             return;
         }
@@ -2233,7 +2235,7 @@ impl WaDesk {
         }
     }
 
-    fn avatar_for(&self, jid: &str) -> Option<&egui::TextureHandle> {
+    pub(crate) fn avatar_for(&self, jid: &str) -> Option<&egui::TextureHandle> {
         self.avatars.get(jid).and_then(|entry| entry.as_ref())
     }
 
@@ -4109,67 +4111,6 @@ impl WaDesk {
             });
     }
 
-    /// The Calls screen: the 64 px header, then the call log as 72 px rows with
-    /// the direction glyph, the date and a call button - the official layout.
-    fn calls_panel(&mut self, ctx: &egui::Context) {
-        let palette = self.palette.clone();
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(palette.elevated)
-                    .inner_margin(egui::Margin::symmetric(16, 12))
-                    .show(ui, |ui| {
-                        ui.set_min_height(40.0);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Calls").size(20.0).color(palette.text));
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if icon_button(ui, Icon::Close, &palette)
-                                        .on_hover_text("Back to chats")
-                                        .clicked()
-                                    {
-                                        self.show_calls = false;
-                                    }
-                                },
-                            );
-                        });
-                    });
-
-                if self.model.call_log.is_empty() {
-                    ui.add_space(40.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(
-                            egui::RichText::new("No calls yet")
-                                .size(14.0)
-                                .color(palette.secondary),
-                        );
-                    });
-                    return;
-                }
-
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        let entries = self.model.call_log.clone();
-                        for entry in entries {
-                            self.ensure_avatar(ui.ctx(), &entry.jid);
-                            let avatar = self.avatar_for(&entry.jid).cloned();
-                            if let Some(call) = call_row(ui, &palette, &entry, avatar.as_ref()) {
-                                // Start a call with that person from the list.
-                                self.model.open_chat(&entry.jid);
-                                self.model.calls_outgoing = true;
-                                self.send(Command::CallStart {
-                                    chat: entry.jid.clone(),
-                                    video: call,
-                                });
-                            }
-                        }
-                    });
-            });
-    }
-
     /// The Status screen: the official list on the left (a 64 px header, the
     /// "My status" row, then Recent/Viewed) and the "Share statuses" pane on the
     /// right with the Text / Photo-and-video tiles.
@@ -4697,7 +4638,7 @@ pub fn diag(message: &str) {
     }
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -6192,129 +6133,6 @@ pub struct LocationDraft {
 pub struct ContactDraft {
     pub name: String,
     pub phone: String,
-}
-
-/// One 72 px call row: avatar, name, direction + time, and a call button.
-/// Returns `Some(video)` when the call button was pressed (false = voice).
-fn call_row(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    entry: &crate::model::CallLogEntry,
-    avatar: Option<&egui::TextureHandle>,
-) -> Option<bool> {
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 72.0), egui::Sense::click());
-    let card = rect.shrink2(egui::vec2(8.0, 0.0));
-    if response.hovered() {
-        ui.painter()
-            .rect_filled(card, egui::CornerRadius::same(12), palette.hover);
-    }
-    let center = egui::pos2(rect.left() + 44.0, rect.center().y);
-    if let Some(texture) = avatar {
-        ui.painter().image(
-            texture.id(),
-            egui::Rect::from_center_size(center, egui::vec2(48.0, 48.0)),
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-            egui::Color32::WHITE,
-        );
-    } else {
-        ui.painter()
-            .circle_filled(center, 24.0, avatar_color(&entry.name));
-        ui.painter().text(
-            center,
-            egui::Align2::CENTER_CENTER,
-            initials(&entry.name),
-            egui::FontId::proportional(16.0),
-            egui::Color32::WHITE,
-        );
-    }
-    // Missed calls are red in the official list; the rest are secondary.
-    let name_color = if entry.missed {
-        palette.danger
-    } else {
-        palette.text
-    };
-    ui.painter().text(
-        egui::pos2(rect.left() + 82.0, rect.top() + 26.0),
-        egui::Align2::LEFT_CENTER,
-        fit_text(
-            ui.painter(),
-            &entry.name,
-            egui::FontId::proportional(15.0),
-            name_color,
-            rect.width() - 200.0,
-        ),
-        egui::FontId::proportional(15.0),
-        name_color,
-    );
-    // Direction glyph + time on the second line.
-    let glyph = if entry.missed {
-        Icon::CallEnd
-    } else if entry.outgoing {
-        Icon::Forward
-    } else {
-        Icon::Reply
-    };
-    let glyph_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.left() + 82.0, rect.top() + 44.0),
-        egui::vec2(14.0, 14.0),
-    );
-    draw_icon(ui, glyph_rect, glyph, name_color);
-    let stamp = if entry.at > 0 {
-        wa_ui::labels::stamp_of(entry.at, now_ms())
-    } else {
-        String::new()
-    };
-    let kind = if entry.video {
-        "Video call"
-    } else {
-        "Voice call"
-    };
-    let detail = if entry.missed {
-        stamp
-    } else if entry.seconds > 0 {
-        let minutes = entry.seconds / 60;
-        let seconds = entry.seconds % 60;
-        format!("{stamp}  ·  {kind}  ·  {minutes}:{seconds:02}")
-    } else {
-        format!("{stamp}  ·  {kind}")
-    };
-    ui.painter().text(
-        egui::pos2(rect.left() + 101.0, rect.top() + 51.0),
-        egui::Align2::LEFT_CENTER,
-        detail,
-        egui::FontId::proportional(12.5),
-        palette.secondary,
-    );
-
-    // The call button on the right.
-    let button = egui::Rect::from_center_size(
-        egui::pos2(rect.right() - 34.0, rect.center().y),
-        egui::vec2(34.0, 34.0),
-    );
-    let hit = ui.interact(
-        button,
-        ui.id().with(("call", &entry.jid)),
-        egui::Sense::click(),
-    );
-    if hit.hovered() {
-        ui.painter()
-            .rect_filled(button, egui::CornerRadius::same(17), palette.hover);
-    }
-    draw_icon(
-        ui,
-        button.shrink(8.0),
-        if entry.video {
-            Icon::VideoCall
-        } else {
-            Icon::Phone
-        },
-        palette.accent,
-    );
-    if hit.clicked() {
-        return Some(entry.video);
-    }
-    None
 }
 
 /// One 72 px status row: ring avatar, name, meta line.
@@ -8946,7 +8764,11 @@ fn forward_checkbox(
     }
 }
 
-fn icon_button(ui: &mut egui::Ui, icon: Icon, palette: &crate::theme::Palette) -> egui::Response {
+pub(crate) fn icon_button(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    palette: &crate::theme::Palette,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
     if response.hovered() {
         ui.painter()

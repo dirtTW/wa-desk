@@ -34,6 +34,7 @@ mod mic;
 mod model;
 mod notify;
 mod rich_text;
+mod screens;
 mod settings;
 mod settings_ui;
 mod spawn;
