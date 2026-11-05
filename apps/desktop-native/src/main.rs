@@ -27,6 +27,7 @@ mod dialogs;
 mod echo;
 mod emoji_glyph;
 mod frames;
+mod gate;
 mod gif;
 mod icon;
 mod icons;

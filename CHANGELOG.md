@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.50] - 2026-11-05
+
+- **The QR gate left `app.rs`: `src/gate.rs` (489 lines).** `gate` (the "Download WA Desk for
+  Windows" banner, the "Scan to log in" card with its three steps, the QR from the linked session,
+  the pairing-code form, "Log in with phone number", the "Stay logged in on this device" switch and
+  the footer) and `qr_texture` (the SVG → texture cache) are their own module now.
+- `app.rs` is down to **2,815 lines**, from 10,069 at the start of this run. What is left is the
+  eframe `App` impl, the event pump and the notification/tray glue - i.e. the plumbing, not UI
+  surfaces.
+- Verified after the move: `target/our_login.png` (`WA_DESK_LOGIN=1`) shows the banner with the
+  laptop illustration and Download button, the steps, the real QR, "Log in with phone number", the
+  switch and the encryption footnote.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.49] - 2026-11-05
 
 - **The pickers left `app.rs`: `src/pickers.rs` (782 lines).** `emoji_window` (the category row with
