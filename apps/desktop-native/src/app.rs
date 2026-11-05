@@ -5445,46 +5445,6 @@ impl WaDesk {
         });
     }
 
-    /// Notifications: the toast switch and what it filters.
-    fn notifications_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
-        Self::settings_header(ui, palette, "Notifications", "Messages, groups and sounds.");
-        let mut notifications = self.settings.notifications;
-        let mut changed = false;
-        settings_card(ui, palette, "MESSAGES", |ui| {
-            settings_row(
-                ui,
-                palette,
-                "Desktop notifications",
-                "Only for messages that arrive while the window is unfocused, and never                  for the open chat, statuses or channels - the official rule.",
-                |ui| {
-                    if settings_switch(ui, palette, notifications).clicked() {
-                        notifications = !notifications;
-                        changed = true;
-                    }
-                },
-            );
-            settings_row(
-                ui,
-                palette,
-                "Test notification",
-                "Posts one toast so the OS path can be checked.",
-                |ui| {
-                    if ui.button("Send").clicked() {
-                        let _ = crate::notify::send("WA Desk", "Notifications are on.");
-                    }
-                },
-            );
-        });
-        if changed {
-            self.settings.notifications = notifications;
-            self.settings_note = format!(
-                "Desktop notifications {}.",
-                if notifications { "enabled" } else { "disabled" }
-            );
-            let _ = self.settings.save(&self.settings_path);
-        }
-    }
-
     /// Keyboard shortcuts this window answers to.
     fn shortcuts_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
         Self::settings_header(
@@ -5539,6 +5499,119 @@ impl WaDesk {
                     .size(12.0)
                     .monospace()
                     .color(palette.secondary),
+            );
+        });
+    }
+
+    /// Notifications, in the official order: Messages, Groups, Status, Calls,
+    /// then the preview/sound/background switches. Only the first is a real
+    /// setting here (the toast switch); the rest report what this client does.
+    fn notifications_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
+        Self::settings_header(
+            ui,
+            palette,
+            "Notifications",
+            "Messages, groups, sounds, previews and background sync.",
+        );
+        settings_card(ui, palette, "NOTIFICATIONS", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Messages",
+                "A toast only for messages that arrive while the window is unfocused - never for the open chat.",
+                |ui| {
+                    settings_switch(ui, palette, self.settings.notifications);
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Groups",
+                "Group messages follow the same rule as messages.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("On")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Status",
+                "Status updates never raise a toast; they land in the Status panel.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Off")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Calls",
+                "An incoming call opens the call sheet instead of a toast.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("On")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
+        settings_card(ui, palette, "PREVIEWS AND SOUND", |ui| {
+            settings_row(
+                ui,
+                palette,
+                "Show previews",
+                "The toast carries the sender and the message text.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("On")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Play sound for outgoing messages",
+                "This client sends silently.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Off")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Background sync",
+                "The linked session keeps syncing while the window is in the background.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("On")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "Test notification",
+                "Posts one toast so the OS path can be checked.",
+                |ui| {
+                    ui.label(egui::RichText::new("Send").size(13.0).color(palette.accent));
+                },
             );
         });
     }

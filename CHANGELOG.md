@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.39] - 2026-11-05
+
+- **The Notifications pane was sampled from the live client and rebuilt.** Opened on
+  web.whatsapp.com (rail `You` → `Notifications`), the official pane lists **Messages, Groups, Status,
+  Calls**, then *Show previews*, *Play sound for outgoing messages* and *Background sync*. Ours now
+  carries the same rows in that order: Messages is the real toast switch (persisted), the rest state
+  what this client actually does (groups follow the same rule, statuses never toast, calls open the
+  call sheet, the toast carries sender + text, sending is silent, the session keeps syncing), and
+  *Test notification* stays as the `--test-notification` hook. Capture:
+  `target/our_notifications.png`.
+- This release also ships the sticker and send fixes from the previous commit: a sticker tapped in
+  the picker now appears in the chat at once (`Model::add_own_sticker`, the local WebP registered as
+  its media, `UiEvent::Sent` moves it onto the server id), Enter sends from the composer, and a send
+  that never left the socket shows a red `!` instead of a tick.
+- `docs/PARITY.md` records the Notifications sample next to the Account/Privacy/Chats ones.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.38] - 2026-11-05
 
 - **A sticker you send now shows in the chat.** Tapping a sticker in the picker used to close the
