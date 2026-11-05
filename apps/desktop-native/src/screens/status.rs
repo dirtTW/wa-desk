@@ -343,25 +343,84 @@ impl WaDesk {
         // `centered_and_justified` inside an unconstrained frame swallows the
         // whole window and pushed the reply bar off screen.
         let body_height = (ui.available_height() - 96.0).max(200.0);
-        egui::Frame::new()
-            .fill(color)
-            .inner_margin(egui::Margin::same(16))
-            .corner_radius(egui::CornerRadius::same(10))
-            .show(ui, |ui| {
-                ui.set_height(body_height);
-                ui.centered_and_justified(|ui| {
-                    let body = if update.text.trim().is_empty() {
-                        wa_ui::chat::media_placeholder(&update.kind).to_string()
-                    } else {
-                        update.text.clone()
-                    };
-                    ui.label(
-                        egui::RichText::new(body)
-                            .size(22.0)
-                            .color(egui::Color32::WHITE),
-                    );
-                });
+
+        // Image and video stories paint the media: the status message's
+        // protobuf is cached by `wa-core`, so the same `FetchMedia` path the
+        // chat bubbles use works with the status id.
+        let media = matches!(update.kind.as_str(), "image" | "video");
+        if media
+            && self.model.media_path(&update.id).is_none()
+            && self.model.request_media(&update.id)
+        {
+            self.send(Command::FetchMedia {
+                id: update.id.clone(),
             });
+        }
+        let texture = media
+            .then(|| {
+                crate::bubbles::texture_at(
+                    ui.ctx(),
+                    &mut self.textures,
+                    &update.id,
+                    self.model.media_path(&update.id),
+                    crate::bubbles::PHOTO_PX,
+                )
+            })
+            .flatten();
+
+        let (area, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), body_height),
+            egui::Sense::hover(),
+        );
+        let painter = ui.painter();
+        painter.rect_filled(area, egui::CornerRadius::same(10), color);
+        match texture {
+            Some(texture) => {
+                let size = texture.size_vec2();
+                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                // The blurred backdrop: the same frame stretched to cover and
+                // dimmed, exactly how the official stage fills the sides.
+                let cover = (area.width() / size.x.max(1.0)).max(area.height() / size.y.max(1.0));
+                painter.with_clip_rect(area).image(
+                    texture.id(),
+                    egui::Rect::from_center_size(area.center(), size * cover),
+                    uv,
+                    egui::Color32::from_gray(80),
+                );
+                // The story itself, letterboxed inside the stage.
+                let fit = (area.width() / size.x.max(1.0)).min(area.height() / size.y.max(1.0));
+                painter.image(
+                    texture.id(),
+                    egui::Rect::from_center_size(area.center(), size * fit),
+                    uv,
+                    egui::Color32::WHITE,
+                );
+            }
+            None => {
+                let body = if update.text.trim().is_empty() {
+                    wa_ui::chat::media_placeholder(&update.kind).to_string()
+                } else {
+                    update.text.clone()
+                };
+                painter.text(
+                    area.center(),
+                    egui::Align2::CENTER_CENTER,
+                    body,
+                    egui::FontId::proportional(22.0),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
+        // The caption sits over the bottom of the media, like the official.
+        if !update.text.trim().is_empty() && media {
+            painter.text(
+                egui::pos2(area.center().x, area.bottom() - 14.0),
+                egui::Align2::CENTER_BOTTOM,
+                &update.text,
+                egui::FontId::proportional(15.0),
+                egui::Color32::WHITE,
+            );
+        }
 
         ui.add_space(8.0);
         // The official bottom bar: the side arrows, then either the reply field

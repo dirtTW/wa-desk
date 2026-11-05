@@ -452,6 +452,34 @@ impl WaDesk {
         }
         // `WA_DESK_POLL=1` / `WA_DESK_CONTACT=1` put the two new message kinds in
         // the demo group so their bubbles can be captured.
+        if let Ok(media) = std::env::var("WA_DESK_STATUS_MEDIA") {
+            // A photo story with a real file registered as its media, so the
+            // stage and its backdrop can be captured.
+            let jid = "628111000111@s.whatsapp.net".to_string();
+            let id = "status-media-demo".to_string();
+            self.model.apply(&UiEvent::Status(wa_types::StatusUpdate {
+                id: id.clone(),
+                sender: jid.clone(),
+                name: "Ada".to_string(),
+                kind: "image".to_string(),
+                text: "shot on the balcony".to_string(),
+                background: None,
+                timestamp: now_ms(),
+                from_me: false,
+            }));
+            self.model
+                .media
+                .insert(id, crate::model::MediaState::Path(media));
+            self.show_status = true;
+            self.model.open_status(&jid);
+            let index = self
+                .model
+                .status_groups()
+                .iter()
+                .position(|group| group.jid == jid)
+                .unwrap_or(0);
+            self.model.viewer = Some((index, 0));
+        }
         if std::env::var("WA_DESK_STATUS_VIEWER").is_ok() {
             self.show_status = true;
             if let Some(first) = self.model.status_groups().first() {

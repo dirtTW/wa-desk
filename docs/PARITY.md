@@ -108,7 +108,7 @@ the chat row was targeted.
 | Composer: Enter sends, and the bubble appears at once | `enter_sends` samples the key before the single-line field consumes it; `WA_DESK_ENTER_TEST=1` drives a real `Event::Key` through egui for the capture | ✅ (`target/our_enter_send.png`) |
 | Send failures are visible: a red `!` instead of a tick | `UiEvent::SendFailed` from `wa-core`, `Model::send_failures` + `send_error`, the bubble paints a red disc with `!` | ✅ (`target/our_send_failed.png`) |
 | Conversation scroll: newest message on open/send, floating jump-to-latest disc | opening a chat or sending pins the view to the last bubble (`ui.scroll_to_rect(..., Align::BOTTOM)`); scrolling up reveals the official 44 px chevron disc above the composer | ✅ (`target/real_scroll.png`, `WA_DESK_SCROLL_TOP=1`) |
-| Story viewer with progress bars, reply, react, delete | segmented bar, **author avatar** over the name and timestamp, body bounded above the bar, close top-right, then **▶ · emoji · "Type a reply…" · Send · ❤** (the emoji strip appends to the draft) or the view count + Delete on your own status | ✅ (`target/our_status_viewer.png`); deltas vs the live image-status chrome: blurred backdrop (needs status-media rendering) and the sticker button |
+| Story viewer: progress bar, avatar, **photo/video stage with the blurred backdrop**, caption, reply, react, delete | `FetchMedia` on the status id (wa-core caches the protobuf), stage cover-scaled and dimmed behind a letterboxed frame, caption over the bottom; reply field + emoji strip + heart, or the view count + Delete on your own | ✅ (`target/our_status_media.png`, `target/our_status_viewer.png`); delta left: the sticker button (our `reply_status` is text-only) |
 
 ## Channels, communities, calls, settings
 

@@ -5483,7 +5483,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wa-core"
-version = "0.2.1-rc.56"
+version = "0.2.1-rc.57"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5504,7 +5504,7 @@ dependencies = [
 
 [[package]]
 name = "wa-desktop-native"
-version = "0.2.1-rc.56"
+version = "0.2.1-rc.57"
 dependencies = [
  "aes-gcm 0.10.3",
  "audiopus",
@@ -5536,14 +5536,14 @@ dependencies = [
 
 [[package]]
 name = "wa-types"
-version = "0.2.1-rc.56"
+version = "0.2.1-rc.57"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "wa-ui"
-version = "0.2.1-rc.56"
+version = "0.2.1-rc.57"
 dependencies = [
  "chrono",
  "regex",
@@ -5553,7 +5553,7 @@ dependencies = [
 
 [[package]]
 name = "wa-windows-installer"
-version = "0.2.1-rc.56"
+version = "0.2.1-rc.57"
 dependencies = [
  "windows 0.62.2",
 ]

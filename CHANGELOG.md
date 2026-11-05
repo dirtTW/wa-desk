@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.57] - 2026-11-05
+
+- **Image and video statuses render for real now, with the official blurred backdrop.** `wa-core`
+  already cached a status message's protobuf (the live path calls `remember_message` for every
+  non-text status), so the viewer can reuse the chat path exactly: it asks for
+  `Command::FetchMedia { id }` with the status id and paints `model.media_path(&id)`. The stage
+  cover-scales that texture behind the story, dimmed to grey, then letterboxes the frame in the centre
+  - the same two-layer trick the official viewer uses - and the status caption sits over the bottom of
+  the media. Text statuses keep their coloured background and centred body.
+- That closes the last two status-viewer chrome deltas from `docs/PARITY.md` (the backdrop was only
+  blocked by the media path) and means photo/video stories are no longer a placeholder.
+- `WA_DESK_STATUS_MEDIA=<file>` seeds a photo story for the capture:
+  `target/our_status_media.png`.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.56] - 2026-11-05
 
 - **The status viewer now carries the live chrome's author avatar and emoji control.** The header paints
