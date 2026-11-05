@@ -1496,11 +1496,94 @@ pub(crate) fn call_initials(name: &str) -> String {
     }
     letters.to_uppercase()
 }
+/// A flat Group info row: leading glyph, title, optional subtitle and trailing
+/// text, with the hover highlight the live drawer uses. Returns `true` on click.
+fn group_row(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    icon: Icon,
+    title: &str,
+    subtitle: Option<&str>,
+    trailing: Option<String>,
+) -> bool {
+    let height = if subtitle.is_some() { 56.0 } else { 46.0 };
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::click(),
+    );
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(8), palette.hover);
+    }
+    draw_icon(
+        ui,
+        egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 24.0, rect.center().y),
+            egui::vec2(22.0, 22.0),
+        ),
+        icon,
+        palette.secondary,
+    );
+    let text_left = rect.left() + 52.0;
+    let title_y = if subtitle.is_some() {
+        rect.center().y - 10.0
+    } else {
+        rect.center().y
+    };
+    ui.painter().text(
+        egui::pos2(text_left, title_y),
+        egui::Align2::LEFT_CENTER,
+        title,
+        egui::FontId::proportional(15.0),
+        palette.text,
+    );
+    if let Some(subtitle) = subtitle {
+        ui.painter().text(
+            egui::pos2(text_left, rect.center().y + 11.0),
+            egui::Align2::LEFT_CENTER,
+            subtitle,
+            egui::FontId::proportional(12.5),
+            palette.secondary,
+        );
+    }
+    if let Some(trailing) = trailing {
+        ui.painter().text(
+            egui::pos2(rect.right() - 12.0, title_y),
+            egui::Align2::RIGHT_CENTER,
+            trailing,
+            egui::FontId::proportional(12.5),
+            palette.secondary,
+        );
+    }
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+}
+
 impl WaDesk {
     /// Group info: subject, description, member count and the member list
     /// with admin chips.
     /// Group info, in the official shape: a 64 px header, the group's avatar and
     /// name, the action cards, the member list with admin labels and Exit group.
+    /// Up to four photos/videos of this group already on disk, newest first,
+    /// for the Media strip the live drawer shows.
+    pub(crate) fn group_media_thumbnails(&self, jid: &str) -> Vec<(String, String)> {
+        let Some(row) = self.model.chats.get(jid) else {
+            return Vec::new();
+        };
+        row.messages
+            .iter()
+            .rev()
+            .filter(|message| matches!(message.kind.as_str(), "image" | "video"))
+            .filter_map(|message| {
+                self.model
+                    .media_path(&message.id)
+                    .map(|path| (message.id.clone(), path))
+            })
+            .take(4)
+            .collect()
+    }
+
     pub(crate) fn group_panel(&mut self, ctx: &egui::Context) {
         let palette = self.palette.clone();
         egui::CentralPanel::default()
@@ -1758,90 +1841,127 @@ impl WaDesk {
                                     });
                                     ui.add_space(6.0);
                                 }
-                                // The row list the live Group info pane shows,
-                                // in its order (sampled 2026-11-05).
-                                settings_card(ui, &palette, "GROUP", |ui| {
-                                    let mut media = false;
-                                    let mut starred = false;
-                                    settings_row(
-                                        ui,
-                                        &palette,
-                                        "Media, links and docs",
-                                        "Everything shared in this group.",
-                                        |ui| {
-                                            if settings_link(ui, &palette, "Open") {
+                                // The live row list (sampled 2026-11-05): flat
+                                // rows with a leading glyph - no card - and the
+                                // Media row leads into a strip of four thumbnails.
+                                let mut media = false;
+                                let mut starred = false;
+                                let photos = self.group_media_thumbnails(&info.jid);
+                                ui.add_space(6.0);
+                                if group_row(
+                                    ui,
+                                    &palette,
+                                    Icon::Folder,
+                                    "Media, links and docs",
+                                    None,
+                                    (!photos.is_empty()).then(|| photos.len().to_string()),
+                                ) {
+                                    media = true;
+                                }
+                                if !photos.is_empty() {
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(52.0);
+                                        ui.spacing_mut().item_spacing.x = 8.0;
+                                        for (id, path) in photos.iter().take(4) {
+                                            let texture = crate::bubbles::texture_at(
+                                                ui.ctx(),
+                                                &mut self.textures,
+                                                id,
+                                                Some(path.clone()),
+                                                160,
+                                            );
+                                            let (rect, response) = ui.allocate_exact_size(
+                                                egui::vec2(56.0, 56.0),
+                                                egui::Sense::click(),
+                                            );
+                                            ui.painter().rect_filled(
+                                                rect,
+                                                egui::CornerRadius::same(8),
+                                                palette.hover,
+                                            );
+                                            if let Some(texture) = texture {
+                                                ui.painter().image(
+                                                    texture.id(),
+                                                    rect,
+                                                    egui::Rect::from_min_max(
+                                                        egui::pos2(0.0, 0.0),
+                                                        egui::pos2(1.0, 1.0),
+                                                    ),
+                                                    egui::Color32::WHITE,
+                                                );
+                                            }
+                                            if response.clicked() {
                                                 media = true;
                                             }
-                                        },
-                                    );
-                                    settings_row(
-                                        ui,
-                                        &palette,
-                                        "Starred messages",
-                                        "Messages you saved from this chat.",
-                                        |ui| {
-                                            if settings_link(ui, &palette, "Open") {
-                                                starred = true;
-                                            }
-                                        },
-                                    );
-                                    settings_row(
-                                        ui,
-                                        &palette,
-                                        "Notification settings",
-                                        "Per-chat mute state.",
-                                        |ui| {
-                                            // Muting is a chat action here, not a
-                                            // stored per-chat flag yet.
-                                            ui.label(
-                                                egui::RichText::new("Manage in the chat menu")
-                                                    .size(13.0)
-                                                    .color(palette.secondary),
-                                            );
-                                        },
-                                    );
-                                    settings_row(
-                                        ui,
-                                        &palette,
-                                        "Chat theme",
-                                        "Per-chat wallpaper and colour.",
-                                        |ui| {
-                                            ui.label(
-                                                egui::RichText::new("Default")
-                                                    .size(13.0)
-                                                    .color(palette.secondary),
-                                            );
-                                        },
-                                    );
-                                    settings_row(
-                                        ui,
-                                        &palette,
-                                        "Encryption",
-                                        "Messages are end-to-end encrypted.",
-                                        |_ui| {},
-                                    );
-                                    settings_row(
-                                        ui,
-                                        &palette,
-                                        "Advanced chat privacy",
-                                        "Owned by the phone.",
-                                        |ui| {
-                                            ui.label(
-                                                egui::RichText::new("Off")
-                                                    .size(13.0)
-                                                    .color(palette.secondary),
-                                            );
-                                        },
-                                    );
-                                    if media {
-                                        self.show_media = true;
-                                        self.show_group = false;
-                                    }
-                                    if starred {
-                                        self.show_starred = true;
-                                        self.show_group = false;
-                                    }
-                                });
+                                        }
+                                    });
+                                    ui.add_space(4.0);
+                                }
+                                if group_row(
+                                    ui,
+                                    &palette,
+                                    Icon::Star,
+                                    "Starred messages",
+                                    None,
+                                    None,
+                                ) {
+                                    starred = true;
+                                }
+                                if group_row(
+                                    ui,
+                                    &palette,
+                                    Icon::Bell,
+                                    "Notification settings",
+                                    None,
+                                    None,
+                                ) {
+                                    self.notice = Some((
+                                        "Muting is in the chat menu".to_string(),
+                                        std::time::Instant::now(),
+                                    ));
+                                }
+                                if group_row(
+                                    ui,
+                                    &palette,
+                                    Icon::Palette,
+                                    "Chat theme",
+                                    None,
+                                    Some("Default".to_string()),
+                                ) {
+                                    self.notice = Some((
+                                        "Per-chat wallpaper lives in Settings -> Chats".to_string(),
+                                        std::time::Instant::now(),
+                                    ));
+                                }
+                                group_row(
+                                    ui,
+                                    &palette,
+                                    Icon::Lock,
+                                    "Encryption",
+                                    Some("Messages are end-to-end encrypted. Click to learn more."),
+                                    None,
+                                );
+                                if group_row(
+                                    ui,
+                                    &palette,
+                                    Icon::Lock,
+                                    "Advanced chat privacy",
+                                    Some("Owned by the phone."),
+                                    Some("Off".to_string()),
+                                ) {
+                                    self.notice = Some((
+                                        "Advanced chat privacy is set on the phone".to_string(),
+                                        std::time::Instant::now(),
+                                    ));
+                                }
+                                if media {
+                                    self.show_media = true;
+                                    self.show_group = false;
+                                }
+                                if starred {
+                                    self.show_starred = true;
+                                    self.show_group = false;
+                                }
                                 ui.add_space(10.0);
                                 // Disappearing messages: a linked device can set
                                 // this for a group (the account-wide default is
@@ -2068,6 +2188,9 @@ pub(crate) enum Icon {
     MarkRead,
     Lock,
     Check,
+    Folder,
+    Bell,
+    Palette,
 }
 
 /// The forward picker's square checkbox: an outlined box when it is clear, the
@@ -2175,6 +2298,9 @@ impl Icon {
             Icon::MarkRead => "mark_chat_read",
             Icon::Lock => "lock",
             Icon::Check => "check",
+            Icon::Folder => "inventory_2",
+            Icon::Bell => "notifications",
+            Icon::Palette => "palette",
         }
     }
 }

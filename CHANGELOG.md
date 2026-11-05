@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.80] - 2026-11-05
+
+- **The Group info rows are flat with leading glyphs, and Media carries a thumbnail strip.** The live
+  drawer (`target/live_chat_menu2.jpg`) lists Media, links and docs (with a count), Starred messages,
+  Notification settings, Chat theme, Encryption (with its subtitle) and Disappearing messages as
+  **flat rows with an icon**, not as cards. Ours now paints `group_row` - a 22 px glyph, 15 px title,
+  optional 12.5 px subtitle and trailing value, with the hover band - using the real Material glyphs
+  `inventory_2`, `star`, `notifications`, `palette`, `lock` (four new `Icon` variants).
+- The Media row leads into up to four 56 px thumbnails (`group_media_thumbnails` reads the group's
+  newest photos/videos already on disk), and clicking either still opens the Media screen, exactly as
+  before. Starred still opens the Starred screen.
+- Evidence: `target/our_group.png` beside `target/live_chat_menu2.jpg`.
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.79] - 2026-11-05
 
 - **The Group info head now matches the live drawer.** Opening a chat on `web.whatsapp.com` and
