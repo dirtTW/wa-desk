@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.60] - 2026-11-05
+
+- **The "You" pane now matches the live drawer.** The sampled pane is the account's name and avatar, a
+  **Search** field, the **View profile / View about** links, then the section list. Ours gained the
+  search control (a magnifier that opens a field which filters the list by title *or* subtitle) and the
+  two links (both open the Profile page, where name, photo and about are shown read-only because the
+  phone owns them).
+- `target/our_you.png` (`WA_DESK_SETTINGS=1`) shows the pane: avatar + "You / Connected", Search,
+  View profile · View about, then Profile (selected) / Account / Privacy / Chats / Notifications /
+  Keyboard shortcuts / AI assistant / Updates / Help and feedback / Log out.
+- `docs/PARITY.md` flips the **Profile drawer ("You")** row from a delta to done - only Meta AI,
+  view-once and the phone-owned account settings remain open, plus the call overlay's official capture.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.59] - 2026-11-05
 
 - **Status sticker replies work end to end.** `Session::reply_status_sticker(sender, id, payload,

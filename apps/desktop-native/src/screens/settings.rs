@@ -3,7 +3,7 @@
 //! detail page behind it. The widgets they are built from live in
 //! `settings_ui.rs`.
 
-use crate::app::{Icon, WaDesk};
+use crate::app::{Icon, WaDesk, icon_button};
 use crate::model::Command;
 use crate::settings_ui::{
     settings_card, settings_field, settings_link, settings_list_row, settings_radio_row,
@@ -40,7 +40,40 @@ impl WaDesk {
                     );
                 });
             });
-            ui.add_space(20.0);
+            ui.add_space(12.0);
+            // The live "You" pane carries a search field and the two profile
+            // links above the section list.
+            ui.horizontal(|ui| {
+                ui.add_space(18.0);
+                if icon_button(ui, Icon::Search, palette).clicked() {
+                    self.settings_search_open = !self.settings_search_open;
+                }
+                if self.settings_search_open || !self.settings_search.is_empty() {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_search)
+                            .hint_text("Search")
+                            .desired_width(width - 80.0),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new("Search")
+                            .size(13.5)
+                            .color(palette.secondary),
+                    );
+                }
+            });
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.add_space(22.0);
+                if settings_link(ui, palette, "View profile") {
+                    self.settings_section = 0;
+                }
+                ui.add_space(14.0);
+                if settings_link(ui, palette, "View about") {
+                    self.settings_section = 0;
+                }
+            });
+            ui.add_space(12.0);
             // The official list, in its order and with its subtitles (sampled
             // from the "You" drawer of web.whatsapp.com), plus this client's own
             // AI and Updates pages.
@@ -71,7 +104,14 @@ impl WaDesk {
                     "Project, changelog, privacy",
                 ),
             ];
+            let needle = self.settings_search.trim().to_lowercase();
             for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
+                if !needle.is_empty()
+                    && !title.to_lowercase().contains(&needle)
+                    && !subtitle.to_lowercase().contains(&needle)
+                {
+                    continue;
+                }
                 let selected = self.settings_section == index;
                 let response = settings_list_row(
                     ui,

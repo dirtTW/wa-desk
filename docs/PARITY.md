@@ -120,7 +120,7 @@ the chat row was targeted.
 | Calls: history panel, start/accept/end, mute, self view | rail **Calls** screen with a 64 px header and 72 px rows (direction glyph, date, kind, duration, red for missed, call button that dials that contact); `Model::call_log` records every finished call (outgoing/missed/duration) | ✅ (`target/our_calls.png`) |
 | Settings: Profile / Account / Privacy / Chats / Notifications / Keyboard shortcuts / Help | the same list in the official order with its subtitles, plus AI and Updates; Account holds the phone number, session, security rows, autostart and Log out, Privacy the disappearing-message and block-list notes, Notifications the toast switch and a test, Shortcuts the key table, Help the version and storage path | ✅ (`target/our_settings_account.png`) |
 | Linked devices, two-step verification, block list | Account shows a read-only **Linked devices** card (This device = WA Desk, Manage devices = Phone) and a two-step verification row that names the phone as the owner; Privacy explains the phone-owned block list | 🟡 read-only, by design (the protocol gives linked devices no control) |
-| Profile drawer ("You") | settings sections + own avatar | 🟡 |
+| Profile drawer ("You") | the pane is the avatar + name, a **Search** field that filters the section list, **View profile / View about**, then Profile / Account / Privacy / Chats / Notifications / Keyboard shortcuts / AI assistant / Updates / Help and feedback / Log out - the same shape as the live drawer | ✅ (`target/our_you.png`, `WA_DESK_SETTINGS=1`) |
 | Group info: avatar, subject, member count, description, actions, admin badges, exit | rebuilt in the official shape | ✅ (`target/our_group2.png`) |
 
 ## Verification habits
