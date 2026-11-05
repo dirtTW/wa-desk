@@ -637,7 +637,7 @@ impl WaDesk {
                                                         continue;
                                                     };
                                                     let (rect, response) = ui.allocate_exact_size(
-                                                        egui::vec2(74.0, 74.0),
+                                                        egui::vec2(64.0, 64.0),
                                                         egui::Sense::click(),
                                                     );
                                                     if response.hovered() {

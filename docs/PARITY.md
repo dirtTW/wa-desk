@@ -79,7 +79,7 @@ the chat row was targeted.
 | --- | --- | --- |
 | Text bubbles, tails, sender colours, ticks, day chips | yes | ✅ |
 | Media inside the bubble with caption and clock | yes | ✅ |
-| Media viewer: `#0B141A` stage, header (avatar, chat name, "Today at …"), right toolbar (download, reply, star, forward, kebab, close), circular prev/next discs, caption in a translucent rounded box above the filmstrip, filmstrip with the selected thumbnail a step larger and ringed in the accent (no numeric counter) | built from the recorded design tokens - the live viewer has not been captured beside ours yet, because opening it needs the user to click a photo. Both paths captured: video (`target/our_viewer.png`) and photo (`target/our_viewer_photo.png`, `WA_DESK_VIEWER_IMAGE=<file>`) | ? our capture only |
+| Media viewer: `#0B141A` stage, header (avatar, name, time), toolbar right-to-left **zoom out, zoom in, reply, star, chevron, download, forward, kebab, close**, circular prev/next, plain centred caption, filmstrip spanning the stage with a badge on every video tile | built from the user's official capture (`target/live_viewer.jpg`): toolbar order, zoom (0.5-4x, wheel + buttons), the chevron that hides details, centred caption and the strip badges now match. The magnifiers are drawn as the search glyph with a +/- sign because the generated icon table has no zoom glyph | ? `target/our_viewer_photo.png` beside the official capture |
 | Video plays at the clip's rate | `ffprobe` rate, off-thread frames, measured 18.4 ms | ✅ |
 | Animated WebP stickers | `webp_anim` RIFF decoder (ffmpeg cannot demux them) | ✅ |
 | GIFs animate inline | yes | ✅ |

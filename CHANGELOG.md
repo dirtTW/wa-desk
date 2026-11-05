@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.8] - 2026-11-05
+
+- **Viewer filmstrip**: the strip now spans the stage width (centring only when the items fit), and
+  **every video tile carries a badge** - the duration once the clip is decoded, a film/play glyph before
+  that - so the strip reads the same as the official one at `target/live_viewer.jpg`.
+  Evidence: `target/our_viewer_photo.png` (second strip tile now shows the play badge).
+- **Sticker grid**: tiles are 64 px, giving the five columns the live panel shows instead of four.
+- Still open on the sticker panel: the live tab row's category shortcuts (hearts, hand, four emoji
+  categories, cake) are pack-specific and this client only knows the three tabs it can actually fill
+  (recents / favourites / packs); the search pill, Create tile and Emoji/GIF/Stickers footer already
+  match. Recorded in `docs/PARITY.md` rather than faked.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.7] - 2026-11-05
 
 - **The media viewer toolbar and zoom now follow the live client.** From the official capture

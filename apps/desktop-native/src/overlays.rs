@@ -515,11 +515,15 @@ impl WaDesk {
                 let selected_side = 60.0;
                 let gap = 4.0;
                 let total = items_len as f32 * (thumb_side + gap) - gap;
-                // The live filmstrip starts at the stage's left edge and runs to
-                // its right edge, not centred in a narrow band.
-                let mut thumb_x = (screen.center().x - total / 2.0)
-                    .max(screen.left() + 8.0)
-                    .min((screen.right() - total - 8.0).max(screen.left() + 8.0));
+                // The live filmstrip runs the full width of the stage: it starts
+                // at the stage's left edge when it fits, and only centres when a
+                // short strip would otherwise sit hard against one side.
+                let span = stage.width().max(1.0);
+                let mut thumb_x = if total >= span {
+                    stage.left()
+                } else {
+                    stage.center().x - total / 2.0
+                };
                 let thumb_y = screen.bottom() - strip + 6.0;
                 for (position, (id, thumb)) in thumbs.iter().enumerate() {
                     let side = if position == selected {
@@ -551,24 +555,46 @@ impl WaDesk {
                             painter.rect_filled(rect, egui::CornerRadius::same(4), palette_thumb());
                         }
                     }
-                    if let Some(VideoState::Ready(video)) = self.videos.get(id) {
-                        let label = crate::app::stamp_seconds(video.duration);
+                    let is_video = items
+                        .get(position)
+                        .map(|entry| entry.kind == "video")
+                        .unwrap_or(false);
+                    if is_video {
+                        let duration = match self.videos.get(id) {
+                            Some(VideoState::Ready(video)) => {
+                                Some(crate::app::stamp_seconds(video.duration))
+                            }
+                            _ => None,
+                        };
+                        let width = if duration.is_some() { 30.0 } else { 16.0 };
                         let badge = egui::Rect::from_min_size(
                             egui::pos2(rect.left() + 4.0, rect.bottom() - 18.0),
-                            egui::vec2(30.0, 14.0),
+                            egui::vec2(width, 14.0),
                         );
                         painter.rect_filled(
                             badge,
                             egui::CornerRadius::same(3),
                             egui::Color32::from_black_alpha(150),
                         );
-                        painter.text(
-                            badge.center(),
-                            egui::Align2::CENTER_CENTER,
-                            label,
-                            egui::FontId::proportional(10.0),
-                            egui::Color32::from_gray(240),
-                        );
+                        match duration {
+                            Some(label) => {
+                                painter.text(
+                                    badge.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    label,
+                                    egui::FontId::proportional(10.0),
+                                    egui::Color32::from_gray(240),
+                                );
+                            }
+                            None => {
+                                draw_icon(
+                                    ui,
+                                    badge.shrink(2.0),
+                                    Icon::Play,
+                                    egui::Color32::from_gray(240),
+                                );
+                            }
+                        }
                     }
                     if position == selected {
                         painter.rect_stroke(
