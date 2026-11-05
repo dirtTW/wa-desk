@@ -86,6 +86,10 @@ pub struct WaDesk {
     pub(crate) status_sticker_open: bool,
     /// Video ids whose poster frame has already been requested.
     pub(crate) posters_asked: std::collections::HashSet<String>,
+    /// The group description is expanded ("Read more").
+    pub(crate) group_desc_open: bool,
+    /// The member list shows everyone, not just the first ten.
+    pub(crate) group_members_all: bool,
     /// The You pane search box.
     pub(crate) settings_search: String,
     pub(crate) settings_search_open: bool,
@@ -1541,15 +1545,38 @@ impl WaDesk {
                                 if let Some(description) =
                                     info.description.clone().filter(|d| !d.trim().is_empty())
                                 {
+                                    let long = description.chars().count() > 160;
+                                    let shown: String = if long && !self.group_desc_open {
+                                        let mut cut: String =
+                                            description.chars().take(160).collect();
+                                        cut.push('\u{2026}');
+                                        cut
+                                    } else {
+                                        description.clone()
+                                    };
+                                    let mut expand = false;
                                     settings_card(ui, &palette, "DESCRIPTION", |ui| {
                                         ui.add_space(6.0);
                                         ui.label(
-                                            egui::RichText::new(description)
+                                            egui::RichText::new(shown)
                                                 .size(13.5)
                                                 .color(palette.text),
                                         );
+                                        if long {
+                                            let label = if self.group_desc_open {
+                                                "Read less"
+                                            } else {
+                                                "Read more"
+                                            };
+                                            if settings_link(ui, &palette, label) {
+                                                expand = true;
+                                            }
+                                        }
                                         ui.add_space(6.0);
                                     });
+                                    if expand {
+                                        self.group_desc_open = !self.group_desc_open;
+                                    }
                                     ui.add_space(10.0);
                                 }
                                 // The row list the live Group info pane shows,
@@ -1589,6 +1616,19 @@ impl WaDesk {
                                             // stored per-chat flag yet.
                                             ui.label(
                                                 egui::RichText::new("Manage in the chat menu")
+                                                    .size(13.0)
+                                                    .color(palette.secondary),
+                                            );
+                                        },
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Chat theme",
+                                        "Per-chat wallpaper and colour.",
+                                        |ui| {
+                                            ui.label(
+                                                egui::RichText::new("Default")
                                                     .size(13.0)
                                                     .color(palette.secondary),
                                             );
@@ -1659,7 +1699,9 @@ impl WaDesk {
                                     &palette,
                                     &format!("{} MEMBERS", info.members.len()),
                                     |ui| {
-                                        for member in &info.members {
+                                        let show_all = self.group_members_all;
+                                        let limit = if show_all { info.members.len() } else { 10 };
+                                        for member in info.members.iter().take(limit) {
                                             let name = member
                                                 .phone
                                                 .clone()
@@ -1695,8 +1737,74 @@ impl WaDesk {
                                             });
                                             ui.add_space(8.0);
                                         }
+                                        if info.members.len() > 10 {
+                                            let label = if show_all {
+                                                "Show fewer".to_string()
+                                            } else {
+                                                format!(
+                                                    "View all ({} more)",
+                                                    info.members.len() - 10
+                                                )
+                                            };
+                                            if settings_link(ui, &palette, &label) {
+                                                self.group_members_all = !self.group_members_all;
+                                            }
+                                        }
+                                        if settings_link(ui, &palette, "See member changes") {
+                                            self.notice = Some((
+                                                "Member changes are recorded on the phone"
+                                                    .to_string(),
+                                                std::time::Instant::now(),
+                                            ));
+                                        }
                                     },
                                 );
+                                ui.add_space(10.0);
+                                settings_card(ui, &palette, "MORE", |ui| {
+                                    let mut add_to_list = false;
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Add to list",
+                                        "Put this group in one of your lists.",
+                                        |ui| {
+                                            if settings_link(ui, &palette, "Add") {
+                                                add_to_list = true;
+                                            }
+                                        },
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Export chat",
+                                        "WhatsApp exports chats from the phone.",
+                                        |_ui| {},
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Clear chat",
+                                        "Clearing removes the messages on the phone too.",
+                                        |_ui| {},
+                                    );
+                                    settings_row(
+                                        ui,
+                                        &palette,
+                                        "Report group",
+                                        "Reports are filed from the phone.",
+                                        |_ui| {},
+                                    );
+                                    if add_to_list {
+                                        let name = info.subject.clone();
+                                        if let Some(id) =
+                                            self.model.create_list(&name, Some(&info.jid))
+                                        {
+                                            self.model.chat_filter =
+                                                crate::model::ChatFilter::List(id);
+                                            self.show_group = false;
+                                        }
+                                    }
+                                });
                                 ui.add_space(10.0);
                                 settings_card(ui, &palette, "LEAVE", |ui| {
                                     settings_row(

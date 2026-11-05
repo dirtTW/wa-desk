@@ -46,6 +46,8 @@ impl WaDesk {
             status_emoji_open: false,
             status_sticker_open: false,
             posters_asked: std::collections::HashSet::new(),
+            group_desc_open: false,
+            group_members_all: false,
             settings_search: String::new(),
             settings_search_open: false,
             communities_active: None,

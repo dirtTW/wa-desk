@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.72] - 2026-11-05
+
+- **The recorded group-info deltas are closed** (re-applied as four small verified edits after the
+  earlier attempt was reverted):
+  - **Read more** / "Read less" on the description - it collapses to 160 characters with an ellipsis
+    and expands on click, like the live pane;
+  - a **Chat theme** row (`Default`) between Notification settings and Encryption;
+  - the member list shows the first **ten** with **"View all (N more)"** (and "Show fewer"), plus a
+    **See member changes** link that says the history lives on the phone;
+  - a **MORE** card with **Add to list** (really creates a list named after the group and switches to
+    it), **Export chat**, **Clear chat** and **Report group** (each states where that action lives).
+- `target/our_group.png` (`WA_DESK_SCREEN=group`) re-captured; the row list now reads Media, links and
+  docs / Starred messages / Notification settings / **Chat theme** / Encryption / Advanced chat privacy,
+  then the disappearing card, the capped member list and the footer card.
+- Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.71] - 2026-11-05
 
 - **The media probe was wrong, not the code.** The app keeps its media cache in
