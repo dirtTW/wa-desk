@@ -2068,20 +2068,43 @@ impl Icon {
 }
 
 /// An outlined filter pill (`All`, `Groups 3`, …), filled when selected.
+/// The round `+` that ends the filter row (the live "New list" control).
+pub(crate) fn pill_plus_button(ui: &mut egui::Ui, palette: &crate::theme::Palette) -> bool {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
+    let fill = if response.hovered() {
+        palette.hover
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(16),
+        fill,
+        egui::Stroke::new(1.0_f32, palette.border),
+        egui::StrokeKind::Inside,
+    );
+    draw_icon(ui, rect.shrink(9.0), Icon::Add, palette.secondary);
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+}
+
 pub(crate) fn pill_button(
     ui: &mut egui::Ui,
     palette: &crate::theme::Palette,
     label: &str,
     selected: bool,
 ) -> bool {
-    let font = egui::FontId::proportional(11.5);
+    let font = egui::FontId::proportional(12.5);
     let text = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), palette.text);
-    let width = text.size().x + 20.0;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 27.0), egui::Sense::click());
+    let width = text.size().x + 26.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 32.0), egui::Sense::click());
+    // The live selected pill is a dark-green fill with light-green text; the
+    // others are transparent with a hairline border.
     let fill = if selected {
-        palette.selected
+        palette.accent.gamma_multiply(0.22)
     } else if response.hovered() {
         palette.hover
     } else {
@@ -2089,13 +2112,13 @@ pub(crate) fn pill_button(
     };
     ui.painter().rect(
         rect,
-        egui::CornerRadius::same(14),
+        egui::CornerRadius::same(16),
         fill,
         egui::Stroke::new(1.0_f32, palette.border),
         egui::StrokeKind::Inside,
     );
     let color = if selected {
-        palette.text
+        palette.accent
     } else {
         palette.secondary
     };

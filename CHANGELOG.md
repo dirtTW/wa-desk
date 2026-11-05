@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.77] - 2026-11-05
+
+- **The chat-list filter row now matches the live sample.** Read from `web.whatsapp.com`
+  (`tablist "chat-list-filters"`, `target/live_filters.jpg`): the pills are **All, Unread, Favorites,
+  Communities, Groups** - not All, Groups, Communities, Unread - carry **no counts**, are hairline
+  bordered with the selected one a dark-green fill and light-green label, and the row ends in a
+  **circular `+`** (New list) rather than a `v <n>` caret. `pill_button` grew to the live 32 px height
+  and `pill_plus_button` is the round control; custom lists sit in front of the `+` instead of a
+  separate "+ New list" pill at the end.
+- Evidence: `target/our_filters.png` (ours) beside `target/live_filters.jpg` (live element capture).
+- Tests: 130 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.76] - 2026-11-05
 
 - **View-once bubbles exist now.** A `<unavailable type="view_once">` fanout used to fall through to

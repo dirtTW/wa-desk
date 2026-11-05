@@ -1,7 +1,9 @@
 //! The left side: the 58 px rail with its badges, the Chats panel with the
 //! search box, the filter pills (plus the custom lists) and the rows.
 
-use crate::app::{Icon, WaDesk, draw_icon, fab_button, icon_button, pill_button, rail_button};
+use crate::app::{
+    Icon, WaDesk, draw_icon, fab_button, icon_button, pill_button, pill_plus_button, rail_button,
+};
 use crate::model::ChatRow;
 use crate::model::Command;
 use crate::updates::UpdateState;
@@ -199,32 +201,25 @@ impl WaDesk {
                         });
                     });
                 ui.add_space(6.0);
-                // The filter pills with their counts.
-                let (groups, communities, unread, favourites) = self.model.filter_counts();
+                // The live filter row (sampled 2026-11-05): outlined pills in the
+                // order All, Unread, Favorites, Communities, Groups - no counts -
+                // then a round `+` that starts a new list. Custom lists ride in
+                // front of the `+`.
+                let _counts = self.model.filter_counts();
                 ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    // The desktop client's order: All, Groups, Communities,
-                    // Unread, then a caret for the rest (Favorites).
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     for (filter, label) in [
-                        (crate::model::ChatFilter::All, "All".to_string()),
-                        (crate::model::ChatFilter::Groups, format!("Groups {groups}")),
-                        (
-                            crate::model::ChatFilter::Communities,
-                            format!("Communities {communities}"),
-                        ),
-                        (crate::model::ChatFilter::Unread, format!("Unread {unread}")),
+                        (crate::model::ChatFilter::All, "All"),
+                        (crate::model::ChatFilter::Unread, "Unread"),
+                        (crate::model::ChatFilter::Favourites, "Favorites"),
+                        (crate::model::ChatFilter::Communities, "Communities"),
+                        (crate::model::ChatFilter::Groups, "Groups"),
                     ] {
                         let selected = self.model.chat_filter == filter;
-                        if pill_button(ui, &palette, &label, selected) {
+                        if pill_button(ui, &palette, label, selected) {
                             self.model.chat_filter = filter;
                         }
                     }
-                    // Favorites hides behind the caret, as on the desktop.
-                    if pill_button(ui, &palette, &format!("v {favourites}"), false) {
-                        self.model.chat_filter = crate::model::ChatFilter::Favourites;
-                    }
-                    // Custom lists land here as their own pills, after the
-                    // official "+ New list" control.
                     for list in self.model.lists.clone() {
                         let selected =
                             self.model.chat_filter == crate::model::ChatFilter::List(list.id);
@@ -232,7 +227,7 @@ impl WaDesk {
                             self.model.chat_filter = crate::model::ChatFilter::List(list.id);
                         }
                     }
-                    if pill_button(ui, &palette, "+ New list", false) {
+                    if pill_plus_button(ui, &palette) {
                         self.list_draft = Some(String::new());
                     }
                 });
