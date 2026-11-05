@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.40] - 2026-11-05
+
+- **Enter-to-send is verified end to end, not just by the unit test.** `WA_DESK_ENTER_TEST=1` seeds the
+  composer, focuses it on one frame (egui only reports `lost_focus` for a field focused on the
+  *previous* frame) and pushes a real `Event::Key { key: Enter }` through egui on the next one - the
+  same path the keyboard takes. The capture `target/our_enter_send.png` shows the composer empty and
+  the bubble "Enter key sends this line" on the right with its tick, plus the chat-list preview
+  "You: Enter key sends this line". The composer field also carries a stable id
+  (`composer-input`) so the hook can focus it.
+- `docs/PARITY.md` gets two stale rows corrected: the rail row no longer claims "Calls panel
+  missing" (it ships, and the row now names Meta AI/Media as the true gaps), and the filter row marks
+  custom lists done (`target/our_lists.png`).
+- The settings section is labelled **Help and feedback**, the official wording, instead of "Help".
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.39] - 2026-11-05
 
 - **The Notifications pane was sampled from the live client and rebuilt.** Opened on

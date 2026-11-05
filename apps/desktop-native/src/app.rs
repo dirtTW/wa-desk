@@ -98,6 +98,8 @@ pub struct WaDesk {
     smoke_sent: bool,
     /// `WA_DESK_SCROLL_TOP` parks the conversation at its first message.
     preview_scroll_top: bool,
+    /// `WA_DESK_ENTER_TEST` frames left before a synthetic Enter is pushed.
+    enter_test: u8,
     /// Text being typed into the share-status box, plus the chosen background
     /// (an index into `wa_ui::composer::BACKGROUNDS`) and font.
     status_compose: Option<String>,
@@ -285,6 +287,11 @@ impl WaDesk {
             list_draft: None,
             smoke_sent: false,
             preview_scroll_top: std::env::var("WA_DESK_SCROLL_TOP").is_ok(),
+            enter_test: if std::env::var("WA_DESK_ENTER_TEST").is_ok() {
+                6
+            } else {
+                0
+            },
             status_compose: None,
             status_compose_background: 0,
             status_compose_font: 0,
@@ -443,6 +450,10 @@ impl WaDesk {
                 let jid = first.jid.clone();
                 self.model.open_status(&jid);
             }
+        }
+        if std::env::var("WA_DESK_ENTER_TEST").is_ok() {
+            self.model.composer = "Enter key sends this line".to_string();
+            self.model.active = Some("1203@g.us".to_string());
         }
         if let Ok(sticker) = std::env::var("WA_DESK_STICKER_SENT") {
             let chat = "1203@g.us".to_string();
@@ -2917,6 +2928,7 @@ impl WaDesk {
                                                 egui::TextEdit::singleline(
                                                     &mut self.model.composer,
                                                 )
+                                                .id(egui::Id::new("composer-input"))
                                                 .frame(false)
                                                 .hint_text("Type a message"),
                                             ),
@@ -4988,7 +5000,11 @@ impl WaDesk {
                 ),
                 (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
                 (Icon::Document, "Updates", "Version and releases"),
-                (Icon::Groups, "Help", "Project, changelog, privacy"),
+                (
+                    Icon::Groups,
+                    "Help and feedback",
+                    "Project, changelog, privacy",
+                ),
             ];
             for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
                 let selected = self.settings_section == index;
@@ -6744,6 +6760,30 @@ impl WaDesk {
 impl eframe::App for WaDesk {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.smoke_send();
+        // `WA_DESK_ENTER_TEST=1` puts a draft in the composer, focuses the field
+        // after a few frames and pushes a real Return event through egui, so the
+        // Enter path can be checked with `--screenshot` and no OS automation.
+        if self.enter_test > 0 {
+            self.enter_test -= 1;
+            // Two frames: egui only reports `lost_focus` for a field that was
+            // focused on the *previous* frame.
+            if self.enter_test == 4 {
+                ctx.memory_mut(|memory| {
+                    memory.request_focus(egui::Id::new("composer-input"));
+                });
+            }
+            if self.enter_test == 2 {
+                ctx.input_mut(|input| {
+                    input.events.push(egui::Event::Key {
+                        key: egui::Key::Enter,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                });
+            }
+        }
         // Texture caches are capped so memory does not grow with a long session.
         prune_textures(ctx, &mut self.textures, 96);
         prune_textures(ctx, &mut self.sticker_textures, 240);
