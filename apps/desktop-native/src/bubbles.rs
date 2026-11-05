@@ -806,6 +806,27 @@ fn bubble_content(
                 egui::Image::new((texture.id(), image_size))
                     .corner_radius(egui::CornerRadius::same(6)),
             );
+            // A video carries the official play disc over its poster, so the
+            // bubble reads as playable before the viewer is opened.
+            if message.kind == "video" {
+                let media_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.left() + pad, rect.top() + pad),
+                    image_size,
+                );
+                let disc =
+                    egui::Rect::from_center_size(media_rect.center(), egui::vec2(48.0, 48.0));
+                ui.painter().circle_filled(
+                    disc.center(),
+                    24.0,
+                    egui::Color32::from_black_alpha(120),
+                );
+                draw_icon(
+                    ui,
+                    disc.shrink(13.0),
+                    Icon::Play,
+                    egui::Color32::from_gray(245),
+                );
+            }
             let painter = ui.painter();
             let mut y = rect.top() + pad + image_size.y + 6.0;
             if let Some(galley) = caption_galley {

@@ -45,9 +45,11 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [profile.dev]
 # Faster incremental builds; full debug info is useful for breakpoints, not
-# everyday UI/Rust iteration.
+# everyday UI/Rust iteration. `incremental` used to hold **188 GB** of query
+# cache for this workspace (the crypto stack makes every crate huge), so it is
+# off: a clean debug build of the native app is ~2 min anyway.
 debug = 1
-incremental = true
+incremental = false
 
 # Debug builds of this workspace are dominated by the cryptography stack.
 [profile.dev.package."*"]
