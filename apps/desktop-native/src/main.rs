@@ -41,6 +41,7 @@ mod mic;
 mod model;
 mod notify;
 mod overlays;
+mod paint;
 mod pickers;
 mod rich_text;
 mod screens;

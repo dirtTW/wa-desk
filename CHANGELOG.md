@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.91] - 2026-11-05
+
+- **Shared paint helpers moved to `paint.rs`.** `palette_thumb`, `circular_avatar`, `sender_color`,
+  `thumb_texture` and `prune_textures` (131 lines) - plus the private `hex_color`/`hash` they need - now
+  live together; `app.rs` re-exports the five public ones and keeps `COLORS`, which other screens read
+  for sender names and avatar fallbacks.
+- `app.rs` is **1,316 lines**: 2,559 at rc.86, so 1,243 lines (49 %) now sit in `fonts.rs`,
+  `wallpaper.rs`, `screens/group.rs`, `icon_widgets.rs`, `buttons.rs` and `paint.rs`.
+- Evidence: `target/our_paint_check.png` - avatars, sender colours, chat list and view-once bubbles
+  unchanged after the move.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.90] - 2026-11-05
 
 - **The window's buttons moved to `buttons.rs`.** `pill_button`, `pill_plus_button`, `rail_button`,
