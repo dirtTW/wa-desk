@@ -585,6 +585,12 @@ impl WaDesk {
         // `WA_DESK_VIEWER=1` opens the media viewer on the demo video;
         // `WA_DESK_DEMO_VIDEO=<clip>` supplies a real file to play and
         // `WA_DESK_VIEWER_PLAY=1` starts it so a screenshot shows playback.
+        // `WA_DESK_VIEWER_IMAGE=<file>` opens the viewer on the demo photo, so
+        // the still-image chrome can be captured.
+        if let Ok(path) = std::env::var("WA_DESK_VIEWER_IMAGE") {
+            self.model.media_ready("d10", &path);
+            self.model.open_viewer("d10");
+        }
         if std::env::var("WA_DESK_VIEWER").is_ok() {
             if let Ok(path) = std::env::var("WA_DESK_DEMO_VIDEO") {
                 self.model.media_ready("d8", &path);

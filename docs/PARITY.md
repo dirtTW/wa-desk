@@ -79,7 +79,7 @@ the chat row was targeted.
 | --- | --- | --- |
 | Text bubbles, tails, sender colours, ticks, day chips | yes | ✅ |
 | Media inside the bubble with caption and clock | yes | ✅ |
-| Media viewer: header, toolbar, arrows, transport overlay, filmstrip | rebuilt 1:1 | ✅ |
+| Media viewer: `#0B141A` stage, header (avatar, chat name, "Today at …"), right toolbar (download, reply, star, forward, kebab, close), circular prev/next discs, caption above the filmstrip, filmstrip with the selected thumbnail ringed in the accent | built from the recorded design tokens (the live viewer has not been captured beside ours yet - its panel cannot be opened from here without the user clicking a photo). Both paths are now captured: video (`target/our_viewer.png`) and photo (`target/our_viewer_photo.png`, `WA_DESK_VIEWER_IMAGE=<file>`) | ? our capture only |
 | Video plays at the clip's rate | `ffprobe` rate, off-thread frames, measured 18.4 ms | ✅ |
 | Animated WebP stickers | `webp_anim` RIFF decoder (ffmpeg cannot demux them) | ✅ |
 | GIFs animate inline | yes | ✅ |

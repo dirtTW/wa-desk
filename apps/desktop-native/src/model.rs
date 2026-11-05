@@ -907,6 +907,18 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             waveform: (0..40).map(|index| ((index * 7) % 80 + 30) as u8).collect(),
         });
         model.apply(&UiEvent::Message(note));
+        let mut photo = view(
+            "1203@g.us",
+            "Team",
+            "d10",
+            "the view from here",
+            now - 100_000,
+            false,
+        );
+        photo.kind = "image".to_string();
+        photo.sender = Some("1@s.whatsapp.net".to_string());
+        photo.sender_name = Some("Ada".to_string());
+        model.apply(&UiEvent::Message(photo));
         let mut clip = view(
             "1203@g.us",
             "Team",
