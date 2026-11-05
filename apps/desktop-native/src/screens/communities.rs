@@ -8,28 +8,31 @@ impl WaDesk {
     /// The Communities screen.
     pub(crate) fn communities_panel(&mut self, ctx: &egui::Context) {
         let palette = self.palette.clone();
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(palette.panel))
+        // The right pane first (panels reserve space in order): the live
+        egui::SidePanel::left("communities")
+            .resizable(true)
+            .default_width(420.0)
+            .width_range(320.0..=560.0)
+            .frame(egui::Frame::new().fill(palette.elevated))
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(palette.elevated)
-                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .inner_margin(egui::Margin::symmetric(12, 10))
                     .show(ui, |ui| {
-                        ui.set_min_height(40.0);
+                        ui.set_min_height(44.0);
                         ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new("Communities")
-                                    .size(20.0)
-                                    .color(palette.text),
-                            );
+                            ui.label(egui::RichText::new("Communities").size(26.0).strong());
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if icon_button(ui, Icon::Close, &palette)
-                                        .on_hover_text("Back to chats")
+                                    // The live drawer's header control.
+                                    if icon_button(ui, Icon::Add, &palette)
+                                        .on_hover_text("New community")
                                         .clicked()
                                     {
-                                        self.show_communities = false;
+                                        self.notice = Some((
+                                            "Creating a community needs the phone".to_string(),
+                                            std::time::Instant::now(),
+                                        ));
                                     }
                                 },
                             );
@@ -37,15 +40,42 @@ impl WaDesk {
                     });
 
                 ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(20.0);
-                    if status_share_tile(ui, &palette, Icon::Groups, "New community") {
-                        self.notice = Some((
-                            "Creating a community needs the phone".to_string(),
-                            std::time::Instant::now(),
-                        ));
-                    }
-                });
+                let (new_rect, new_response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), 60.0),
+                    egui::Sense::click(),
+                );
+                if new_response.hovered() {
+                    ui.painter().rect_filled(
+                        new_rect.shrink2(egui::vec2(6.0, 0.0)),
+                        egui::CornerRadius::same(12),
+                        palette.hover,
+                    );
+                }
+                let disc = egui::Rect::from_center_size(
+                    egui::pos2(new_rect.left() + 36.0, new_rect.center().y),
+                    egui::vec2(40.0, 40.0),
+                );
+                ui.painter()
+                    .rect_filled(disc, egui::CornerRadius::same(10), palette.accent);
+                crate::app::draw_icon(
+                    ui,
+                    disc.shrink(9.0),
+                    Icon::Groups,
+                    egui::Color32::from_rgb(11, 20, 26),
+                );
+                ui.painter().text(
+                    egui::pos2(new_rect.left() + 66.0, new_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    "New community",
+                    egui::FontId::proportional(15.5),
+                    palette.text,
+                );
+                if new_response.clicked() {
+                    self.notice = Some((
+                        "Creating a community needs the phone".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
 
                 let communities = self
                     .model
@@ -100,6 +130,7 @@ impl WaDesk {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.add_space(8.0);
+                        let _ = &self.communities_active;
                         for (parent, children) in &communities {
                             self.ensure_avatar(ui.ctx(), &parent.jid);
                             let avatar = self.avatar_for(&parent.jid).cloned();
@@ -286,6 +317,48 @@ impl WaDesk {
                             }
                         }
                     });
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(palette.panel))
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space((ui.available_height() * 0.28).clamp(24.0, 240.0));
+                    let (icon, _) =
+                        ui.allocate_exact_size(egui::vec2(56.0, 56.0), egui::Sense::hover());
+                    crate::app::draw_icon(ui, icon, Icon::Groups, egui::Color32::from_gray(72));
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new("Create communities")
+                            .size(23.0)
+                            .strong()
+                            .color(palette.text),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(
+                            "Bring members together in topic-based groups and easily send them \
+                             admin announcements.",
+                        )
+                        .size(13.5)
+                        .color(palette.secondary),
+                    );
+                });
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.add_space(14.0);
+                    ui.horizontal(|ui| {
+                        let (lock, _) =
+                            ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                        crate::app::draw_icon(ui, lock, Icon::Lock, palette.secondary);
+                        ui.label(
+                            egui::RichText::new(
+                                "Your personal messages in communities are end-to-end encrypted",
+                            )
+                            .size(11.5)
+                            .color(palette.secondary),
+                        );
+                    });
+                });
             });
     }
 }

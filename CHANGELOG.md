@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.95] - 2026-11-05
+
+- **Communities compared against the live drawer and rebuilt in its shape.** Live sample
+  (`target/live_communities.jpg`): a drawer with "Communities" + circle-plus, a **New community** row
+  whose icon is a green rounded square, the community row with its groups indented under it (announcement
+  first, time at the right), a **View all** link, and on the right the centred empty state - people
+  glyph, "Create communities", the body line - with a lock + "Your personal messages in communities are
+  end-to-end encrypted" pinning the bottom.
+- Ours is now a 420 px drawer beside that pane; the old full-window layout, the `X` close button and the
+  full-width "New community" tile are gone. One ordering bug caught by the capture: the centred pane was
+  created **before** the side panel, so egui sized it to the whole window and its text ran off the left
+  edge - the drawer now reserves its column first.
+- Evidence: `target/our_communities.png` beside `target/live_communities.jpg`.
+- Still open, recorded in `docs/PARITY.md`: the **View all** link and the muted-bell marker on the
+  announcement group.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.94] - 2026-11-05
 
 - **Channels finished against the live drawer.** The screen is now a **420 px left drawer** (header
