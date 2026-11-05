@@ -453,6 +453,9 @@ pub struct Model {
     pub push_names: std::collections::HashMap<String, String>,
     /// Why a media download failed, by message id (shown in the bubble).
     pub media_errors: std::collections::HashMap<String, String>,
+    /// When each in-flight download was asked for, so one that never answers
+    /// can be retried instead of leaving the bubble on its thumbnail forever.
+    pub media_started: std::collections::HashMap<String, std::time::Instant>,
     /// The first unread message of a chat when it was opened, by chat id: the
     /// conversation draws the "Unread messages" divider there.
     pub unread_anchor: std::collections::HashMap<String, String>,
@@ -2634,9 +2637,24 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
             self.media.remove(id);
         }
         if self.media.contains_key(id) {
-            return false;
+            // `Loading` means a request went out. If it never came back (a dead
+            // worker, a silent CDN) the bubble used to stay on the inline
+            // thumbnail for the rest of the session; ask again after 15 s.
+            let stale = self
+                .media_started
+                .get(id)
+                .map(|at| at.elapsed() > std::time::Duration::from_secs(15))
+                .unwrap_or(true);
+            if !stale {
+                return false;
+            }
+            self.media_started
+                .insert(id.to_string(), std::time::Instant::now());
+            return true;
         }
         self.media.insert(id.to_string(), MediaState::Loading);
+        self.media_started
+            .insert(id.to_string(), std::time::Instant::now());
         true
     }
 
@@ -2682,11 +2700,13 @@ eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dic
     }
 
     pub fn media_ready(&mut self, id: &str, path: &str) {
+        self.media_started.remove(id);
         self.media
             .insert(id.to_string(), MediaState::Path(path.to_string()));
     }
 
     pub fn media_failed_with(&mut self, id: &str, reason: &str) {
+        self.media_started.remove(id);
         self.media.insert(id.to_string(), MediaState::Failed);
         self.media_errors
             .insert(id.to_string(), reason.trim().to_string());
@@ -4194,6 +4214,15 @@ mod tests {
         assert_eq!(model.bubble_body(&photo), "Photo");
         assert!(model.request_media("img"));
         assert!(!model.request_media("img"), "one download per message");
+        // A request that never answered must not block the bubble forever.
+        model.media_started.insert(
+            "img".to_string(),
+            std::time::Instant::now() - std::time::Duration::from_secs(20),
+        );
+        assert!(
+            model.request_media("img"),
+            "a stalled download is retried after 15 s"
+        );
         model.media_ready("img", "/tmp/x.jpg");
         assert_eq!(
             model.media.get("img"),

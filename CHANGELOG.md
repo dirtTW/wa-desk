@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.98] - 2026-11-05
+
+- **A download that never answers is retried instead of leaving the thumbnail forever.** Reported after
+  rc.97: photos kept showing only the inline JPEG and could not be opened. `request_media` marked an id
+  `Loading` and then answered `false` for the rest of the session, so a request whose reply never came
+  (dead worker, silent CDN) was never repeated - the bubble stayed on the thumbnail with no error to
+  show. The model now records when each download was asked for (`media_started`) and re-requests a
+  `Loading` entry after **15 s**; the stamp is cleared when a download settles either way.
+- `photos_are_requested_once_and_labelled` now pins all three cases: the first request asks, a second
+  one does not, and a 20 s-old `Loading` entry asks again.
+- Note on evidence: the diagnostics log on this machine carries no media lines because `WA_DESK_DIAG`
+  is not set in normal runs, so this fix is verified by the unit test rather than by the reporter's
+  session. The three rc.97 fixes (newlines, view-once layout, tap-to-open) are still waiting on a
+  reinstall to be confirmed on real chats.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.97] - 2026-11-05
 
 Three bugs reported from the installed build:
