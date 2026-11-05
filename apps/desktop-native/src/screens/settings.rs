@@ -77,16 +77,39 @@ impl WaDesk {
                         });
                         let _ = self.settings_search_open;
                         ui.add_space(10.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(22.0);
-                            if settings_link(ui, palette, "View profile") {
-                                self.settings_section = 0;
+                        // The live You drawer puts the status composer here: a
+                        // "What's happening?" bubble above the profile photo.
+                        let mut compose = false;
+                        ui.vertical_centered(|ui| {
+                            let (pill, response) = ui
+                                .allocate_exact_size(egui::vec2(150.0, 30.0), egui::Sense::click());
+                            ui.painter().rect_filled(
+                                pill,
+                                egui::CornerRadius::same(15),
+                                if response.hovered() {
+                                    palette.hover
+                                } else {
+                                    palette.elevated
+                                },
+                            );
+                            ui.painter().text(
+                                pill.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "What's happening?",
+                                egui::FontId::proportional(12.5),
+                                palette.secondary,
+                            );
+                            if response.clicked() {
+                                compose = true;
                             }
-                            ui.add_space(14.0);
-                            if settings_link(ui, palette, "View about") {
-                                self.settings_section = 0;
-                            }
+                            ui.add_space(8.0);
+                            paint_avatar(ui, &self.model.own_name(), 64.0, avatar.as_ref());
                         });
+                        if compose {
+                            self.status_compose = Some(String::new());
+                            self.show_status = true;
+                            self.show_settings = false;
+                        }
                         ui.add_space(12.0);
                         // The official list, in its order and with its subtitles (sampled
                         // from the "You" drawer of web.whatsapp.com), plus this client's own
