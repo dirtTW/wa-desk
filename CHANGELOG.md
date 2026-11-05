@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.49] - 2026-11-05
+
+- **The pickers left `app.rs`: `src/pickers.rs` (782 lines).** `emoji_window` (the category row with
+  the recents clock, the search field, the 40 px grid, the Emoji/GIF/Stickers footer and the "no
+  results" state), `stickers_window` (Recents/Favourites/Packs tabs, the sticker-store search, the
+  Create tile, the GIF tab), and the three layout helpers `emoji_texture`, `emoji_cell` and
+  `emoji_grid`.
+- `app.rs` is down to **3,291 lines**, from 10,069 at the start of this run: what is left is the app
+  plumbing (viewport, event pump, notifications, tray), the QR gate and the tray/window glue.
+- Verified after the move: `target/our_emoji.png` (`WA_DESK_EMOJI=1`: category strip, search, the
+  colour-emoji grid, `Emoji / GIF / Stickers` footer, Close) and `target/our_stickers.png`
+  (`WA_DESK_STICKERS=1`: Recents/Favourites/Packs with Favourites selected, search, "No favourite
+  stickers yet.").
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.48] - 2026-11-05
 
 - **The menus and dialogs left `app.rs`: `src/dialogs.rs` (888 lines).** Moved as `impl WaDesk`:
