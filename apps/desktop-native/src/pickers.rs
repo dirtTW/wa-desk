@@ -65,9 +65,10 @@ impl WaDesk {
                         ui.add_space(8.0);
                         // Rounded search field.
                         egui::Frame::new()
-                            .fill(palette.rail)
-                            .corner_radius(egui::CornerRadius::same(9))
-                            .inner_margin(egui::Margin::symmetric(10, 5))
+                            .fill(palette.panel)
+                            .stroke(egui::Stroke::new(1.0_f32, palette.accent))
+                            .corner_radius(egui::CornerRadius::same(12))
+                            .inner_margin(egui::Margin::symmetric(12, 6))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     let (rect, _) = ui.allocate_exact_size(
@@ -183,10 +184,14 @@ impl WaDesk {
                                     let index = self.emoji_group.saturating_sub(1);
                                     if let Some(group) = groups.get(index) {
                                         ui.label(
-                                            egui::RichText::new(&group.label)
-                                                .size(11.5)
-                                                .strong()
-                                                .color(palette.secondary),
+                                            egui::RichText::new(if group.label == "Smileys" {
+                                                "Smileys & People"
+                                            } else {
+                                                group.label.as_str()
+                                            })
+                                            .size(11.5)
+                                            .strong()
+                                            .color(palette.secondary),
                                         );
                                         ui.add_space(4.0);
                                         let chars: Vec<String> = group

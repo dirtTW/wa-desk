@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.62] - 2026-11-05
+
+- **The emoji panel was sampled from the live client with a real click** (the `browsermcp` `click` on the
+  ref from `snapshot -i`, which does reach the combined `Emojis, GIFs, Stickers` control - synthetic
+  `PointerEvent`s on that button never opened it). The live panel: eight category icons, a search pill
+  **ringed in the accent colour** with the hint "Search emoji", the section label **"Smileys & People"**,
+  a nine-column colour grid and a three-tab footer (`Emoji` underlined, `GIF`, `Stickers`).
+- Ours now matches on the two visible deltas: the search field is a `panel` pill with an **accent
+  stroke** (it was a flat `rail` fill) and the first section reads **"Smileys & People"** instead of
+  "Smileys". Capture: `target/our_emoji.png`.
+- Still different, and recorded as such: our footer is text tabs with a `Close` button (the live one is
+  three icon tabs and no close), and our category row starts with a **recents clock** the sample did not
+  show.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.61] - 2026-11-05
 
 - **The composer has the official single smiley again.** A fresh live capture of a conversation showed
