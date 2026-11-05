@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.4] - 2026-11-05
+
+- **Meta AI has a real entry point now, in the live rail position.** The rail carries a **sparkle button
+  between Communities and Settings** (where web.whatsapp.com puts Meta AI) and it opens a 420 px pane:
+  "Meta AI is not available here", why (it needs Meta's own service, which a linked device cannot
+  drive), and an **Open AI assistant** link that jumps to Settings -> AI assistant, where this client's
+  own bring-your-own-key assistant lives.
+- This replaces the "no local equivalent" note with something honest and usable: an entry point that
+  explains the limit instead of a missing icon, plus a one-click route to the assistant that does work.
+  `docs/PARITY.md`'s Meta AI row is updated to say exactly that.
+- Evidence: `target/our_meta_ai.png` (`WA_DESK_SCREEN=meta-ai`); the rail shows the selected sparkle and
+  the pane replaces the chat list like the other drawers.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.3] - 2026-11-05
 
 - **The last two small live deltas are closed.** From `target/live_media.jpg` and

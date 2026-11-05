@@ -39,6 +39,7 @@ impl WaDesk {
             calls_query: String::new(),
             channels_query: String::new(),
             communities_all: false,
+            show_meta_ai: false,
             show_communities: false,
             show_media: std::env::var("WA_DESK_SCREEN")
                 .map(|screen| screen == "media")
@@ -353,6 +354,8 @@ impl eframe::App for WaDesk {
                 self.channels_panel(ctx);
             } else if self.show_communities {
                 self.communities_panel(ctx);
+            } else if self.show_meta_ai {
+                self.meta_ai_panel(ctx);
             } else if self.show_calls {
                 self.calls_panel(ctx);
                 self.conversation(ctx);

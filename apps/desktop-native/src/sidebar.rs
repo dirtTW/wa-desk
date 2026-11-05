@@ -96,6 +96,21 @@ impl WaDesk {
                         self.show_calls = false;
                         self.show_communities = true;
                     }
+                    // The live rail carries Meta AI between Communities and
+                    // Settings; ours opens a pane that says what it is.
+                    if rail_button(ui, &palette, Icon::Sparkle, self.show_meta_ai, 0)
+                        .on_hover_text("Meta AI")
+                        .clicked()
+                    {
+                        self.show_meta_ai = true;
+                        self.show_channels = false;
+                        self.show_status = false;
+                        self.show_settings = false;
+                        self.show_media = false;
+                        self.show_calls = false;
+                        self.show_communities = false;
+                        self.model.close_status();
+                    }
                     if rail_button(ui, &palette, Icon::Settings, self.show_settings, 0)
                         .on_hover_text("Settings")
                         .clicked()
@@ -121,6 +136,7 @@ impl WaDesk {
             || self.show_channels
             || self.show_calls
             || self.show_communities
+            || self.show_meta_ai
         {
             return;
         }

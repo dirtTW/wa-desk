@@ -75,6 +75,9 @@ pub struct WaDesk {
     pub(crate) channels_query: String,
     /// The Communities drawer shows every group, not the first four.
     pub(crate) communities_all: bool,
+    /// The Meta AI pane is open (the rail entry; no Meta AI service exists that
+    /// a linked device can call, so the pane explains that).
+    pub(crate) show_meta_ai: bool,
     /// The Communities screen, and the community opened in it.
     pub(crate) show_communities: bool,
     /// The Media screen (the official Media/Docs/Links panel).
@@ -304,6 +307,7 @@ impl WaDesk {
         if let Ok(screen) = std::env::var("WA_DESK_SCREEN") {
             match screen.as_str() {
                 "calls" => self.show_calls = true,
+                "meta-ai" => self.show_meta_ai = true,
                 "communities" => self.show_communities = true,
                 "status" => self.show_status = true,
                 "status-compose" => {
