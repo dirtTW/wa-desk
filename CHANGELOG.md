@@ -4,6 +4,26 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.13] - 2026-11-05
+
+- **A diagnostic for the album run** (`WA_DESK_DIAG=1`): the conversation now logs the run index, the span
+  and the next three media messages (kind, sender, timestamp, side) whenever a media message does not
+  become an album. It is how the real "Test group" data was read:
+  `19 image ts=…086000 | 20 image ts=…197000 | 21 image ts=…197000` - so 20 and 21 share a timestamp and
+  **should** group, while 19 is 111 s earlier.
+- **What the trace shows, honestly**: the log fires only for index 19 (span 0, correctly - 19 to 20 is
+  111 s), which means the loop never lands on 20 as a separate step: something already consumed 19-21.
+  The capture at that moment still shows three full-width tiles, so the grid is either not drawn or drawn
+  with the single-bubble fallback. This is unresolved, and the next step is to log *every* media index
+  (the earlier attempt to relax the run-start condition failed on a quoting error and was not applied) and
+  to log what `album_bubble` returns.
+- **Scroll-wheel zoom** in the viewer: the wheel over the picture multiplies `viewer_zoom` (0.5-4x) in
+  small steps, next to the toolbar magnifiers.
+- **The prev/next discs no longer move when paging.** They were placed relative to the *stage*, which
+  follows the picture, so a portrait photo after a landscape one slid them up and down; they are anchored
+  to the window now (x at the screen edges, y at the screen's middle).
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.12] - 2026-11-05
 
 - **`WA_DESK_SCROLL_TO` works now.** It is read where `WA_DESK_OPEN_CHAT` opens the chat (after the list

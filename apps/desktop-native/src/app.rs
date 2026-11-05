@@ -1025,6 +1025,12 @@ pub(crate) enum VideoState {
 /// Always-on diagnostic, for the lines a bug report needs: media fetch
 /// outcomes, so a "photo never loads" report can be traced without asking the
 /// user to relaunch with `WA_DESK_DIAG=1`.
+/// Is `WA_DESK_DIAG=1` set? Used to keep one-shot tracing lines out of the hot
+/// path without reading the environment twice.
+pub fn diag_enabled() -> bool {
+    std::env::var("WA_DESK_DIAG").is_ok()
+}
+
 pub fn note(message: &str) {
     let dir = std::env::var("APPDATA")
         .map(std::path::PathBuf::from)

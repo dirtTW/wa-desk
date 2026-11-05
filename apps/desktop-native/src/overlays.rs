@@ -362,13 +362,16 @@ impl WaDesk {
                         (true, Icon::ChevronLeft, false, "prev-media"),
                         (false, Icon::ChevronRight, true, "next-media"),
                     ] {
+                        // Anchored to the window, not the picture: the discs used
+                        // to slide while paging through mixed portrait/landscape
+                        // images because the stage follows the image.
                         let x = if left {
-                            stage.left() + 20.0
+                            screen.left() + 44.0
                         } else {
-                            stage.right() - 20.0
+                            screen.right() - 44.0
                         };
                         let rect = egui::Rect::from_center_size(
-                            egui::pos2(x, stage.center().y),
+                            egui::pos2(x, screen.center().y),
                             egui::vec2(40.0, 40.0),
                         );
                         let response = ui.interact(rect, ui.id().with(name), egui::Sense::click());
@@ -643,6 +646,20 @@ impl WaDesk {
                 }
             });
 
+        // Wheel over the picture: the official viewer zooms with the scroll
+        // wheel and lets you drag the zoomed image around.
+        let (wheel, over_stage) = ctx.input(|input| {
+            (
+                input.raw_scroll_delta.y,
+                input
+                    .pointer
+                    .hover_pos()
+                    .is_some_and(|pos| ctx.screen_rect().contains(pos)),
+            )
+        });
+        if over_stage && wheel.abs() > 0.1 {
+            self.viewer_zoom = (self.viewer_zoom * (1.0 + wheel.signum() * 0.08)).clamp(0.5, 4.0);
+        }
         if let Some(step) = zoom_step {
             self.viewer_zoom = (self.viewer_zoom * step).clamp(0.5, 4.0);
         }

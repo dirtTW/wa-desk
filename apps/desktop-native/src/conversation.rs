@@ -436,6 +436,31 @@ impl WaDesk {
                                 // A burst of photos/videos from one sender paints as the official
                                 // album grid, one bubble with one caption and one clock.
                                 let span = Model::album_span(&row.messages, index);
+                                // `WA_DESK_DIAG=1`: say why a media run did not
+                                // become an album. Indices 20-22 of "Test group"
+                                // satisfy the rule on paper but paint alone.
+                                if span <= 1
+                                    && (message.kind == "image" || message.kind == "video")
+                                    && (index == 0
+                                        || !matches!(
+                                            row.messages[index - 1].kind.as_str(),
+                                            "image" | "video"
+                                        ))
+                                    && crate::app::diag_enabled()
+                                {
+                                    let mut note = format!(
+                                        "album run at {index} span {span}: {}",
+                                        message.kind
+                                    );
+                                    for look in index..(index + 3).min(row.messages.len()) {
+                                        let item = &row.messages[look];
+                                        note.push_str(&format!(
+                                            " | {look} {} sender={:?} ts={} me={}",
+                                            item.kind, item.sender, item.timestamp, item.from_me
+                                        ));
+                                    }
+                                    diag(&note);
+                                }
                                 if span > 1 {
                                     let items: Vec<&wa_types::MessageView> =
                                         row.messages[index..index + span].iter().collect();
