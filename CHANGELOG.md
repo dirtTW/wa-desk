@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.44] - 2026-11-05
+
+- **`src/screens/` gains the whole Settings screen.** `settings_sections` (the Profile/Account/
+  Privacy/Chats/Notifications/Keyboard shortcuts/AI assistant/Updates/Help list), `settings_header`,
+  and every detail page - `profile_detail`, `account_detail`, `privacy_detail`, `chats_detail`,
+  `notifications_detail`, `shortcuts_detail`, `about_card`, `ai_detail`, `updates_detail`,
+  `help_detail` - moved to `screens/settings.rs` (**1,106 lines**). They are plain `impl WaDesk`
+  methods, so nothing about how they are called changed.
+- `app.rs` is down to **7,117 lines**: from 10,069 before this run of extractions. What is left there
+  is the window itself, the chat list, the conversation/composer and the dialogs.
+- Only imports were touched: the module pulls in `settings_ui`'s widgets, `paint_avatar`,
+  `Command` and `UpdateState` (`check_updates`/`download_update` became crate-visible for it).
+- Verified after the move: `target/our_settings_account.png` (`WA_DESK_SETTINGS=1
+  WA_DESK_SETTINGS_SECTION=1`) still shows Account info, Linked devices, Request account info / How
+  to delete, and the Security card - and the section list now reads **Help and feedback**.
+  `target/our_privacy.png` re-captured too.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.43] - 2026-11-05
 
 - **`src/screens/` gains the Status screen.** `status_panel` (the list with "My status", the Recent
