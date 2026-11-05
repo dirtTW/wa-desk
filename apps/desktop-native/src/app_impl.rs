@@ -142,6 +142,7 @@ impl WaDesk {
             sticker_tab: 0,
             packs_requested: false,
             sticker_query: String::new(),
+            sticker_store: false,
             emoji_group: 0,
             emoji_gif: false,
             emoji_textures: std::collections::HashMap::new(),

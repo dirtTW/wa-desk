@@ -226,6 +226,8 @@ pub struct WaDesk {
     /// The sticker picker tab (0 recents, 1 favourites, 2 packs) and search.
     pub(crate) sticker_tab: usize,
     pub(crate) sticker_query: String,
+    /// The sticker store sheet is open (the `+` in the panel's tab row).
+    pub(crate) sticker_store: bool,
     /// The emoji picker's selected category (0 = recents, 1.. = catalogue groups).
     pub(crate) emoji_group: usize,
     /// The picker's GIF tab (no GIF search yet, so it explains itself).
@@ -536,6 +538,11 @@ impl WaDesk {
             self.model.active = Some("1203@g.us".to_string());
             self.model.stickers_open = true;
             self.sticker_tab = 1;
+        }
+        // `WA_DESK_STICKER_STORE=1` opens the sticker store sheet for a capture.
+        if std::env::var("WA_DESK_STICKER_STORE").is_ok() {
+            self.model.stickers_open = true;
+            self.sticker_store = true;
         }
         if std::env::var("WA_DESK_EMOJI").is_ok() {
             self.model.emoji_open = true;

@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.75] - 2026-11-05
+
+- **The sticker panel's `+` opens the store sheet.** It used to jump to the Packs tab; now it opens
+  the sheet the live client shows - a "Sticker store" title with a close control, the five official
+  categories (Greetings / Happy / Sad / Angry / Celebrate) as emoji + name + chevron rows, a hint that
+  packs are added from the phone (and that a shared one lands in Packs), and "Show the packs I have",
+  which really switches to the Packs tab and asks the session for its packs. The grid paints only when
+  the sheet is closed, so the panel never shows both at once.
+- `WA_DESK_STICKER_STORE=1` opens the sheet for a capture (`target/our_sticker_store.png`).
+- docs/PARITY.md records the sheet shape and why the store's contents cannot be listed from a linked
+  device.
+- Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.74] - 2026-11-05
 
 - **The update button is the progress bar.** `updates::download` streams the release in 64 kB chunks

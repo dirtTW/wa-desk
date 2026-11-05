@@ -1,7 +1,7 @@
 //! The emoji and sticker pickers: the square glyph cells, the grid, the recents,
 //! the tabs and the GIF tab.
 
-use crate::app::{Icon, WaDesk, draw_icon, emoji_category};
+use crate::app::{Icon, WaDesk, draw_icon, emoji_category, icon_button};
 use crate::bubbles::QUOTE_PX;
 use crate::bubbles::{STICKER_PX, texture_at};
 use crate::model::Command;
@@ -374,14 +374,8 @@ impl WaDesk {
                                 .on_hover_text("Add a sticker pack")
                                 .clicked()
                             {
-                                // The live `+` opens the sticker store; ours jumps
-                                // to the packs tab and asks the session for the
-                                // packs it knows about, so a shared one shows up.
-                                self.sticker_tab = 2;
-                                if !self.packs_requested {
-                                    self.packs_requested = true;
-                                    self.send(Command::StickerPacks);
-                                }
+                                // The live `+` opens the sticker store sheet.
+                                self.sticker_store = true;
                             }
                         });
                         ui.add_space(8.0);
@@ -407,7 +401,107 @@ impl WaDesk {
                             });
                         ui.add_space(6.0);
 
-                        if chat.is_empty() {
+                        if self.sticker_store {
+                            // The store sheet the live `+` opens: the category
+                            // list, then Create. The packs themselves live on the
+                            // phone - a linked device cannot list the store.
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Sticker store")
+                                        .size(15.0)
+                                        .strong()
+                                        .color(palette.text),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if icon_button(ui, Icon::Close, &palette)
+                                            .on_hover_text("Close")
+                                            .clicked()
+                                        {
+                                            self.sticker_store = false;
+                                        }
+                                    },
+                                );
+                            });
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(
+                                    "Packs are added from the phone; a pack someone shares \
+                                     in a chat also lands in Packs.",
+                                )
+                                .size(11.5)
+                                .color(palette.secondary),
+                            );
+                            ui.add_space(6.0);
+                            for (emoji, name) in [
+                                ('\u{1F44B}', "Greetings"),
+                                ('\u{1F60A}', "Happy"),
+                                ('\u{1F622}', "Sad"),
+                                ('\u{1F621}', "Angry"),
+                                ('\u{1F389}', "Celebrate"),
+                            ] {
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(ui.available_width(), 44.0),
+                                    egui::Sense::click(),
+                                );
+                                if response.hovered() {
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        egui::CornerRadius::same(10),
+                                        palette.hover,
+                                    );
+                                }
+                                if let Some(texture) = self.emoji_texture(ui.ctx(), emoji, 22) {
+                                    let size = texture.size_vec2();
+                                    let scale = (22.0 / size.x.max(1.0))
+                                        .min(22.0 / size.y.max(1.0));
+                                    ui.painter().image(
+                                        texture.id(),
+                                        egui::Rect::from_center_size(
+                                            egui::pos2(rect.left() + 22.0, rect.center().y),
+                                            size * scale,
+                                        ),
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(0.0, 0.0),
+                                            egui::pos2(1.0, 1.0),
+                                        ),
+                                        egui::Color32::WHITE,
+                                    );
+                                }
+                                ui.painter().text(
+                                    egui::pos2(rect.left() + 44.0, rect.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    name,
+                                    egui::FontId::proportional(13.5),
+                                    palette.text,
+                                );
+                                let chevron = egui::Rect::from_center_size(
+                                    egui::pos2(rect.right() - 16.0, rect.center().y),
+                                    egui::vec2(16.0, 16.0),
+                                );
+                                draw_icon(ui, chevron, Icon::ChevronRight, palette.secondary);
+                                if response.clicked() {
+                                    self.sticker_query.clear();
+                                    self.sticker_store = false;
+                                    self.notice = Some((
+                                        format!("{name} packs are added from the phone"),
+                                        std::time::Instant::now(),
+                                    ));
+                                }
+                            }
+                            ui.add_space(4.0);
+                            if settings_link(ui, &palette, "Show the packs I have") {
+                                self.sticker_store = false;
+                                self.sticker_tab = 2;
+                                if !self.packs_requested {
+                                    self.packs_requested = true;
+                                    self.send(Command::StickerPacks);
+                                }
+                            }
+                        }
+
+                        if !self.sticker_store && chat.is_empty() {
                             ui.add_space(8.0);
                             ui.label(
                                 egui::RichText::new("Open a chat to send a sticker")
@@ -443,9 +537,13 @@ impl WaDesk {
                         }
 
                         egui::ScrollArea::vertical()
+                            .id_salt("sticker-grid")
                             .max_height(300.0)
                             .auto_shrink([false, true])
                             .show(ui, |ui| {
+                                if self.sticker_store {
+                                    return;
+                                }
                                 ui.set_width(ui.available_width());
                                 if self.sticker_tab == 2 {
                                     // Packs shared in a chat: WhatsApp never syncs the
