@@ -637,6 +637,11 @@ device until you remove it from the phone).
   the crate's default feature set, so stable Rust works. If you want the extra
   throughput, build with `RUSTC_BOOTSTRAP=1` or a nightly toolchain and re-enable it.
 
+- **Version numbering.** Releases are pre-releases counted as `<core>-rc.N`, and the counter stops at
+  99: `0.2.1-rc.1 … 0.2.1-rc.99`, then the patch rolls and it starts again at `0.2.2-rc.1`
+  (`0.2.2-rc.1` > `0.2.1-rc.99`; `0.2.1-rc.100` would also order correctly if it were ever used, since
+  the updater parses the number and not the text). Test:
+  `updates::tests::prereleases_compare_in_order`.
 - **In-app updates are native now** (`apps/desktop-native/src/updates.rs`). Every WA Desk
   release is a **pre-release**, so GitHub's `/releases/latest` 404s - the updater lists
   `/releases?per_page=20`, ignores drafts, keeps the highest tag that is newer than

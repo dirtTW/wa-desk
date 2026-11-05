@@ -4,6 +4,23 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.47] - 2026-11-05
+
+- **The overlays left `app.rs`: `src/overlays.rs` (932 lines).** The media viewer (`media_overlay`: the
+  64 px header with the chat name and the download/reply/star/forward/menu/close toolbar, the stage,
+  the transport bar with play, seek, speed, mute and fullscreen, the caption and the
+  green-ringed filmstrip) and the call sheet (`call_overlay`: the avatar disc, the name, the state and
+  timer, the mute disc and the red hang-up disc, remote video as the stage) moved with their video
+  helpers (`toggle_video`, `seek_video`, `video_elapsed`, `video_frame_handle`, `release_video`,
+  `stop_video`).
+- `app.rs` is down to **4,942 lines**, from 10,069 at the start of this run: the app plumbing, the
+  menus, the pickers and the small dialogs are what is left.
+- Verified after the move: `target/our_viewer.png` (`WA_DESK_VIEWER=1`: header, stage, transport bar,
+  "2 of 2" filmstrip with the selected cell ringed) and `target/our_call_overlay.png`
+  (`WA_DESK_CALL=connected`: 96 px initials disc, "Ada Lovelace", "Connected · 00:46", mute and the
+  red hang-up disc).
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.46] - 2026-11-05
 
 - **The chat-list sidebar left `app.rs`: `src/sidebar.rs` (393 lines).** `sidebar` (the 58 px rail with

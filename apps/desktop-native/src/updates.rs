@@ -242,6 +242,11 @@ mod tests {
         assert!(is_newer("v0.2.0", "0.2.0-rc.99"));
         assert!(is_newer("v0.3.0-rc.1", "0.2.0"));
         assert!(!is_newer("v0.2.0", "0.2.1"));
+        // Past rc.99 the core moves on: 0.2.2-rc.1 ships after 0.2.1-rc.99, and
+        // both orderings stay numeric (rc.100 would also beat rc.99).
+        assert!(is_newer("v0.2.2-rc.1", "0.2.1-rc.99"));
+        assert!(!is_newer("v0.2.1-rc.99", "0.2.2-rc.1"));
+        assert!(is_newer("v0.2.1-rc.100", "0.2.1-rc.99"));
         // The rc number is compared as a number, not as text.
         assert!(is_newer("v0.2.0-rc.10", "0.2.0-rc.9"));
         assert!(!is_newer("v0.2.0-rc.9", "0.2.0-rc.10"));
