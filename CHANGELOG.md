@@ -4,6 +4,24 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.55] - 2026-11-05
+
+- **Status replies, reactions and delete are wired - they existed in `wa-core` but nothing in the window
+  could reach them.** `Command::ReplyStatus` / `ReactStatus` / `DeleteStatus` now call
+  `Session::reply_status` / `react_status` / `delete_status`, and the viewer's bottom bar grew the
+  official controls: a rounded **"Type a reply…"** field with Send (Enter also sends), a **heart**
+  reaction button, and - on your own status - the view count plus **Delete**, which removes the
+  update and closes the viewer.
+- The viewer's body was also swallowing the whole window (`centered_and_justified` inside an
+  unconstrained frame), which had kept the bar off screen; the body is now bounded to
+  `available_height - 96`, so the bar is always visible.
+- Cross-checked against a fresh live sample of an **image** status: the official chrome is the
+  segmented bar, the author and time in the header, the media letterboxed over a blurred fill, the
+  caption above the bar, then emoji / sticker / reply / heart along the bottom with arrows at the
+  sides. Ours now has the reply field and heart; the avatar in the header, the blurred backdrop and
+  the emoji/sticker buttons are the remaining deltas, recorded in `docs/PARITY.md`.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.54] - 2026-11-05
 
 - **Disappearing messages can be set for a group, for real.** `GroupInfoView` gained

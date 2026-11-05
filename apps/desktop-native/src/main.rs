@@ -703,6 +703,21 @@ fn main() {
                         Err(err) => tracing::warn!(%err, "status media post failed"),
                     }
                 }
+                model::Command::ReplyStatus { sender, id, text } => {
+                    if let Err(err) = session.reply_status(&sender, &id, &text, None).await {
+                        tracing::warn!(%err, "status reply failed");
+                    }
+                }
+                model::Command::ReactStatus { sender, id, emoji } => {
+                    if let Err(err) = session.react_status(&sender, &id, &emoji).await {
+                        tracing::warn!(%err, "status reaction failed");
+                    }
+                }
+                model::Command::DeleteStatus { id } => {
+                    if let Err(err) = session.delete_status(&id).await {
+                        tracing::warn!(%err, "status delete failed");
+                    }
+                }
                 model::Command::StatusHistory => {
                     if let Err(err) = session.fetch_status_history().await {
                         tracing::warn!(%err, "status history failed");

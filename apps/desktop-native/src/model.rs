@@ -184,6 +184,22 @@ pub enum Command {
     },
     /// Ask the linked session for older status updates.
     StatusHistory,
+    /// Answer a status with a text reply.
+    ReplyStatus {
+        sender: String,
+        id: String,
+        text: String,
+    },
+    /// React to a status with one emoji.
+    ReactStatus {
+        sender: String,
+        id: String,
+        emoji: String,
+    },
+    /// Delete one of our own status updates.
+    DeleteStatus {
+        id: String,
+    },
     /// Ask the phone for one chat's latest messages (opening a chat).
     ChatHistory {
         chat: String,

@@ -333,12 +333,16 @@ impl WaDesk {
                 egui::Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8)
             })
             .unwrap_or(egui::Color32::from_rgb(36, 38, 38));
+        // The body takes what is left above the bottom bar: a
+        // `centered_and_justified` inside an unconstrained frame swallows the
+        // whole window and pushed the reply bar off screen.
+        let body_height = (ui.available_height() - 96.0).max(200.0);
         egui::Frame::new()
             .fill(color)
             .inner_margin(egui::Margin::same(16))
             .corner_radius(egui::CornerRadius::same(10))
             .show(ui, |ui| {
-                ui.set_min_height(240.0);
+                ui.set_height(body_height);
                 ui.centered_and_justified(|ui| {
                     let body = if update.text.trim().is_empty() {
                         wa_ui::chat::media_placeholder(&update.kind).to_string()
@@ -354,6 +358,12 @@ impl WaDesk {
             });
 
         ui.add_space(8.0);
+        // The official bottom bar: the side arrows, then either the reply field
+        // with its heart reaction (someone else's status) or the view count and
+        // Delete (your own).
+        let mut reply: Option<String> = None;
+        let mut react: Option<String> = None;
+        let mut delete = false;
         ui.horizontal(|ui| {
             if !chrome.prev_hidden && ui.button("◀").clicked() {
                 self.model.step_status(false);
@@ -367,8 +377,62 @@ impl WaDesk {
                         .small()
                         .weak(),
                 );
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Delete")
+                                .size(12.5)
+                                .color(palette_danger()),
+                        )
+                        .frame(false),
+                    )
+                    .on_hover_text("Delete this status")
+                    .clicked()
+                {
+                    delete = true;
+                }
+            } else {
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut self.model.composer)
+                        .hint_text("Type a reply…")
+                        .desired_width(280.0),
+                );
+                let enter =
+                    edit.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                if (ui.button("Send").clicked() || enter) && !self.model.composer.trim().is_empty()
+                {
+                    reply = Some(self.model.composer.trim().to_string());
+                }
+                if ui
+                    .button("❤")
+                    .on_hover_text("React to this status")
+                    .clicked()
+                {
+                    react = Some("❤".to_string());
+                }
             }
         });
+        if let Some(text) = reply {
+            self.model.composer.clear();
+            self.send(Command::ReplyStatus {
+                sender: update.sender.clone(),
+                id: update.id.clone(),
+                text,
+            });
+        }
+        if let Some(emoji) = react {
+            self.send(Command::ReactStatus {
+                sender: update.sender.clone(),
+                id: update.id.clone(),
+                emoji,
+            });
+        }
+        if delete {
+            self.send(Command::DeleteStatus {
+                id: update.id.clone(),
+            });
+            self.model.close_status();
+        }
 
         // A frame that runs out advances on its own, like the phone.
         if ratio >= 1.0 {
@@ -378,6 +442,10 @@ impl WaDesk {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
+}
+
+fn palette_danger() -> egui::Color32 {
+    egui::Color32::from_rgb(251, 80, 97)
 }
 
 /// One 72 px status row: ring avatar, name, meta line.

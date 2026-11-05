@@ -108,7 +108,7 @@ the chat row was targeted.
 | Composer: Enter sends, and the bubble appears at once | `enter_sends` samples the key before the single-line field consumes it; `WA_DESK_ENTER_TEST=1` drives a real `Event::Key` through egui for the capture | ✅ (`target/our_enter_send.png`) |
 | Send failures are visible: a red `!` instead of a tick | `UiEvent::SendFailed` from `wa-core`, `Model::send_failures` + `send_error`, the bubble paints a red disc with `!` | ✅ (`target/our_send_failed.png`) |
 | Conversation scroll: newest message on open/send, floating jump-to-latest disc | opening a chat or sending pins the view to the last bubble (`ui.scroll_to_rect(..., Align::BOTTOM)`); scrolling up reveals the official 44 px chevron disc above the composer | ✅ (`target/real_scroll.png`, `WA_DESK_SCROLL_TOP=1`) |
-| Story viewer with progress bars, reply, react, delete | **header sampled live 2026-11-05**: name on one line with the timestamp under it, segmented progress bar across the top, body centred, close top-right; reply/react/delete from the composer row, prev/next by tap zones and arrows | ✅ chrome (`target/our_status_viewer.png`, `WA_DESK_STATUS_VIEWER=1`) |
+| Story viewer with progress bars, reply, react, delete | segmented bar, author over timestamp, body centred, close top-right, then the reply field + heart (someone else's status) or the view count + Delete (your own) - wired to `reply_status`/`react_status`/`delete_status` | ✅ (`target/our_status_viewer.png`); deltas vs the live image-status chrome: header avatar, blurred backdrop, emoji/sticker buttons |
 
 ## Channels, communities, calls, settings
 
