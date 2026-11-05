@@ -16,138 +16,150 @@ impl WaDesk {
     /// The left column: account header, the section rows and Log out.
     pub(crate) fn settings_sections(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
         let width = (ui.available_width() * 0.42).clamp(230.0, 330.0);
-        let column_height = ui.available_height();
-        // A short window scrolls the column instead of clipping its last rows.
-        egui::ScrollArea::vertical()
-            .id_salt("settings-sections")
-            .auto_shrink([false, false])
-            .max_height(column_height)
-            .show(ui, |ui| {
-                ui.set_width(width);
-                ui.add_space(20.0);
-                let me = self.model.me_jid.clone();
-                self.ensure_avatar(ui.ctx(), &me);
-                let avatar = self.avatar_for(&me).cloned();
-                ui.horizontal(|ui| {
-                    ui.add_space(18.0);
-                    paint_avatar(ui, &self.model.own_name(), 56.0, avatar.as_ref());
-                    ui.add_space(4.0);
-                    ui.vertical(|ui| {
-                        ui.label(
-                            egui::RichText::new(self.model.own_name())
-                                .size(17.0)
-                                .strong()
-                                .color(palette.text),
+        let column_height = (ui.ctx().screen_rect().bottom() - ui.cursor().top() - 4.0).max(140.0);
+        // An explicit-width child: a ScrollArea created straight inside a
+        // horizontal layout has no width to give its rows (the row then asked
+        // for `available_width() - 10` and egui panicked on -10).
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, column_height),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("settings-sections")
+                    .auto_shrink([false, false])
+                    .scroll_bar_visibility(
+                        egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                    )
+                    .max_height(column_height)
+                    .show(ui, |ui| {
+                        ui.set_width(width);
+                        ui.add_space(20.0);
+                        ui.add_space(20.0);
+                        let me = self.model.me_jid.clone();
+                        self.ensure_avatar(ui.ctx(), &me);
+                        let avatar = self.avatar_for(&me).cloned();
+                        ui.horizontal(|ui| {
+                            ui.add_space(18.0);
+                            paint_avatar(ui, &self.model.own_name(), 56.0, avatar.as_ref());
+                            ui.add_space(4.0);
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new(self.model.own_name())
+                                        .size(17.0)
+                                        .strong()
+                                        .color(palette.text),
+                                );
+                                ui.label(
+                                    egui::RichText::new(&self.model.status)
+                                        .size(12.5)
+                                        .color(palette.secondary),
+                                );
+                            });
+                        });
+                        ui.add_space(12.0);
+                        // The live "You" pane carries a search field and the two profile
+                        // links above the section list.
+                        ui.horizontal(|ui| {
+                            ui.add_space(18.0);
+                            if icon_button(ui, Icon::Search, palette).clicked() {
+                                self.settings_search_open = !self.settings_search_open;
+                            }
+                            if self.settings_search_open || !self.settings_search.is_empty() {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.settings_search)
+                                        .hint_text("Search")
+                                        .desired_width(width - 80.0),
+                                );
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("Search")
+                                        .size(13.5)
+                                        .color(palette.secondary),
+                                );
+                            }
+                        });
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(22.0);
+                            if settings_link(ui, palette, "View profile") {
+                                self.settings_section = 0;
+                            }
+                            ui.add_space(14.0);
+                            if settings_link(ui, palette, "View about") {
+                                self.settings_section = 0;
+                            }
+                        });
+                        ui.add_space(12.0);
+                        // The official list, in its order and with its subtitles (sampled
+                        // from the "You" drawer of web.whatsapp.com), plus this client's own
+                        // AI and Updates pages.
+                        let sections = [
+                            (Icon::Status, "Profile", "Name, profile picture, status"),
+                            (
+                                Icon::Lock,
+                                "Account",
+                                "Security notifications, account info",
+                            ),
+                            (
+                                Icon::SelectChats,
+                                "Privacy",
+                                "Blocked contacts, disappearing messages",
+                            ),
+                            (Icon::Chats, "Chats", "Theme, wallpaper, chat settings"),
+                            (Icon::Phone, "Notifications", "Messages, groups, sounds"),
+                            (
+                                Icon::Edit,
+                                "Keyboard shortcuts",
+                                "Keys this window answers to",
+                            ),
+                            (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
+                            (Icon::Document, "Updates", "Version and releases"),
+                            (
+                                Icon::Groups,
+                                "Help and feedback",
+                                "Project, changelog, privacy",
+                            ),
+                        ];
+                        let needle = self.settings_search.trim().to_lowercase();
+                        for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
+                            if !needle.is_empty()
+                                && !title.to_lowercase().contains(&needle)
+                                && !subtitle.to_lowercase().contains(&needle)
+                            {
+                                continue;
+                            }
+                            let selected = self.settings_section == index;
+                            let response = settings_list_row(
+                                ui,
+                                palette,
+                                *icon,
+                                title,
+                                Some(subtitle),
+                                selected,
+                                palette.secondary,
+                            );
+                            if response.clicked() {
+                                self.settings_section = index;
+                            }
+                        }
+                        ui.add_space(6.0);
+                        let response = settings_list_row(
+                            ui,
+                            palette,
+                            Icon::Logout,
+                            "Log out",
+                            None,
+                            false,
+                            palette.danger,
                         );
-                        ui.label(
-                            egui::RichText::new(&self.model.status)
-                                .size(12.5)
-                                .color(palette.secondary),
-                        );
+                        if response.clicked() {
+                            self.send(Command::Relink);
+                            self.settings_note =
+                                "Unlinked - scan the QR with the phone to link again.".to_string();
+                        }
                     });
-                });
-                ui.add_space(12.0);
-                // The live "You" pane carries a search field and the two profile
-                // links above the section list.
-                ui.horizontal(|ui| {
-                    ui.add_space(18.0);
-                    if icon_button(ui, Icon::Search, palette).clicked() {
-                        self.settings_search_open = !self.settings_search_open;
-                    }
-                    if self.settings_search_open || !self.settings_search.is_empty() {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.settings_search)
-                                .hint_text("Search")
-                                .desired_width(width - 80.0),
-                        );
-                    } else {
-                        ui.label(
-                            egui::RichText::new("Search")
-                                .size(13.5)
-                                .color(palette.secondary),
-                        );
-                    }
-                });
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(22.0);
-                    if settings_link(ui, palette, "View profile") {
-                        self.settings_section = 0;
-                    }
-                    ui.add_space(14.0);
-                    if settings_link(ui, palette, "View about") {
-                        self.settings_section = 0;
-                    }
-                });
-                ui.add_space(12.0);
-                // The official list, in its order and with its subtitles (sampled
-                // from the "You" drawer of web.whatsapp.com), plus this client's own
-                // AI and Updates pages.
-                let sections = [
-                    (Icon::Status, "Profile", "Name, profile picture, status"),
-                    (
-                        Icon::Lock,
-                        "Account",
-                        "Security notifications, account info",
-                    ),
-                    (
-                        Icon::SelectChats,
-                        "Privacy",
-                        "Blocked contacts, disappearing messages",
-                    ),
-                    (Icon::Chats, "Chats", "Theme, wallpaper, chat settings"),
-                    (Icon::Phone, "Notifications", "Messages, groups, sounds"),
-                    (
-                        Icon::Edit,
-                        "Keyboard shortcuts",
-                        "Keys this window answers to",
-                    ),
-                    (Icon::Emoji, "AI assistant", "Auto-reply with your key"),
-                    (Icon::Document, "Updates", "Version and releases"),
-                    (
-                        Icon::Groups,
-                        "Help and feedback",
-                        "Project, changelog, privacy",
-                    ),
-                ];
-                let needle = self.settings_search.trim().to_lowercase();
-                for (index, (icon, title, subtitle)) in sections.iter().enumerate() {
-                    if !needle.is_empty()
-                        && !title.to_lowercase().contains(&needle)
-                        && !subtitle.to_lowercase().contains(&needle)
-                    {
-                        continue;
-                    }
-                    let selected = self.settings_section == index;
-                    let response = settings_list_row(
-                        ui,
-                        palette,
-                        *icon,
-                        title,
-                        Some(subtitle),
-                        selected,
-                        palette.secondary,
-                    );
-                    if response.clicked() {
-                        self.settings_section = index;
-                    }
-                }
-                ui.add_space(6.0);
-                let response = settings_list_row(
-                    ui,
-                    palette,
-                    Icon::Logout,
-                    "Log out",
-                    None,
-                    false,
-                    palette.danger,
-                );
-                if response.clicked() {
-                    self.send(Command::Relink);
-                    self.settings_note =
-                        "Unlinked - scan the QR with the phone to link again.".to_string();
-                }
-            });
+            },
+        );
     }
 
     /// The page title and one-line description at the top of the detail pane.

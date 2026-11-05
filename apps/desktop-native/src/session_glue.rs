@@ -93,6 +93,11 @@ impl WaDesk {
             changed = true;
         }
         while let Ok(message) = self.update_rx.try_recv() {
+            if crate::app::update_demo_active() {
+                // `WA_DESK_UPDATE_DEMO` pins the page mid-download for a capture.
+                let _ = message;
+                continue;
+            }
             self.update = match message {
                 UpdateMsg::Checked(Ok(Some(release))) => UpdateState::Available(release),
                 UpdateMsg::Checked(Ok(None)) => UpdateState::UpToDate,

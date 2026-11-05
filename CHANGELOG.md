@@ -4,6 +4,29 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.74] - 2026-11-05
+
+- **The update button is the progress bar.** `updates::download` streams the release in 64 kB chunks
+  and publishes `DOWNLOAD_DONE` / `DOWNLOAD_TOTAL`; `download_fraction()` / `download_bytes()` expose
+  them, and `settings_ui::download_progress_button` paints the pill the button would be, filled with
+  the accent from the left and labelled "Downloading 62%" (dark ink once the fill passes the centre,
+  for contrast). The Updates page also prints "16.1 of 25.9 MB" and repaints every 150 ms while bytes
+  arrive, so the bar really moves.
+- **Fixed a Settings crash shipped in rc.73.** The section column was wrapped in a `ScrollArea` created
+  directly inside a horizontal layout; the scroll area had no width to hand its rows, so
+  `settings_list_row` asked for `available_width() - 10` and egui panicked with
+  `Negative child size: [-10.0 54.0]` - opening Settings killed the window. The column is now an
+  `allocate_ui_with_layout` of the computed 230-330 px width with the scroll area inside it.
+- **Both columns measure their height from the window, not from the layout.** `ui.available_height()`
+  inside the settings `horizontal_top` is not the remaining window height, so the detail pane and the
+  section column were still taller than the window and the last card was clipped. They now use
+  `screen_rect().bottom() - cursor().top() - 4` (logged as `pane height 556 screen [0,0]-[1000,560]`
+  at a 1000x560 window) and request a scrollbar when the content overflows.
+- `WA_DESK_UPDATE_DEMO=<percent>` pins the Updates page mid-download for screenshots (the launch check
+  and the real update channel are skipped while it is set), which is how `target/our_update.png` was
+  captured.
+- Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.73] - 2026-11-05
 
 - **Group info: the creator card.** `GroupInfoView` gained `creator`, filled from the metadata's

@@ -675,6 +675,9 @@ impl WaDesk {
 
     /// Check the release list on a worker thread; the window never blocks.
     pub(crate) fn check_updates(&mut self) {
+        if update_demo_active() {
+            return;
+        }
         self.update = UpdateState::Checking;
         let tx = self.update_tx.clone();
         std::thread::spawn(move || {
@@ -1185,9 +1188,15 @@ impl WaDesk {
                     // The detail pane must scroll inside the window: without an
                     // explicit max height the scroll area grew to its content
                     // and the last card was clipped by the window edge.
-                    let pane_height = ui.available_height();
+                    // `available_height()` is not the window's remaining height
+                    // inside this horizontal layout, so measure from the screen.
+                    let pane_height =
+                        (ui.ctx().screen_rect().bottom() - ui.cursor().top() - 4.0).max(140.0);
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
+                        .scroll_bar_visibility(
+                            egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                        )
                         .max_height(pane_height)
                         .show(ui, |ui| {
                             ui.horizontal_top(|ui| {
@@ -2376,4 +2385,10 @@ mod composer_tests {
         assert!(!enter_sends(true, false), "a stray Enter must not send");
         assert!(!enter_sends(false, true));
     }
+}
+
+/// `WA_DESK_UPDATE_DEMO` forces the Updates page into its downloading state, so
+/// the launch check must not overwrite it with the real "up to date" result.
+pub(crate) fn update_demo_active() -> bool {
+    std::env::var_os("WA_DESK_UPDATE_DEMO").is_some()
 }
