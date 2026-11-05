@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.65] - 2026-11-05
+
+- **The sticker panel's recorded deltas are closed.** Matched to the live sample: the tab row is now
+  **icons** - the recents clock (accent + underline when selected), a star for favourites, the sticker
+  glyph for packs - followed by the live **`+`** control for adding a pack (which points at the phone,
+  since packs are added from the store there). The old text tabs (Recents / Favourites / Packs) and the
+  now-unused `sticker_tab` helper are gone.
+- The panel's **footer is the same icon footer as the emoji panel** (emoji · GIF · sticker with the
+  selected tab underlined) and the `Close` button is removed - the composer's control toggles the panel,
+  exactly like the live client.
+- `target/our_stickers.png` re-captured: clock-underlined icon row with `+`, accent store search, icon
+  footer.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.64] - 2026-11-05
 
 - **The sticker panel was sampled from the live client.** Opened through the emoji panel's sticker tab

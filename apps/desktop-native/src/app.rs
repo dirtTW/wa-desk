@@ -1447,61 +1447,6 @@ pub(crate) fn call_initials(name: &str) -> String {
     }
     letters.to_uppercase()
 }
-
-/// One tab of the sticker picker: label with the accent underline the official
-/// panel uses for the active tab.
-pub(crate) fn sticker_tab(
-    ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
-    label: &str,
-    selected: bool,
-) -> egui::Response {
-    let width = ui
-        .painter()
-        .layout_no_wrap(
-            label.to_string(),
-            egui::FontId::proportional(13.0),
-            palette.text,
-        )
-        .size()
-        .x
-        + 18.0;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 30.0), egui::Sense::click());
-    if selected || response.hovered() {
-        ui.painter().rect_filled(
-            rect,
-            egui::CornerRadius::same(8),
-            if selected {
-                palette.selected
-            } else {
-                palette.hover
-            },
-        );
-    }
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(13.0),
-        if selected {
-            palette.text
-        } else {
-            palette.secondary
-        },
-    );
-    if selected {
-        ui.painter().rect_filled(
-            egui::Rect::from_min_size(
-                egui::pos2(rect.left() + 8.0, rect.bottom() - 2.0),
-                egui::vec2(rect.width() - 16.0, 2.0),
-            ),
-            egui::CornerRadius::same(1),
-            palette.accent,
-        );
-    }
-    response
-}
-
 impl WaDesk {
     /// Group info: subject, description, member count and the member list
     /// with admin chips.

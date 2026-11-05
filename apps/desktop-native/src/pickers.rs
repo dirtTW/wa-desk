@@ -1,7 +1,7 @@
 //! The emoji and sticker pickers: the square glyph cells, the grid, the recents,
 //! the tabs and the GIF tab.
 
-use crate::app::{Icon, WaDesk, draw_icon, emoji_category, sticker_tab};
+use crate::app::{Icon, WaDesk, draw_icon, emoji_category};
 use crate::bubbles::QUOTE_PX;
 use crate::bubbles::{STICKER_PX, texture_at};
 use crate::model::Command;
@@ -293,7 +293,6 @@ impl WaDesk {
         // The sticker the user just tapped, so its bubble can appear before
         // the upload finishes.
         let mut sticker_preview: Option<(String, String)> = None;
-        let mut close = false;
         let mut emoji_tab = false;
         let mut gif_tab = false;
 
@@ -308,23 +307,77 @@ impl WaDesk {
                     .show(ui, |ui| {
                         ui.set_width(364.0);
                         // Tabs: recents, favourites, packs.
+                        // The live tab row is icons with the selected one underlined:
+                        // clock (recents), star (favourites), packs, then `+`.
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 1.0;
-                            if sticker_tab(ui, &palette, "Recents", self.sticker_tab == 0).clicked()
-                            {
-                                self.sticker_tab = 0;
+                            ui.spacing_mut().item_spacing.x = 22.0;
+                            let recent = self.emoji_texture(ui.ctx(), '\u{1F553}', 20);
+                            for (index, glyph) in [(0usize, "recent"), (1, "fav"), (2, "packs")] {
+                                let selected = self.sticker_tab == index;
+                                let colour = if selected {
+                                    palette.accent
+                                } else {
+                                    palette.secondary
+                                };
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(22.0, 22.0),
+                                    egui::Sense::click(),
+                                );
+                                match glyph {
+                                    "recent" => {
+                                        if let Some(texture) = recent.clone() {
+                                            let size = texture.size_vec2();
+                                            let scale = (20.0 / size.x.max(1.0))
+                                                .min(20.0 / size.y.max(1.0));
+                                            ui.painter().image(
+                                                texture.id(),
+                                                egui::Rect::from_center_size(
+                                                    rect.center(),
+                                                    size * scale,
+                                                ),
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(0.0, 0.0),
+                                                    egui::pos2(1.0, 1.0),
+                                                ),
+                                                egui::Color32::WHITE,
+                                            );
+                                        }
+                                    }
+                                    "fav" => draw_icon(ui, rect, Icon::Star, colour),
+                                    _ => draw_icon(ui, rect, Icon::Sticker, colour),
+                                }
+                                if selected {
+                                    ui.painter().line_segment(
+                                        [
+                                            egui::pos2(rect.left(), rect.bottom() + 5.0),
+                                            egui::pos2(rect.right(), rect.bottom() + 5.0),
+                                        ],
+                                        egui::Stroke::new(2.0_f32, palette.accent),
+                                    );
+                                }
+                                if response.clicked() {
+                                    self.sticker_tab = index;
+                                    if index == 2
+                                        && self.model.packs.is_empty()
+                                        && !self.packs_requested
+                                    {
+                                        self.packs_requested = true;
+                                        self.send(Command::StickerPacks);
+                                    }
+                                }
                             }
-                            if sticker_tab(ui, &palette, "Favourites", self.sticker_tab == 1)
+                            // The live row ends with a `+` that adds a pack from the store.
+                            let (plus, plus_response) =
+                                ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                            draw_icon(ui, plus, Icon::Add, palette.secondary);
+                            if plus_response
+                                .on_hover_text("Add a sticker pack")
                                 .clicked()
                             {
-                                self.sticker_tab = 1;
-                            }
-                            if sticker_tab(ui, &palette, "Packs", self.sticker_tab == 2).clicked() {
-                                self.sticker_tab = 2;
-                                if self.model.packs.is_empty() && !self.packs_requested {
-                                    self.packs_requested = true;
-                                    self.send(Command::StickerPacks);
-                                }
+                                self.notice = Some((
+                                    "Adding packs is done from the store on the phone".to_string(),
+                                    std::time::Instant::now(),
+                                ));
                             }
                         });
                         ui.add_space(8.0);
@@ -649,60 +702,47 @@ impl WaDesk {
                                 }
                             });
 
-                        ui.add_space(6.0);
+                        ui.add_space(4.0);
                         ui.separator();
+                        // Same icon footer as the emoji panel: emoji, GIF, sticker
+                        // (selected, underlined), no Close - the sticker control
+                        // in the composer toggles the panel.
                         ui.horizontal(|ui| {
                             ui.add_space(10.0);
-                            ui.spacing_mut().item_spacing.x = 18.0;
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("Emoji")
-                                            .size(12.5)
-                                            .color(palette.secondary),
-                                    )
-                                    .frame(false),
-                                )
-                                .clicked()
-                            {
+                            ui.spacing_mut().item_spacing.x = 26.0;
+                            let (emoji_rect, emoji_response) = ui.allocate_exact_size(
+                                egui::vec2(22.0, 22.0),
+                                egui::Sense::click(),
+                            );
+                            draw_icon(ui, emoji_rect, Icon::Emoji, palette.secondary);
+                            if emoji_response.clicked() {
                                 emoji_tab = true;
                             }
-                            if ui
+                            let gif = ui
                                 .add(
                                     egui::Button::new(
                                         egui::RichText::new("GIF")
-                                            .size(12.5)
+                                            .size(13.0)
+                                            .strong()
                                             .color(palette.secondary),
                                     )
                                     .frame(false),
                                 )
-                                .clicked()
-                            {
+                                .on_hover_text("GIF");
+                            if gif.clicked() {
                                 gif_tab = true;
                             }
-                            ui.label(
-                                egui::RichText::new("Stickers")
-                                    .size(12.5)
-                                    .strong()
-                                    .color(palette.accent),
+                            let (sticker_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(22.0, 22.0),
+                                egui::Sense::hover(),
                             );
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                egui::RichText::new("Close")
-                                                    .size(12.0)
-                                                    .color(palette.secondary),
-                                            )
-                                            .frame(false),
-                                        )
-                                        .clicked()
-                                    {
-                                        close = true;
-                                    }
-                                },
+                            draw_icon(ui, sticker_rect, Icon::Sticker, palette.accent);
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(sticker_rect.left(), sticker_rect.bottom() + 6.0),
+                                    egui::pos2(sticker_rect.right(), sticker_rect.bottom() + 6.0),
+                                ],
+                                egui::Stroke::new(2.0_f32, palette.accent),
                             );
                         });
                     });
@@ -726,9 +766,6 @@ impl WaDesk {
             self.model.stickers_open = false;
             self.model.emoji_open = true;
             self.emoji_gif = true;
-        }
-        if close {
-            self.model.stickers_open = false;
         }
     }
 
