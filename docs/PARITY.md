@@ -33,6 +33,15 @@ body centred on the dark stage, and the close control top-right. **Matched**: ou
 the author over the timestamp the same way ("Ada" / "6:16 am"), the segmented bar across the top,
 the body centred and the close control top-right (`target/our_status_viewer.png`).
 
+Opened on 2026-11-05 with the same recipe: the **Privacy** and **Chats** panes. Privacy lists
+"Who can see my personal info" (Last seen and online, Profile picture, About, Status, Read receipts),
+"Disappearing messages" (Default message timer, Groups), then Calls, Blocked contacts, App lock and an
+"Advanced" block (Block unknown account messages, Protect IP address in calls, Turn off link
+previews). Chats lists Theme, Default chat theme, Media upload quality, Media auto-download, Spell
+check, Replace text with emoji and Enter is send. Both panes now carry those rows in that order
+(`target/our_privacy.png`, `target/our_chats_settings.png`); the visibility values read "Phone",
+because a linked device can read those settings but never set them.
+
 Opened on 2026-11-05: the **Account** pane (behind `You` then `Account`) lists exactly
 **Security notifications · Request account info · How to delete my account**. Our Account page now
 carries those three beside the account info, linked devices, startup and log-out cards
@@ -75,6 +84,7 @@ the chat row was targeted.
 | Voice notes: record (mic in an empty composer), play, waveform, seek | recording captured at 16 kHz through cpal, encoded to Opus and muxed into Ogg (`src/voicenote.rs`), posted as `ptt` with a 64-bar waveform via `Session::send_voice_note`; playback, waveform and seek were already there | ✅ (`target/our_mic_crop.png`) |
 | Documents card | yes | ✅ |
 | Reply, react, forward, star, edit, delete | yes, through the message menu; **forward** is the vision client's own card now - floating rounded panel, close + "Forward message to" + send on the header row, accent-outlined search field (name, number or @username), the "My status" row, "Recent chats" with a square checkbox, the avatar and the chat's last line per row | ✅ (`target/our_forward.png`, `WA_DESK_FORWARD=1`) |
+| Settings sub-pages sampled live: Account, Privacy, Chats | Account: Security notifications, Request account info, How to delete my account. Privacy: the visibility rows, disappearing messages, calls/contacts and the Advanced block. Chats: theme, then Media upload quality, Media auto-download, Spell check, Replace text with emoji, Enter is send | ✅ (`target/our_privacy.png`, `target/our_chats_settings.png`) |
 | Attach menu: **sampled live 2026-11-05** - Photos & videos, Camera, Document, Audio, Contact, Poll | the same order in a rounded card, plus Location (this client's extra) last; file-backed entries open the picker, Poll/Contact/Location open their card dialogs | ✅ menu (`target/our_attach.png`, `target/our_poll_dialog.png`) |
 | Locations (pin + live): receive, render, send | `media_kind` maps `locationMessage`/`liveLocationMessage`, `location_view` reads the doubles (and the caption as the live name); the bubble draws the map tile, place, coordinates and address (or a "Live location" line); `Session::send_location` sends a pin and the attach menu opens a *Share a location* dialog | ✅ receive/render (`target/our_location.png`), send (dialog) |
 | Polls and contact cards: compose, send, receive, render | **send**: attach menu → *Create poll* / *Share a contact* dialogs → `SendPoll`/`SendContact` → `polls().create` / `contactMessage` + vCard. **receive**: `media_kind` maps `pollCreationMessage` / `contactMessage` / `contactsArrayMessage`, `poll_view`/`contact_view` build the views (options, `selectable_options_count`, number parsed out of the vCard) and the bubbles draw the question + option rows or the initials disc card | ✅ (`target/our_poll.png`, `target/our_poll_dialog.png`, `target/our_contact_dialog.png`) |

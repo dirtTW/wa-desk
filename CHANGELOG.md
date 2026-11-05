@@ -4,6 +4,22 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.35] - 2026-11-05
+
+- **Privacy and Chats were sampled from the live client and rebuilt to match.** Both panes were
+  opened with the working recipe (find the section label, walk up to `role="button"`, dispatch the
+  `PointerEvent` sequence), and the rows now follow the official order: Privacy is "Who can see my
+  personal info" (Last seen and online, Profile picture, About, Status, Read receipts), "Disappearing
+  messages" (Default message timer, Groups), "Calls and contacts" (Blocked contacts, App lock) and an
+  "Advanced" card (Block unknown account messages, Protect IP address in calls, Turn off link
+  previews). Chats gains the official "Chats" card with Media upload quality, Media auto-download,
+  Spell check, Replace text with emoji and Enter is send, above the chat-history card.
+- The visibility values read **Phone** with an honest note instead of inventing a local setting: a
+  linked device can read those privacy settings but never change them.
+- Captures: `target/our_privacy.png`, `target/our_chats_settings.png`; `docs/PARITY.md` records both
+  samples next to ours.
+- Tests: 124 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.34] - 2026-11-05
 
 - **Media appears the moment it arrives, like the official client.** Every photo/video/document

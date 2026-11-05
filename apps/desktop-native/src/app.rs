@@ -6413,19 +6413,60 @@ impl WaDesk {
         });
     }
 
-    /// Privacy: what this client does and does not expose.
+    /// Privacy, in the official order: who can see what, disappearing messages,
+    /// the block list and the advanced switches. Visibility is owned by the
+    /// phone (a linked device can read it, not set it), so the values say so
+    /// instead of inventing a local setting.
     fn privacy_detail(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
         Self::settings_header(
             ui,
             palette,
             "Privacy",
-            "Blocked contacts and disappearing messages.",
+            "Who can see my personal info, disappearing messages and blocked contacts.",
         );
+        // The rows the live client lists under "Who can see my personal info",
+        // sampled 2026-11-05.
+        settings_card(ui, palette, "WHO CAN SEE MY PERSONAL INFO", |ui| {
+            for (title, note) in [
+                (
+                    "Last seen and online",
+                    "Decided on the phone; this device only reads chats.",
+                ),
+                (
+                    "Profile picture",
+                    "The phone's setting applies to the linked device too.",
+                ),
+                ("About", "Owned by the phone."),
+                ("Status", "Status privacy is set when a story is posted."),
+            ] {
+                settings_row(ui, palette, title, note, |ui| {
+                    ui.label(
+                        egui::RichText::new("Phone")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                });
+            }
+            settings_row(
+                ui,
+                palette,
+                "Read receipts",
+                "A linked device always acknowledges what it displays; group receipts are always sent.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("On")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+        });
+        ui.add_space(12.0);
         settings_card(ui, palette, "DISAPPEARING MESSAGES", |ui| {
             settings_row(
                 ui,
                 palette,
-                "Default timer",
+                "Default message timer",
                 "Set per chat on the phone; the bubble list shows it.",
                 |ui| {
                     ui.label(
@@ -6438,20 +6479,37 @@ impl WaDesk {
             settings_row(
                 ui,
                 palette,
-                "Keep messages",
+                "Groups",
                 "Older bodies cannot be requested back once the timer passes.",
                 |ui| {
-                    ui.label(egui::RichText::new("—").size(13.0).color(palette.secondary));
+                    ui.label(
+                        egui::RichText::new("My contacts")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
                 },
             );
         });
         ui.add_space(12.0);
-        settings_card(ui, palette, "BLOCKED CONTACTS", |ui| {
+        settings_card(ui, palette, "CALLS AND CONTACTS", |ui| {
             settings_row(
                 ui,
                 palette,
-                "Block list",
+                "Blocked contacts",
                 "The phone owns the blocked list; this client does not mirror it.",
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Phone")
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                },
+            );
+            settings_row(
+                ui,
+                palette,
+                "App lock",
+                "Require a password to open WhatsApp on this device.",
                 |ui| {
                     ui.label(
                         egui::RichText::new("Phone")
@@ -6462,20 +6520,29 @@ impl WaDesk {
             );
         });
         ui.add_space(12.0);
-        settings_card(ui, palette, "READ RECEIPTS", |ui| {
-            settings_row(
-                ui,
-                palette,
-                "Send read receipts",
-                "A linked device always acknowledges what it displays.",
-                |ui| {
+        settings_card(ui, palette, "ADVANCED", |ui| {
+            for (title, note) in [
+                (
+                    "Block unknown account messages",
+                    "The phone blocks messages from unknown accounts past a volume.",
+                ),
+                (
+                    "Protect IP address in calls",
+                    "Calls are relayed through WhatsApp when the phone enables it.",
+                ),
+                (
+                    "Turn off link previews",
+                    "Previews are generated by the sender's client, not by this device.",
+                ),
+            ] {
+                settings_row(ui, palette, title, note, |ui| {
                     ui.label(
-                        egui::RichText::new("On")
+                        egui::RichText::new("Phone")
                             .size(13.0)
                             .color(palette.secondary),
                     );
-                },
-            );
+                });
+            }
         });
     }
 
@@ -6644,6 +6711,38 @@ impl WaDesk {
         }
 
         let mut action: Option<&'static str> = None;
+        settings_card(ui, palette, "CHATS", |ui| {
+            // The live Chats pane (sampled 2026-11-05) lists these five under
+            // the theme choices; ours reports what this client actually does.
+            for (title, note, value) in [
+                (
+                    "Media upload quality",
+                    "Photos and videos are uploaded untouched.",
+                    "Original",
+                ),
+                (
+                    "Media auto-download",
+                    "A chat's media is fetched when it is opened.",
+                    "On open",
+                ),
+                ("Spell check", "egui has no spell checker.", "Off"),
+                (
+                    "Replace text with emoji",
+                    "Typed shortcuts are sent as typed.",
+                    "Off",
+                ),
+                ("Enter is send", "Enter sends the message.", "On"),
+            ] {
+                settings_row(ui, palette, title, note, |ui| {
+                    ui.label(
+                        egui::RichText::new(value)
+                            .size(13.0)
+                            .color(palette.secondary),
+                    );
+                });
+            }
+        });
+        ui.add_space(12.0);
         settings_card(ui, palette, "CHAT HISTORY", |ui| {
             ui.label(
                 egui::RichText::new(
