@@ -4,6 +4,20 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.73] - 2026-11-05
+
+- **Group info: the creator card.** `GroupInfoView` gained `creator`, filled from the metadata's
+  `creator_pn`/`creator` (`wa-core` formats the JID's number), and the screen opens with the live
+  pane's **GROUP CREATOR** card - avatar, number and "Created this group" - above the description.
+  That was the last group-info delta.
+- **Settings pages no longer clip at the window bottom.** The detail pane's `ScrollArea` grew to its
+  content height inside the horizontal layout, so a long page (Privacy's ADVANCED card) was cut by the
+  window edge instead of scrolling; it is now bounded by `max_height(available_height)`. The section
+  column got the same treatment (its own scroll area), so Help and feedback / Log out stay reachable in
+  a short window.
+- `target/our_group.png` re-captured with the creator card; `target/our_privacy.png` at 1120x700.
+- Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.72] - 2026-11-05
 
 - **The recorded group-info deltas are closed** (re-applied as four small verified edits after the

@@ -223,6 +223,44 @@ pub(crate) fn settings_link(
     .clicked()
 }
 
+/// The update pill while it downloads: the accent fill grows from the left and
+/// the label carries the percentage, so progress shows on the button itself.
+pub(crate) fn download_progress_button(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    fraction: Option<f32>,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(196.0, 38.0), egui::Sense::hover());
+    let radius = egui::CornerRadius::same(19);
+    ui.painter()
+        .rect_filled(rect, radius, palette.accent.gamma_multiply(0.22));
+    let fill = fraction.unwrap_or(0.0).clamp(0.0, 1.0);
+    if fill > 0.0 {
+        let mut bar = rect;
+        bar.set_width(rect.width() * fill);
+        ui.painter().rect_filled(bar, radius, palette.accent);
+    }
+    let label = match fraction {
+        Some(value) => format!("Downloading {:.0}%", value * 100.0),
+        None => "Downloading".to_string(),
+    };
+    // The accent is a light green: once it reaches the centre the dark ink reads
+    // better than the theme's light text.
+    let ink = if fill >= 0.5 {
+        egui::Color32::from_rgb(0x0b, 0x14, 0x1a)
+    } else {
+        palette.text
+    };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(13.5),
+        ink,
+    );
+    response
+}
+
 /// A labelled single-line field.
 pub(crate) fn settings_field(
     ui: &mut egui::Ui,

@@ -113,6 +113,32 @@ pub fn parse_releases(json: &str, current: &str) -> Result<Option<Release>, Stri
     Ok(best)
 }
 
+/// Bytes written so far by the current update download, and the expected total
+/// (`0` while the server has not said). The settings page reads these to paint
+/// the progress bar under the button.
+pub static DOWNLOAD_DONE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static DOWNLOAD_TOTAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How far the current download has got, `0.0..=1.0`, when a total is known.
+pub fn download_fraction() -> Option<f32> {
+    use std::sync::atomic::Ordering;
+    let total = DOWNLOAD_TOTAL.load(Ordering::Relaxed);
+    if total == 0 {
+        return None;
+    }
+    let done = DOWNLOAD_DONE.load(Ordering::Relaxed);
+    Some((done as f32 / total as f32).clamp(0.0, 1.0))
+}
+
+/// The download's byte counts as `(done, total)`, for the label.
+pub fn download_bytes() -> (u64, u64) {
+    use std::sync::atomic::Ordering;
+    (
+        DOWNLOAD_DONE.load(Ordering::Relaxed),
+        DOWNLOAD_TOTAL.load(Ordering::Relaxed),
+    )
+}
+
 /// Download the release binary into `dest`.
 pub fn download(release: &Release, dest: &Path) -> Result<PathBuf, String> {
     let mut response = ureq::get(&release.url)
@@ -122,9 +148,30 @@ pub fn download(release: &Release, dest: &Path) -> Result<PathBuf, String> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
+    use std::sync::atomic::Ordering;
+    DOWNLOAD_DONE.store(0, Ordering::Relaxed);
+    let total = response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    DOWNLOAD_TOTAL.store(total, Ordering::Relaxed);
     let mut file = std::fs::File::create(dest).map_err(|err| err.to_string())?;
     let mut reader = response.body_mut().as_reader();
-    std::io::copy(&mut reader, &mut file).map_err(|err| format!("download interrupted: {err}"))?;
+    let mut buffer = [0u8; 64 * 1024];
+    let mut done: u64 = 0;
+    loop {
+        let read = std::io::Read::read(&mut reader, &mut buffer)
+            .map_err(|err| format!("download interrupted: {err}"))?;
+        if read == 0 {
+            break;
+        }
+        std::io::Write::write_all(&mut file, &buffer[..read])
+            .map_err(|err| format!("cannot write the update: {err}"))?;
+        done += read as u64;
+        DOWNLOAD_DONE.store(done, Ordering::Relaxed);
+    }
     Ok(dest.to_path_buf())
 }
 

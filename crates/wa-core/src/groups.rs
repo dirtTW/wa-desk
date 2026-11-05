@@ -114,6 +114,10 @@ impl Session {
             subject: metadata.subject,
             description: metadata.description,
             members,
+            creator: metadata
+                .creator_pn
+                .or(metadata.creator)
+                .map(|jid| creator_phone(&jid)),
             ephemeral: metadata
                 .ephemeral
                 .as_ref()
@@ -200,5 +204,17 @@ impl Session {
             .await
             .map_err(|e| format!("demote members failed: {e}"))?;
         group_change_result(results, "demote members")
+    }
+}
+
+/// The creator's number in `+62 811-1000-111` shape, when the JID carries one.
+fn creator_phone(jid: &Jid) -> String {
+    let user = jid.user.to_string();
+    if user.len() >= 7 && user.chars().all(|ch| ch.is_ascii_digit()) {
+        let mut out = String::from("+");
+        out.push_str(&user);
+        out
+    } else {
+        user
     }
 }

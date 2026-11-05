@@ -678,6 +678,7 @@ impl Model {
             jid: "1203@g.us".to_string(),
             subject: "Team".to_string(),
             description: Some("Engineering stand-up, deploys and on-call.".to_string()),
+            creator: Some("+62 811-1000-111".to_string()),
             members: vec![
                 wa_types::GroupMemberView {
                     jid: "1@s.whatsapp.net".to_string(),
@@ -3209,6 +3210,7 @@ pub fn selftest() -> Result<String, String> {
         jid: "1203@g.us".into(),
         subject: "Team".into(),
         description: Some("shift swap".into()),
+        creator: Some("+62 811-1000-111".into()),
         members: vec![
             wa_types::GroupMemberView {
                 jid: "6285@s.whatsapp.net".into(),

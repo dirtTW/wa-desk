@@ -320,6 +320,26 @@ impl WaDesk {
         {
             self.settings_section = index.min(8);
         }
+        // `WA_DESK_UPDATE_DEMO=<percent>` paints the Updates page mid-download,
+        // so the button-shaped progress bar can be captured without waiting for
+        // a release to actually download.
+        if let Ok(percent) = std::env::var("WA_DESK_UPDATE_DEMO")
+            && let Ok(value) = percent.parse::<f32>()
+        {
+            use std::sync::atomic::Ordering;
+            let total: u64 = 27_169_792;
+            let done = (total as f64 * (value.clamp(0.0, 100.0) as f64 / 100.0)) as u64;
+            crate::updates::DOWNLOAD_TOTAL.store(total, Ordering::Relaxed);
+            crate::updates::DOWNLOAD_DONE.store(done, Ordering::Relaxed);
+            self.update = crate::updates::UpdateState::Downloading(crate::updates::Release {
+                tag: "v0.2.1-rc.74".to_string(),
+                url: String::new(),
+                size: total,
+                notes_url: String::new(),
+            });
+            self.show_settings = true;
+            self.settings_section = 7;
+        }
         // `WA_DESK_POLL=1` / `WA_DESK_CONTACT=1` put the two new message kinds in
         // the demo group so their bubbles can be captured.
         if let Ok(media) = std::env::var("WA_DESK_STATUS_MEDIA") {
@@ -1162,8 +1182,13 @@ impl WaDesk {
                     self.settings_sections(ui, &palette);
                     ui.add_space(2.0);
                     ui.separator();
+                    // The detail pane must scroll inside the window: without an
+                    // explicit max height the scroll area grew to its content
+                    // and the last card was clipped by the window edge.
+                    let pane_height = ui.available_height();
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
+                        .max_height(pane_height)
                         .show(ui, |ui| {
                             ui.horizontal_top(|ui| {
                                 ui.add_space(28.0);
@@ -1542,6 +1567,32 @@ impl WaDesk {
                             ui.add_space(side);
                             ui.vertical(|ui| {
                                 ui.set_width(width);
+                                // The live pane opens with the creator's card, above
+                                // the description.
+                                if let Some(creator) = info.creator.clone() {
+                                    settings_card(ui, &palette, "GROUP CREATOR", |ui| {
+                                        ui.add_space(4.0);
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(6.0);
+                                            paint_avatar(ui, &creator, 36.0, None);
+                                            ui.add_space(8.0);
+                                            ui.vertical(|ui| {
+                                                ui.label(
+                                                    egui::RichText::new(&creator)
+                                                        .size(14.0)
+                                                        .color(palette.text),
+                                                );
+                                                ui.label(
+                                                    egui::RichText::new("Created this group")
+                                                        .size(12.0)
+                                                        .color(palette.secondary),
+                                                );
+                                            });
+                                        });
+                                        ui.add_space(4.0);
+                                    });
+                                    ui.add_space(10.0);
+                                }
                                 if let Some(description) =
                                     info.description.clone().filter(|d| !d.trim().is_empty())
                                 {

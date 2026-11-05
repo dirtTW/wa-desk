@@ -489,6 +489,9 @@ pub struct GroupInfoView {
     pub subject: String,
     pub description: Option<String>,
     pub members: Vec<GroupMemberView>,
+    /// The group creator's phone number, when the server names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
     /// The group's disappearing-message timer in seconds (`None` = off).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<u32>,
