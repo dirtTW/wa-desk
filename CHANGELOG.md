@@ -4,6 +4,19 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.3] - 2026-11-05
+
+- **The last two small live deltas are closed.** From `target/live_media.jpg` and
+  `target/live_you.jpg`:
+  - the Media header now carries **"Media" + "Media from all chats"** on the left with the
+    Media/Docs/Links tabs beside it, matching the live panel instead of starting with a bare tab row;
+  - the You drawer header is **name-only** at 22 px - the photo moved under the status composer in
+    rc.2, so the small avatar beside the name was a duplicate.
+- Evidence: `target/our_media.png` and `target/our_you.png` beside their live references.
+- Still open by design: Channels' **Follow** suggestion rows (the channel directory is not reachable from
+  a linked device) and Meta AI / linked devices / 2FA / block list (no linked-device API).
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.2] - 2026-11-05
 
 - **The You drawer's status composer.** Live sample (`target/live_you.jpg`, the rail's You button): under

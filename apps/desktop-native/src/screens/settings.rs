@@ -40,11 +40,11 @@ impl WaDesk {
                         let avatar = self.avatar_for(&me).cloned();
                         ui.horizontal(|ui| {
                             ui.add_space(18.0);
-                            paint_avatar(ui, &self.model.own_name(), 56.0, avatar.as_ref());
-                            ui.add_space(10.0);
+                            // The live header carries only the name; the photo
+                            // sits under the status composer instead.
                             ui.label(
                                 egui::RichText::new(self.model.own_name())
-                                    .size(20.0)
+                                    .size(22.0)
                                     .strong()
                                     .color(palette.text),
                             );

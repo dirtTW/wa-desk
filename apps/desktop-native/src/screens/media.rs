@@ -21,6 +21,20 @@ impl WaDesk {
                     .show(ui, |ui| {
                         ui.set_min_height(40.0);
                         ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Media")
+                                        .size(15.0)
+                                        .strong()
+                                        .color(palette.text),
+                                );
+                                ui.label(
+                                    egui::RichText::new("Media from all chats")
+                                        .size(11.5)
+                                        .color(palette.secondary),
+                                );
+                            });
+                            ui.add_space(24.0);
                             for (index, label) in ["Media", "Docs", "Links"].into_iter().enumerate()
                             {
                                 let selected = self.media_tab == index;
