@@ -4,6 +4,17 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.90] - 2026-11-05
+
+- **The window's buttons moved to `buttons.rs`.** `pill_button`, `pill_plus_button`, `rail_button`,
+  `fab_button` and `action_button` (180 lines) now live together, and `app.rs` re-exports all five so no
+  call site changed. `app.rs` is **1,437 lines** - from 2,559 at rc.86, so 1,122 lines (44 %) have moved
+  into `fonts.rs`, `wallpaper.rs`, `screens/group.rs`, `icon_widgets.rs` and `buttons.rs`.
+- Evidence: three fresh captures - `target/our_buttons_chat.png` (chat list), `target/our_buttons_empty.png`
+  (the empty pane with the five action discs and the Go to Calls pill) and `target/our_buttons_calls.png`
+  (Calls drawer) - all unchanged.
+- Tests: 131 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.1-rc.89] - 2026-11-05
 
 - **The icon vocabulary has its own module.** `icon_widgets.rs` now holds the `Icon` enum with its

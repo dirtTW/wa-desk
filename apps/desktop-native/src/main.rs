@@ -20,6 +20,7 @@ mod app_impl;
 mod audio;
 mod autostart;
 mod bubbles;
+mod buttons;
 mod callvideo;
 mod camera;
 mod clipboard;
