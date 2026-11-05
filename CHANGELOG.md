@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.46] - 2026-11-05
+
+- **The chat-list sidebar left `app.rs`: `src/sidebar.rs` (393 lines).** `sidebar` (the 58 px rail with
+  its unread/status badges and the own avatar, the Chats panel header with the kebab and the green
+  FAB, the rounded search box, the filter pills with live counts, the custom-list pills and the rows)
+  and `chat_row` moved into their own module as `impl WaDesk`.
+- `app.rs` is down to **5,861 lines**, from 10,069 at the start of this run. What remains is the
+  window/app plumbing, the media viewer, the call overlay, the menus and the pickers.
+- Helpers made crate-visible for it: `fab_button`, `pill_button`, `rail_button`; the module pulls in
+  `paint_avatar`, `UpdateState` and `Command`.
+- Verified after the move: `target/our_lists.png` (`WA_DESK_OPEN_FIRST=1`) shows the rail with both
+  badges, "Chats", the search field, `All · Groups 4 · Communities 1 · Unread 1 · v 0`, the
+  `Work / Family / + New list` pills and the rows with avatars, stamps and unread counts.
+- Tests: 127 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.45] - 2026-11-05
 
 - **The conversation left `app.rs`: `src/conversation.rs` (886 lines).** `conversation` (the chat

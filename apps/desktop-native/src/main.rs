@@ -38,6 +38,7 @@ mod rich_text;
 mod screens;
 mod settings;
 mod settings_ui;
+mod sidebar;
 mod spawn;
 mod sticker;
 mod theme;
