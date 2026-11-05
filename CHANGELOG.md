@@ -4,6 +4,21 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.1-rc.71] - 2026-11-05
+
+- **The media probe was wrong, not the code.** The app keeps its media cache in
+  `%APPDATA%/io.github.dirttw.wadesk-native/media`; the earlier probes renamed the WhatsApp *session*
+  folder instead, so nothing ever re-downloaded and both the poster lines and the timing lines were
+  legitimately absent. (rc.70 shipped the wording fix; this entry carries the change log hygiene.)
+- **Video posters verified on a live session.** The conversation logs `video <id> poster <b> media <b>`
+  per video under `WA_DESK_DIAG=1`: every video in "QC DIVISI" reports `poster true`, and 10
+  `*-poster.png` files sit in the media cache - the bubble paints the frame instead of stalling on
+  "Loading the video…".
+- **Media speed measured, first real numbers.** With the media cache moved aside: 23 cold fetches,
+  **median 118 ms**, p75 ~200 ms, worst 610 ms, all with 16 in flight. The 610 ms tail is the only
+  outlier and looks like a re-upload round trip.
+- Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
+
 ## [0.2.1-rc.69] - 2026-11-05
 
 - **Video bubbles get a poster frame.** The bubble could never paint a video: `texture_at` runs the
