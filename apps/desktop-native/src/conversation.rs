@@ -344,7 +344,15 @@ impl WaDesk {
                 };
                 let current = self.model.search_current();
                 let query = self.model.chat_search.clone();
-                let focus = current.filter(|_| self.scrolled_hit != self.model.search_hit);
+                // A search hit frames its bubble; `WA_DESK_SCROLL_TO` frames any index the
+                // same way, once, for a capture.
+                let target = self.scroll_target.take();
+                // The list pins itself to the newest message every frame, which undid the
+                // jump; skip that pin for the one frame that frames the requested message.
+                self.suppress_bottom = target.is_some();
+                let focus = current
+                    .filter(|_| self.scrolled_hit != self.model.search_hit)
+                    .or(target);
 
                 // The composer is painted *after* the list, so its real height
                 // is measured for the next frame instead of guessed: a fixed
@@ -474,7 +482,7 @@ impl WaDesk {
                         });
                     // Ask now that the content has a height; egui applies it at
                     // the end of this frame.
-                    if want_bottom && !self.preview_scroll_top {
+                    if want_bottom && !self.preview_scroll_top && !self.suppress_bottom {
                         ui.scroll_to_rect(ui.min_rect(), Some(egui::Align::BOTTOM));
                     }
                 });

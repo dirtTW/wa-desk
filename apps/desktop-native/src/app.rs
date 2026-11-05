@@ -226,6 +226,11 @@ pub struct WaDesk {
     pub(crate) video_muted: bool,
     /// The viewer's playback speed (0.5 / 1 / 1.5 / 2).
     pub(crate) video_speed: f32,
+    /// One message index to frame on the next paint (`WA_DESK_SCROLL_TO`),
+    /// so a burst or a specific bubble can be captured headlessly.
+    pub(crate) scroll_target: Option<usize>,
+    /// The bottom pin is skipped for the frame that frames `scroll_target`.
+    pub(crate) suppress_bottom: bool,
     /// The viewer's playback speed (0.5 / 1 / 1.5 / 2).
     /// Group JIDs whose metadata has been requested.
     pub(crate) groups_asked: std::collections::HashSet<String>,
@@ -353,6 +358,14 @@ impl WaDesk {
                 .map(|message| message.id.clone())
         {
             self.model.open_viewer(&video);
+        }
+
+        // `WA_DESK_SCROLL_TO=<index>` frames one message, so an album burst deep
+        // in a chat can be captured without scrolling by hand.
+        if let Ok(index) = std::env::var("WA_DESK_SCROLL_TO")
+            && let Ok(index) = index.parse::<usize>()
+        {
+            self.scroll_target = Some(index);
         }
 
         // `WA_DESK_NO_CHAT=1` leaves the conversation empty, for the live

@@ -131,6 +131,8 @@ impl WaDesk {
             video_offset: 0.0,
             video_muted: false,
             video_speed: 1.0,
+            scroll_target: None,
+            suppress_bottom: false,
             groups_asked: std::collections::HashSet::new(),
             show_chat_menu: std::env::var("WA_DESK_MENU").is_ok(),
             settings_section: 0,

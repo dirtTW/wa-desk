@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.11] - 2026-11-05
+
+- **A capture hook for off-screen messages**: `WA_DESK_SCROLL_TO=<index>` frames one message the way a
+  search hit does, and the list's per-frame "pin to the newest" is skipped for that frame
+  (`suppress_bottom`), because the pin was undoing the jump.
+- **Honest status: the hook does not fire yet.** It is read in `WaDesk::new`, so `scroll_target` is
+  consumed on the first paint - before `WA_DESK_OPEN_CHAT` has loaded the chat asynchronously - and the
+  conversation never sees it. `target/real_album_test.png` is still the bottom of "Test group"; the album
+  grid remains unconfirmed on real data. The fix is to set the target where the chat-open hook applies
+  (after the history request lands), not at construction.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.10] - 2026-11-05
 
 - **The viewer's speaker and speed controls actually work now.**
