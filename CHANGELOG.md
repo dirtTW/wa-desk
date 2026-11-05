@@ -14,6 +14,11 @@ and the roadmap live in [`AGENTS.md`](AGENTS.md).
   (or is re-requested), `Model::poster_of(id)` exposes it, and the video bubble paints the poster
   before falling back to the thumbnail. `poster_into`/`poster_path` keep it testable and reused by the
   model.
+- `Command::VideoPoster` lets the conversation ask for the frame of a video already on disk, so a chat
+  cached before this feature fills its posters on open.
+- **Not verified on a live session yet**: a 40 s run on "QC DIVISI" wrote no `-poster.png` files and
+  logged no poster lines, so the trigger still needs tracing (the media request short-circuits when the
+  model already knows the path). The code is in and tested; the wiring is not proven.
 - Tests: 129 native + 43 wa-core + 232 wa-ui, clippy clean.
 
 ## [0.2.1-rc.68] - 2026-11-05
