@@ -86,6 +86,8 @@ enum Command {
         seconds: f32,
     },
     Volume(f32),
+    /// Playback speed (rodio resamples the sink).
+    Speed(f32),
     /// One 16 kHz mono playout frame from the peer.
     CallAudio(Vec<i16>),
     /// The call is over: drop the playout queue.
@@ -146,9 +148,14 @@ impl Audio {
         let _ = self.tx.send(Command::Seek { seconds });
     }
 
-    /// 0.0 mutes, 1.0 is full volume.
     pub fn set_volume(&self, volume: f32) {
         let _ = self.tx.send(Command::Volume(volume));
+    }
+
+    /// Playback speed for the clip: the worker applies it to the sink, which
+    /// resamples, so the pitch follows like the official player.
+    pub fn set_speed(&self, speed: f32) {
+        let _ = self.tx.send(Command::Speed(speed.clamp(0.25, 4.0)));
     }
 
     /// Play one 16 kHz mono frame from the peer (a call's playout).
@@ -240,6 +247,9 @@ fn audio_thread(
             Ok(Command::Volume(value)) => {
                 volume = value.clamp(0.0, 1.0);
                 sink.set_volume(volume);
+            }
+            Ok(Command::Speed(speed)) => {
+                sink.set_speed(speed.clamp(0.25, 4.0));
             }
             Ok(Command::CallAudio(samples)) => {
                 if samples.is_empty() {

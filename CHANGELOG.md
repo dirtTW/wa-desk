@@ -4,6 +4,18 @@ Newest first. Each entry keeps the mechanism (files, protocol constants, test
 names) and the verification signal. Durable design notes, the feature inventory
 and the roadmap live in [`AGENTS.md`](AGENTS.md).
 
+## [0.2.2-rc.10] - 2026-11-05
+
+- **The viewer's speaker and speed controls actually work now.**
+  - **Speaker**: the mute flag was applied to the sink but nothing scheduled a frame, so while a clip was
+    paused the glyph stayed on `volume_up` - it looked like "only mutes, icon never changes". The click now
+    calls `ctx.request_repaint()`, and the icon follows `video_muted` between `volume_up` and `volume_off`.
+  - **Speed**: the "1.0x" label was dead text. It is a control now: each tap cycles 0.5x -> 1x -> 1.5x -> 2x,
+    `Audio::set_speed` sends `Command::Speed` to the playout worker (rodio's `Sink::set_speed`, so the pitch
+    follows like the official player), and `video_elapsed` multiplies the wall clock by the speed so the
+    frames and the scrubber advance at that rate too.
+- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.9] - 2026-11-05
 
 - **Video in the media viewer, focused fixes** (reported: scrubbing flickered "Loading frame.", prev/next

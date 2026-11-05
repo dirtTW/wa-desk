@@ -224,6 +224,9 @@ pub struct WaDesk {
     pub(crate) video_started: Option<std::time::Instant>,
     pub(crate) video_offset: f32,
     pub(crate) video_muted: bool,
+    /// The viewer's playback speed (0.5 / 1 / 1.5 / 2).
+    pub(crate) video_speed: f32,
+    /// The viewer's playback speed (0.5 / 1 / 1.5 / 2).
     /// Group JIDs whose metadata has been requested.
     pub(crate) groups_asked: std::collections::HashSet<String>,
     /// The Chats kebab menu is open.
@@ -337,6 +340,21 @@ impl WaDesk {
         // `WA_DESK_UPDATE_DEMO=<percent>` paints the Updates page mid-download,
         // so the button-shaped progress bar can be captured without waiting for
         // a release to actually download.
+        // `WA_DESK_OPEN_VIDEO=1` opens the media viewer on the first video of
+        // the open chat, so the real-session viewer can be captured (a headless
+        // run cannot click a bubble).
+        if std::env::var("WA_DESK_OPEN_VIDEO").is_ok()
+            && let Some(jid) = self.model.active.clone()
+            && let Some(row) = self.model.chats.get(&jid)
+            && let Some(video) = row
+                .messages
+                .iter()
+                .find(|message| message.kind == "video")
+                .map(|message| message.id.clone())
+        {
+            self.model.open_viewer(&video);
+        }
+
         // `WA_DESK_NO_CHAT=1` leaves the conversation empty, for the live
         // empty-state layout (promo card + quick actions).
         if std::env::var("WA_DESK_NO_CHAT").is_ok() {

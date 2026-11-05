@@ -133,6 +133,7 @@ impl WaDesk {
         let mut toggle = false;
         let mut seek_to: Option<f32> = None;
         let mut toggle_mute = false;
+        let mut speed_click = false;
         let mut starred = false;
         let mut zoom_step: Option<f32> = None;
         let mut collapse = false;
@@ -467,10 +468,21 @@ impl WaDesk {
                             ((pos.x - seek_rect.left()) / seek_rect.width()).clamp(0.0, 1.0);
                         seek_to = Some(ratio * duration);
                     }
+                    // The speed is a control, not a caption: each tap cycles
+                    // 0.5x -> 1x -> 1.5x -> 2x and re-times the playout.
+                    let speed_rect = egui::Rect::from_min_size(
+                        egui::pos2(bar.right() - 126.0, middle - 9.0),
+                        egui::vec2(32.0, 18.0),
+                    );
+                    let speed_hit =
+                        ui.interact(speed_rect, ui.id().with("v-speed"), egui::Sense::click());
+                    if speed_hit.clicked() {
+                        speed_click = true;
+                    }
                     painter.text(
                         egui::pos2(bar.right() - 120.0, middle),
                         egui::Align2::LEFT_CENTER,
-                        "1.0×",
+                        format!("{:.1}x", self.video_speed),
                         egui::FontId::proportional(12.5),
                         egui::Color32::from_gray(230),
                     );
@@ -668,10 +680,23 @@ impl WaDesk {
         if toggle {
             self.toggle_video(&item.id);
         }
+        if speed_click {
+            self.video_speed = match self.video_speed {
+                speed if speed < 0.75 => 1.0,
+                speed if speed < 1.25 => 1.5,
+                speed if speed < 1.75 => 2.0,
+                _ => 0.5,
+            };
+            self.audio.set_speed(self.video_speed);
+            ctx.request_repaint();
+        }
         if toggle_mute {
             self.video_muted = !self.video_muted;
             self.audio
                 .set_volume(if self.video_muted { 0.0 } else { 1.0 });
+            // Without this the speaker glyph kept its old state until the mouse
+            // moved: nothing scheduled a frame while a clip was paused.
+            ctx.request_repaint();
         }
         if let Some(seconds) = seek_to {
             self.seek_video(&item.id, seconds);
@@ -945,8 +970,9 @@ impl WaDesk {
     /// Seconds of the clip that have played.
     pub(crate) fn video_elapsed(&self) -> f32 {
         if self.video_playing {
+            // The playhead advances at the chosen rate, so 2x really is 2x.
             self.video_started
-                .map(|started| started.elapsed().as_secs_f32())
+                .map(|started| started.elapsed().as_secs_f32() * self.video_speed)
                 .unwrap_or(self.video_offset)
         } else {
             self.video_offset
