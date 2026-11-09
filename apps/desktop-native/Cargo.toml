@@ -15,7 +15,7 @@ winresource = "0.1"
 
 [dependencies]
 eframe = { version = "0.32", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
-egui = "0.32"
+egui = "0.35"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
