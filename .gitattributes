@@ -16,3 +16,7 @@
 *.webp binary
 *.woff binary
 *.woff2 binary
+
+# Vendored crates are byte-exact: whatsapp-rust-sqlite-storage hashes its
+# proto at build time, so CRLF conversion breaks the Windows build.
+vendor/** -text
