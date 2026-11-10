@@ -682,11 +682,7 @@ fn bubble_content(
             // uses. Without it the poster looked like a photo.
             if preview.is_some() && message.kind == "video" && !message.gif {
                 let disc = egui::Rect::from_center_size(tile.center(), egui::vec2(48.0, 48.0));
-                painter.circle_filled(
-                    disc.center(),
-                    24.0,
-                    egui::Color32::from_black_alpha(120),
-                );
+                painter.circle_filled(disc.center(), 24.0, egui::Color32::from_black_alpha(120));
                 draw_icon(
                     ui,
                     disc.shrink(9.0),

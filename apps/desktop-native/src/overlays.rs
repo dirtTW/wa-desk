@@ -215,7 +215,8 @@ impl WaDesk {
                         egui::pos2(x - 17.0, screen.top() + header / 2.0),
                         egui::vec2(34.0, 34.0),
                     );
-                    let response = ui.interact(rect, ui.scope_id().with(name), egui::Sense::click());
+                    let response =
+                        ui.interact(rect, ui.scope_id().with(name), egui::Sense::click());
                     let color = if response.hovered() {
                         egui::Color32::from_gray(245)
                     } else {
@@ -374,7 +375,8 @@ impl WaDesk {
                             egui::pos2(x, screen.center().y),
                             egui::vec2(40.0, 40.0),
                         );
-                        let response = ui.interact(rect, ui.scope_id().with(name), egui::Sense::click());
+                        let response =
+                            ui.interact(rect, ui.scope_id().with(name), egui::Sense::click());
                         let fill = if response.hovered() {
                             egui::Color32::from_black_alpha(150)
                         } else {
@@ -409,7 +411,11 @@ impl WaDesk {
                         egui::pos2(bar.left() + 27.0, middle),
                         egui::vec2(34.0, 34.0),
                     );
-                    let play = ui.interact(play_rect, ui.scope_id().with("v-play"), egui::Sense::click());
+                    let play = ui.interact(
+                        play_rect,
+                        ui.scope_id().with("v-play"),
+                        egui::Sense::click(),
+                    );
                     draw_icon(
                         ui,
                         play_rect.shrink(7.0),
@@ -477,8 +483,11 @@ impl WaDesk {
                         egui::pos2(bar.right() - 126.0, middle - 9.0),
                         egui::vec2(32.0, 18.0),
                     );
-                    let speed_hit =
-                        ui.interact(speed_rect, ui.scope_id().with("v-speed"), egui::Sense::click());
+                    let speed_hit = ui.interact(
+                        speed_rect,
+                        ui.scope_id().with("v-speed"),
+                        egui::Sense::click(),
+                    );
                     if speed_hit.clicked() {
                         speed_click = true;
                     }
@@ -493,7 +502,11 @@ impl WaDesk {
                         egui::pos2(bar.right() - 74.0, middle),
                         egui::vec2(28.0, 28.0),
                     );
-                    let mute = ui.interact(mute_rect, ui.scope_id().with("v-mute"), egui::Sense::click());
+                    let mute = ui.interact(
+                        mute_rect,
+                        ui.scope_id().with("v-mute"),
+                        egui::Sense::click(),
+                    );
                     draw_icon(
                         ui,
                         mute_rect.shrink(6.0),
@@ -890,7 +903,8 @@ impl WaDesk {
                               slash: bool|
                  -> bool {
                     let hit_rect = egui::Rect::from_center_size(center, egui::vec2(60.0, 60.0));
-                    let response = ui.interact(hit_rect, egui::Id::unique(id), egui::Sense::click());
+                    let response =
+                        ui.interact(hit_rect, egui::Id::unique(id), egui::Sense::click());
                     painter.circle_filled(
                         center,
                         30.0,
