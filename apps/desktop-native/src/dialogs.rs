@@ -138,7 +138,7 @@ impl WaDesk {
         egui::Window::new("chat-actions")
             .title_bar(false)
             .resizable(false)
-            .fixed_pos(egui::pos2(ctx.screen_rect().width() - 300.0, 62.0))
+            .fixed_pos(egui::pos2(ctx.content_rect().width() - 300.0, 62.0))
             .frame(
                 egui::Frame::new()
                     .fill(palette.elevated)
@@ -209,8 +209,8 @@ impl WaDesk {
             .title_bar(false)
             .resizable(false)
             .fixed_pos(egui::pos2(
-                ctx.screen_rect().left() + 74.0,
-                ctx.screen_rect().bottom() - 470.0,
+                ctx.content_rect().left() + 74.0,
+                ctx.content_rect().bottom() - 470.0,
             ))
             .frame(
                 egui::Frame::new()
@@ -610,7 +610,7 @@ impl WaDesk {
             return;
         }
 
-        let viewport = ctx.screen_rect();
+        let viewport = ctx.content_rect();
         let width = 400.0_f32.min(viewport.width() - 40.0);
         let height = (viewport.height() * 0.74).min(640.0);
 
@@ -634,7 +634,7 @@ impl WaDesk {
             rows.push((jid, title, preview, avatar));
         }
 
-        egui::Area::new(egui::Id::new("forward-card"))
+        egui::Area::new(egui::Id::unique("forward-card"))
             .order(egui::Order::Foreground)
             .fixed_pos(egui::pos2(
                 viewport.center().x - width / 2.0,
@@ -739,7 +739,7 @@ impl WaDesk {
                                     ui.add_space(4.0);
                                     ui.add(
                                         egui::TextEdit::singleline(&mut search)
-                                            .frame(false)
+                                            .frame(egui::Frame::NONE)
                                             .hint_text("Search name, number or @username")
                                             .desired_width(ui.available_width()),
                                     );

@@ -16,7 +16,7 @@ impl WaDesk {
     /// The left column: account header, the section rows and Log out.
     pub(crate) fn settings_sections(&mut self, ui: &mut egui::Ui, palette: &crate::theme::Palette) {
         let width = (ui.available_width() * 0.42).clamp(230.0, 330.0);
-        let column_height = (ui.ctx().screen_rect().bottom() - ui.cursor().top() - 4.0).max(140.0);
+        let column_height = (ui.ctx().content_rect().bottom() - ui.cursor().top() - 4.0).max(140.0);
         // An explicit-width child: a ScrollArea created straight inside a
         // horizontal layout has no width to give its rows (the row then asked
         // for `available_width() - 10` and egui panicked on -10).
@@ -68,7 +68,7 @@ impl WaDesk {
                                         draw_icon(ui, rect, Icon::Search, palette.secondary);
                                         ui.add(
                                             egui::TextEdit::singleline(&mut self.settings_search)
-                                                .frame(false)
+                                                .frame(egui::Frame::NONE)
                                                 .hint_text("Search")
                                                 .desired_width(width - 96.0),
                                         );
@@ -787,7 +787,7 @@ impl WaDesk {
             "Chats",
             "Appearance and what the phone sends us.",
         );
-        let system_dark = ui.ctx().style().visuals.dark_mode;
+        let system_dark = ui.ctx().global_style().visuals.dark_mode;
         let current = self.settings.theme.clone();
         let mut chosen: Option<String> = None;
         settings_card(ui, palette, "THEME", |ui| {

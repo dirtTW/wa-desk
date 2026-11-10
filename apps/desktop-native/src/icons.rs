@@ -20,7 +20,7 @@ pub fn texture(
         color.g(),
         color.b()
     );
-    let id = egui::Id::new(&key);
+    let id = egui::Id::unique(&key);
     if let Some(texture) = ctx.data(|data| data.get_temp::<TextureHandle>(id)) {
         return Some(texture);
     }

@@ -20,7 +20,7 @@ One-way dependency: `wa-core` knows nothing about the UI, `wa-ui` knows nothing 
 
 ## Current state
 
-**Version `0.2.2-rc.16`.** Releases are `<core>-rc.N`, N stops at 99 then the patch rolls
+**Version `0.2.3-rc.1`.** Releases are `<core>-rc.N`, N stops at 99 then the patch rolls
 (`0.2.1-rc.99` -> `0.2.2-rc.1`); `updates::tests::prereleases_compare_in_order` pins the order.
 
 `app.rs` is **~1,340 lines**; the rest is split into:
@@ -95,6 +95,9 @@ scroll hook) - a claim without a capture has been wrong here before.
 
 ## Gotchas that matter
 
+- **egui is 0.37**: panels take the root `Ui` (`Panel::left(..).show(ui, ..)`; `SidePanel` is gone),
+  `screen_rect` is `content_rect`, `Id::new` is `Id::unique`, and `--screenshot` uses
+  `ctx.request_screenshot(callback)`.
 - **Clock format** is globally `8:44 pm` (forced `en-US`, independent of the OS locale).
 - **Bubbles are measured, not framed**: lay the body out, allocate exactly that size, then paint the
   rounded rect, sender, body and clock. A `Frame` lets a right-aligned stamp stretch the bubble.

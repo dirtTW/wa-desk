@@ -12,10 +12,12 @@ impl WaDesk {
     /// The login gate: WhatsApp Web's "scan to log in" page, painted with the
     /// dark palette (wordmark, download card, the scan card with its three
     /// numbered steps, the QR and the phone-number link).
-    pub(crate) fn gate(&mut self, ctx: &egui::Context) {
+    pub(crate) fn gate(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.palette.panel))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 let palette = self.palette.clone();
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])

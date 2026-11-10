@@ -12,7 +12,7 @@ fn wallpaper_textile(ctx: &egui::Context, palette: &crate::theme::Palette) -> eg
         palette.wallpaper.b()
     );
     if let Some(texture) =
-        ctx.data(|data| data.get_temp::<egui::TextureHandle>(egui::Id::new(&key)))
+        ctx.data(|data| data.get_temp::<egui::TextureHandle>(egui::Id::unique(&key)))
     {
         return texture;
     }
@@ -79,7 +79,7 @@ fn wallpaper_textile(ctx: &egui::Context, palette: &crate::theme::Palette) -> eg
         pixels,
     };
     let texture = ctx.load_texture(key.clone(), image, egui::TextureOptions::LINEAR);
-    ctx.data_mut(|data| data.insert_temp(egui::Id::new(&key), texture.clone()));
+    ctx.data_mut(|data| data.insert_temp(egui::Id::unique(&key), texture.clone()));
     texture
 }
 

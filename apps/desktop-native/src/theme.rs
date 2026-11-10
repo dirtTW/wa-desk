@@ -121,7 +121,7 @@ pub fn apply(ctx: &egui::Context, p: &Palette) {
     visuals.widgets.open.weak_bg_fill = p.hover;
     ctx.set_visuals(visuals);
 
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     style.visuals.window_shadow = egui::epaint::Shadow {
         offset: [0, 8],
         blur: 24,
@@ -157,7 +157,7 @@ pub fn apply(ctx: &egui::Context, p: &Palette) {
         ),
     ]
     .into();
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 #[cfg(test)]

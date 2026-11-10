@@ -109,7 +109,7 @@ pub(crate) fn prune_textures(
         .keys()
         .map(|key| {
             let stamp = ctx
-                .data(|data| data.get_temp::<u64>(egui::Id::new(("texture-use", key.as_str()))))
+                .data(|data| data.get_temp::<u64>(egui::Id::unique(("texture-use", key.as_str()))))
                 .unwrap_or(0);
             (stamp, key.clone())
         })

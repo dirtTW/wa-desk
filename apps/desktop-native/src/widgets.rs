@@ -72,7 +72,7 @@ pub(crate) fn dialog_card(
     contents: impl FnOnce(&mut egui::Ui),
 ) {
     let size = egui::vec2(width, viewport.height() * 0.6);
-    egui::Area::new(egui::Id::new(id))
+    egui::Area::new(egui::Id::unique(id))
         .order(egui::Order::Foreground)
         .fixed_pos(egui::pos2(
             viewport.center().x - width / 2.0,

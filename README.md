@@ -90,7 +90,7 @@ shortcuts, starts the app and leaves `Uninstall WA Desk.cmd` behind. Linux ships
 
 ## Requirements
 
-- Rust **1.94+** (edition 2024) — [rustup](https://rustup.rs/).
+- Rust **1.95+** (edition 2024) — [rustup](https://rustup.rs/).
 - **Windows**: MSVC build tools ("Desktop development with C++").
 - **Linux** (Debian/Ubuntu): `sudo apt install build-essential libssl-dev pkg-config libasound2-dev
   libxkbcommon-dev libwayland-dev libgl1-mesa-dev` (ALSA is needed for audio). Fedora/Arch:

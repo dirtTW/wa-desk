@@ -6,13 +6,13 @@ use crate::app::{Icon, WaDesk, draw_icon, icon_button};
 use crate::settings_ui::settings_link;
 
 impl WaDesk {
-    pub(crate) fn meta_ai_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn meta_ai_panel(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette.clone();
-        egui::SidePanel::left("meta-ai")
+        egui::Panel::left("meta-ai")
             .resizable(false)
-            .exact_width(420.0)
+            .exact_size(420.0)
             .frame(egui::Frame::new().fill(palette.elevated))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::Frame::new()
                     .inner_margin(egui::Margin::symmetric(12, 10))
                     .show(ui, |ui| {
@@ -65,6 +65,6 @@ impl WaDesk {
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |_ui| {});
+            .show(ui, |_ui| {});
     }
 }

@@ -107,7 +107,7 @@ impl WaDesk {
             })
             .collect();
 
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         // Paint at the clip's own rate: a 30 fps clip sampled by a 10 fps timer
         // looks like it stutters no matter how well the frames are decoded.
         if item.kind == "video" && self.video_playing {
@@ -144,7 +144,7 @@ impl WaDesk {
         let kind = item.kind.clone();
         let item_id = item.id.clone();
 
-        egui::Area::new(egui::Id::new("media-viewer"))
+        egui::Area::new(egui::Id::unique("media-viewer"))
             .order(egui::Order::Foreground)
             .fixed_pos(screen.min)
             .show(ctx, |ui| {
@@ -215,7 +215,7 @@ impl WaDesk {
                         egui::pos2(x - 17.0, screen.top() + header / 2.0),
                         egui::vec2(34.0, 34.0),
                     );
-                    let response = ui.interact(rect, ui.id().with(name), egui::Sense::click());
+                    let response = ui.interact(rect, ui.scope_id().with(name), egui::Sense::click());
                     let color = if response.hovered() {
                         egui::Color32::from_gray(245)
                     } else {
@@ -348,7 +348,7 @@ impl WaDesk {
                 // Clicking the frame plays or pauses, like the official viewer.
                 let hit = ui.interact(
                     media_rect,
-                    ui.id().with("media-stage"),
+                    ui.scope_id().with("media-stage"),
                     egui::Sense::click(),
                 );
                 if hit.clicked() && kind == "video" {
@@ -374,7 +374,7 @@ impl WaDesk {
                             egui::pos2(x, screen.center().y),
                             egui::vec2(40.0, 40.0),
                         );
-                        let response = ui.interact(rect, ui.id().with(name), egui::Sense::click());
+                        let response = ui.interact(rect, ui.scope_id().with(name), egui::Sense::click());
                         let fill = if response.hovered() {
                             egui::Color32::from_black_alpha(150)
                         } else {
@@ -409,7 +409,7 @@ impl WaDesk {
                         egui::pos2(bar.left() + 27.0, middle),
                         egui::vec2(34.0, 34.0),
                     );
-                    let play = ui.interact(play_rect, ui.id().with("v-play"), egui::Sense::click());
+                    let play = ui.interact(play_rect, ui.scope_id().with("v-play"), egui::Sense::click());
                     draw_icon(
                         ui,
                         play_rect.shrink(7.0),
@@ -435,7 +435,7 @@ impl WaDesk {
                     );
                     let response = ui.interact(
                         seek_rect,
-                        ui.id().with("v-seek"),
+                        ui.scope_id().with("v-seek"),
                         egui::Sense::click_and_drag(),
                     );
                     let line_y = middle;
@@ -478,7 +478,7 @@ impl WaDesk {
                         egui::vec2(32.0, 18.0),
                     );
                     let speed_hit =
-                        ui.interact(speed_rect, ui.id().with("v-speed"), egui::Sense::click());
+                        ui.interact(speed_rect, ui.scope_id().with("v-speed"), egui::Sense::click());
                     if speed_hit.clicked() {
                         speed_click = true;
                     }
@@ -493,7 +493,7 @@ impl WaDesk {
                         egui::pos2(bar.right() - 74.0, middle),
                         egui::vec2(28.0, 28.0),
                     );
-                    let mute = ui.interact(mute_rect, ui.id().with("v-mute"), egui::Sense::click());
+                    let mute = ui.interact(mute_rect, ui.scope_id().with("v-mute"), egui::Sense::click());
                     draw_icon(
                         ui,
                         mute_rect.shrink(6.0),
@@ -627,7 +627,7 @@ impl WaDesk {
                     }
                     let response = ui.interact(
                         rect,
-                        ui.id().with(("thumb", position)),
+                        ui.scope_id().with(("thumb", position)),
                         egui::Sense::click(),
                     );
                     if response.clicked() && position != selected {
@@ -650,11 +650,11 @@ impl WaDesk {
         // wheel and lets you drag the zoomed image around.
         let (wheel, over_stage) = ctx.input(|input| {
             (
-                input.raw_scroll_delta.y,
+                input.smooth_scroll_delta.y,
                 input
                     .pointer
                     .hover_pos()
-                    .is_some_and(|pos| ctx.screen_rect().contains(pos)),
+                    .is_some_and(|pos| ctx.content_rect().contains(pos)),
             )
         });
         if over_stage && wheel.abs() > 0.1 {
@@ -727,7 +727,7 @@ impl WaDesk {
         let now = now_ms();
         let plan = call.overlay(now);
         let status = plan.status(&call.overlay_input(now));
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let mut action: Option<Command> = None;
 
         if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
@@ -740,7 +740,7 @@ impl WaDesk {
             });
         }
 
-        egui::Area::new(egui::Id::new("call-overlay"))
+        egui::Area::new(egui::Id::unique("call-overlay"))
             .order(egui::Order::Foreground)
             .fixed_pos(screen.min)
             .show(ctx, |ui| {
@@ -890,7 +890,7 @@ impl WaDesk {
                               slash: bool|
                  -> bool {
                     let hit_rect = egui::Rect::from_center_size(center, egui::vec2(60.0, 60.0));
-                    let response = ui.interact(hit_rect, egui::Id::new(id), egui::Sense::click());
+                    let response = ui.interact(hit_rect, egui::Id::unique(id), egui::Sense::click());
                     painter.circle_filled(
                         center,
                         30.0,

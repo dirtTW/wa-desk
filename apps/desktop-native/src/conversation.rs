@@ -10,11 +10,13 @@ use crate::model::{BubbleAction, Command, Model};
 use crate::widgets::{dialog_button, dialog_card, paint_avatar};
 
 impl WaDesk {
-    pub(crate) fn conversation(&mut self, ctx: &egui::Context) {
+    pub(crate) fn conversation(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         let palette = self.palette.clone();
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.wallpaper))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 // The doodle wallpaper sits behind everything in the panel.
                 paint_wallpaper(ui, &palette, ui.max_rect());
                 let Some(jid) = self.model.active.clone() else {
@@ -360,7 +362,7 @@ impl WaDesk {
                 // window border as soon as the banner or the recording row made
                 // the bar taller.
                 let composer_height: f32 = ctx.data(|data| {
-                    data.get_temp(egui::Id::new("composer-height"))
+                    data.get_temp(egui::Id::unique("composer-height"))
                         .unwrap_or(64.0)
                 });
                 let height = (ui.available_height() - composer_height - 10.0).max(120.0);
@@ -368,7 +370,7 @@ impl WaDesk {
                 // previous frame's content height tells us how much to pad.
                 // Keyed by chat: a *global* height padded the new chat with the
                 // previous one's for a frame, so the list jumped on every click.
-                let height_key = egui::Id::new(("chat-content-height", jid.as_str()));
+                let height_key = egui::Id::unique(("chat-content-height", jid.as_str()));
                 let content_height: f32 = ctx.data(|data| data.get_temp(height_key).unwrap_or(0.0));
                 let spare = (height - content_height).max(0.0);
                 let mut chosen: Option<BubbleAction> = None;
@@ -516,13 +518,13 @@ impl WaDesk {
                 // circle with a chevron, just above the composer.
                 let viewport = list_output.inner_rect;
                 let max_offset = (list_output.content_size.y - viewport.height()).max(0.0);
-                if max_offset > 1.0 && list_output.state.offset.y < max_offset - 2.0 {
+                if max_offset > 1.0 && list_output.state.clamped_offset().y < max_offset - 2.0 {
                     let center = egui::pos2(viewport.right() - 42.0, viewport.bottom() - 30.0);
                     let rect = egui::Rect::from_center_size(center, egui::vec2(44.0, 44.0));
                     let response = ui
                         .interact(
                             rect,
-                            egui::Id::new("scroll-to-latest"),
+                            egui::Id::unique("scroll-to-latest"),
                             egui::Sense::click(),
                         )
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -637,8 +639,8 @@ impl WaDesk {
                                                 egui::TextEdit::singleline(
                                                     &mut self.model.composer,
                                                 )
-                                                .id(egui::Id::new("composer-input"))
-                                                .frame(false)
+                                                .id(egui::Id::unique("composer-input"))
+                                                .frame(egui::Frame::NONE)
                                                 .hint_text("Type a message"),
                                             ),
                                         );
@@ -772,7 +774,7 @@ impl WaDesk {
                         });
                         ctx.data_mut(|data| {
                             data.insert_temp(
-                                egui::Id::new("composer-height"),
+                                egui::Id::unique("composer-height"),
                                 (ui.min_rect().bottom() - composer_top).max(0.0),
                             );
                         });
@@ -838,7 +840,7 @@ impl WaDesk {
             return;
         }
         let palette = self.palette.clone();
-        let viewport = ctx.screen_rect();
+        let viewport = ctx.content_rect();
         let mut send = false;
         let mut close = false;
         let draft = self.poll_draft.as_mut().expect("draft is open");
@@ -921,7 +923,7 @@ impl WaDesk {
             return;
         }
         let palette = self.palette.clone();
-        let viewport = ctx.screen_rect();
+        let viewport = ctx.content_rect();
         let mut send = false;
         let mut close = false;
         let draft = self.contact_draft.as_mut().expect("draft is open");
@@ -975,7 +977,7 @@ impl WaDesk {
             return;
         }
         let palette = self.palette.clone();
-        let viewport = ctx.screen_rect();
+        let viewport = ctx.content_rect();
         let mut send = false;
         let mut close = false;
         let draft = self.location_draft.as_mut().expect("draft is open");
@@ -1046,7 +1048,7 @@ impl WaDesk {
             return;
         }
         let palette = self.palette.clone();
-        let viewport = ctx.screen_rect();
+        let viewport = ctx.content_rect();
         let mut create = false;
         let mut close = false;
         let draft = self.list_draft.as_mut().expect("draft is open");

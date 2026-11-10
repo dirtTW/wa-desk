@@ -11,21 +11,23 @@ impl WaDesk {
     /// right with the Text / Photo-and-video tiles.
     /// The Status screen: the official list on the left (the "My status" row,
     /// then Recent/Viewed) and the "Share statuses" pane on the right.
-    pub(crate) fn status_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn status_panel(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         let palette = self.palette.clone();
         if self.model.viewer.is_some() {
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 self.status_viewer(ui, ctx);
             });
             return;
         }
 
         // Right: the share pane, 320 px, the official empty-state card.
-        egui::SidePanel::right("status-share")
+        egui::Panel::right("status-share")
             .resizable(false)
-            .exact_width(320.0)
+            .exact_size(320.0)
             .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.add_space((ui.available_height() * 0.22).clamp(20.0, 180.0));
                 ui.vertical_centered(|ui| {
                     // The live empty state opens with the big grey status ring.
@@ -125,7 +127,7 @@ impl WaDesk {
                                 ui.add_sized(
                                     [240.0, 64.0],
                                     egui::TextEdit::multiline(&mut draft)
-                                        .frame(false)
+                                        .frame(egui::Frame::NONE)
                                         .hint_text("Type a status"),
                                 );
                             });
@@ -197,7 +199,7 @@ impl WaDesk {
         // Left: the list.
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::Frame::new()
                     .fill(palette.elevated)
                     .inner_margin(egui::Margin::symmetric(16, 12))

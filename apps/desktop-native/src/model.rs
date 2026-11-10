@@ -605,6 +605,38 @@ impl Model {
         self.apply(&UiEvent::Message(message));
     }
 
+    /// A video message that only has its inline poster, for `--preview`: the
+    /// play disc over the poster can be captured without a session.
+    pub fn demo_video_thumb(&mut self, chat: &str, id: &str) {
+        use base64::Engine as _;
+        let mut image = image::RgbImage::new(320, 180);
+        for (x, y, pixel) in image.enumerate_pixels_mut() {
+            *pixel = image::Rgb([
+                (40 + x / 5) as u8,
+                (90 + y / 3) as u8,
+                (150 + (x + y) / 9) as u8,
+            ]);
+        }
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 80);
+        let _ = encoder.encode(
+            image.as_raw(),
+            image.width(),
+            image.height(),
+            image::ExtendedColorType::Rgb8,
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+        let chat_name = self
+            .chats
+            .get(chat)
+            .map(|row| self.title(row))
+            .unwrap_or_else(|| chat.to_string());
+        let mut message = view(chat, &chat_name, id, "", self.now, false);
+        message.kind = "video".to_string();
+        message.thumb = Some(format!("data:image/jpeg;base64,{encoded}"));
+        self.apply(&UiEvent::Message(message));
+    }
+
     /// A plain text message for `--preview` (markup and emoji included).
     pub fn demo_note(&mut self, chat: &str, id: &str, text: &str, from_me: bool) {
         let chat_name = self

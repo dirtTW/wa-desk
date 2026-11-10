@@ -92,11 +92,11 @@ impl WaDesk {
             .collect()
     }
 
-    pub(crate) fn group_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn group_panel(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette.clone();
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::Frame::new()
                     .fill(palette.elevated)
                     .inner_margin(egui::Margin::symmetric(16, 12))

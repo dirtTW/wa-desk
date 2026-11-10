@@ -446,6 +446,12 @@ impl WaDesk {
             self.model.active = Some("1203@g.us".to_string());
             self.model.demo_photo_thumb("1203@g.us", "thumb-demo");
         }
+        // `WA_DESK_DEMO_VIDEO=1` puts a video bubble (poster only) in the demo
+        // group, so the play disc can be captured without a session.
+        if std::env::var("WA_DESK_DEMO_VIDEO").is_ok() {
+            self.model.active = Some("1203@g.us".to_string());
+            self.model.demo_video_thumb("1203@g.us", "video-demo");
+        }
         if std::env::var("WA_DESK_MARKUP").is_ok() {
             self.model.active = Some("1203@g.us".to_string());
             self.model.demo_note(
@@ -1088,11 +1094,11 @@ impl WaDesk {}
 impl WaDesk {
     /// Settings: the official two-pane screen - the section list on the left,
     /// the selected page as cards on the right.
-    pub(crate) fn settings_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn settings_panel(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette.clone();
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
                     self.settings_sections(ui, &palette);
                     ui.add_space(2.0);
@@ -1103,7 +1109,7 @@ impl WaDesk {
                     // `available_height()` is not the window's remaining height
                     // inside this horizontal layout, so measure from the screen.
                     let pane_height =
-                        (ui.ctx().screen_rect().bottom() - ui.cursor().top() - 4.0).max(140.0);
+                        (ui.ctx().content_rect().bottom() - ui.cursor().top() - 4.0).max(140.0);
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .scroll_bar_visibility(

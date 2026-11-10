@@ -24,7 +24,7 @@ impl WaDesk {
         let mut gif_send: Option<String> = None;
         let mut stickers = false;
 
-        egui::Area::new(egui::Id::new("emoji-panel"))
+        egui::Area::new(egui::Id::unique("emoji-panel"))
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-96.0, -84.0))
             .show(ctx, |ui| {
@@ -70,7 +70,7 @@ impl WaDesk {
                                     draw_icon(ui, rect, Icon::Search, palette.secondary);
                                     ui.add(
                                         egui::TextEdit::singleline(&mut self.model.emoji_query)
-                                            .frame(false)
+                                            .frame(egui::Frame::NONE)
                                             .hint_text("Search emoji")
                                             .desired_width(f32::INFINITY),
                                     );
@@ -79,7 +79,7 @@ impl WaDesk {
                         ui.add_space(6.0);
 
                         let query = self.model.emoji_query.trim().to_string();
-                        let height = (ui.ctx().screen_rect().height() * 0.42).clamp(180.0, 320.0);
+                        let height = (ui.ctx().content_rect().height() * 0.42).clamp(180.0, 320.0);
                         egui::ScrollArea::vertical()
                             .max_height(height)
                             .auto_shrink([false, true])
@@ -296,7 +296,7 @@ impl WaDesk {
         let mut emoji_tab = false;
         let mut gif_tab = false;
 
-        egui::Area::new(egui::Id::new("sticker-panel"))
+        egui::Area::new(egui::Id::unique("sticker-panel"))
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-96.0, -84.0))
             .show(ctx, |ui| {
@@ -393,7 +393,7 @@ impl WaDesk {
                                     draw_icon(ui, rect, Icon::Search, palette.secondary);
                                     ui.add(
                                         egui::TextEdit::singleline(&mut self.sticker_query)
-                                            .frame(false)
+                                            .frame(egui::Frame::NONE)
                                             .hint_text("Search via WhatsApp sticker store")
                                             .desired_width(f32::INFINITY),
                                     );

@@ -373,7 +373,7 @@ pub(crate) fn album_bubble(
             }
             let response = ui.interact(
                 tile,
-                ui.id().with(("album", &message.id)),
+                ui.scope_id().with(("album", &message.id)),
                 egui::Sense::click(),
             );
             if response.clicked() {
@@ -677,6 +677,23 @@ fn bubble_content(
                     );
                 }
             }
+            // A video that still has its inline poster (the file is on the
+            // phone) reads as playable: the same disc the downloaded bubble
+            // uses. Without it the poster looked like a photo.
+            if preview.is_some() && message.kind == "video" && !message.gif {
+                let disc = egui::Rect::from_center_size(tile.center(), egui::vec2(48.0, 48.0));
+                painter.circle_filled(
+                    disc.center(),
+                    24.0,
+                    egui::Color32::from_black_alpha(120),
+                );
+                draw_icon(
+                    ui,
+                    disc.shrink(9.0),
+                    Icon::Play,
+                    egui::Color32::from_gray(245),
+                );
+            }
             let mut y = tile.bottom() + 5.0;
             if let Some(galley) = &caption_galley {
                 let caption_height = galley.size().y;
@@ -807,8 +824,9 @@ fn bubble_content(
                     .corner_radius(egui::CornerRadius::same(6)),
             );
             // A video carries the official play disc over its poster, so the
-            // bubble reads as playable before the viewer is opened.
-            if message.kind == "video" {
+            // bubble reads as playable before the viewer is opened. A GIF is a
+            // `video` too and loops inline, so it must not get the disc.
+            if message.kind == "video" && !message.gif {
                 let media_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.left() + pad, rect.top() + pad),
                     image_size,
@@ -822,7 +840,7 @@ fn bubble_content(
                 );
                 draw_icon(
                     ui,
-                    disc.shrink(13.0),
+                    disc.shrink(9.0),
                     Icon::Play,
                     egui::Color32::from_gray(245),
                 );
@@ -1586,6 +1604,6 @@ pub(crate) fn texture_at(
     let texture = ctx.load_texture(key.to_string(), color, egui::TextureOptions::LINEAR);
     cache.insert(key.to_string(), Some(texture.clone()));
     let frame = ctx.cumulative_frame_nr();
-    ctx.data_mut(|data| data.insert_temp(egui::Id::new(("texture-use", key)), frame));
+    ctx.data_mut(|data| data.insert_temp(egui::Id::unique(("texture-use", key)), frame));
     Some(texture)
 }

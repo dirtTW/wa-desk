@@ -9,17 +9,17 @@ use crate::app::{Icon, WaDesk, draw_icon, icon_button};
 use crate::widgets::{fit_text, paint_avatar};
 
 impl WaDesk {
-    pub(crate) fn channels_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn channels_panel(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette.clone();
         let rows = self.model.channel_rows();
 
         // ---- the drawer, in the chat list's column -------------------------
-        egui::SidePanel::left("channels")
+        egui::Panel::left("channels")
             .resizable(true)
-            .default_width(420.0)
-            .width_range(320.0..=560.0)
+            .default_size(420.0)
+            .size_range(320.0..=560.0)
             .frame(egui::Frame::new().fill(palette.elevated))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::Frame::new()
                     .inner_margin(egui::Margin::symmetric(12, 10))
                     .show(ui, |ui| {
@@ -60,7 +60,7 @@ impl WaDesk {
                                 draw_icon(ui, rect, Icon::Search, palette.secondary);
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.channels_query)
-                                        .frame(false)
+                                        .frame(egui::Frame::NONE)
                                         .hint_text("Search")
                                         .desired_width(ui.available_width() - 8.0),
                                 );
@@ -224,7 +224,7 @@ impl WaDesk {
         // ---- the right pane -------------------------------------------------
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 // Only a channel JID belongs here: `active` may still point at
                 // the chat the user was reading (the demo group, for instance).
                 let Some(jid) = self

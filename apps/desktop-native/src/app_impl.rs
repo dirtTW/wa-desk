@@ -13,7 +13,7 @@ impl WaDesk {
     pub(crate) fn new(_cc: &eframe::CreationContext<'_>, native: crate::app::NativeApp) -> Self {
         install_fonts(&_cc.egui_ctx);
         let (update_tx, update_rx) = std::sync::mpsc::channel();
-        let system_dark = _cc.egui_ctx.style().visuals.dark_mode;
+        let system_dark = _cc.egui_ctx.global_style().visuals.dark_mode;
         let settings = NativeSettings::load(&settings_file());
         let palette = crate::theme::palette(&settings.theme, system_dark);
         let cache_path =
@@ -170,7 +170,11 @@ impl WaDesk {
 }
 
 impl eframe::App for WaDesk {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // The root `Ui` is the whole window; most of the app still speaks
+        // `Context` (areas, overlays, textures), so keep one owned handle.
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         self.smoke_send();
         // `WA_DESK_ENTER_TEST=1` puts a draft in the composer, focuses the field
         // after a few frames and pushes a real Return event through egui, so the
@@ -181,7 +185,7 @@ impl eframe::App for WaDesk {
             // focused on the *previous* frame.
             if self.enter_test == 4 {
                 ctx.memory_mut(|memory| {
-                    memory.request_focus(egui::Id::new("composer-input"));
+                    memory.request_focus(egui::Id::unique("composer-input"));
                 });
             }
             if self.enter_test == 2 {
@@ -330,7 +334,7 @@ impl eframe::App for WaDesk {
             }
         }
         if !self.model.login.is_linked() {
-            self.gate(ctx);
+            self.gate(ui);
         } else {
             // Check for a newer release once, quietly, after the gate.
             if !self.update_checked {
@@ -342,7 +346,7 @@ impl eframe::App for WaDesk {
             {
                 let text = text.clone();
                 let palette = self.palette.clone();
-                egui::Area::new(egui::Id::new("notice"))
+                egui::Area::new(egui::Id::unique("notice"))
                     .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 72.0))
                     .interactable(false)
                     .show(ctx, |ui| {
@@ -360,26 +364,26 @@ impl eframe::App for WaDesk {
                 self.call_overlay(ctx, &call);
             }
 
-            self.sidebar(ctx);
+            self.sidebar(ui);
             if self.show_group {
-                self.group_panel(ctx);
+                self.group_panel(ui);
             } else if self.show_settings {
-                self.settings_panel(ctx);
+                self.settings_panel(ui);
             } else if self.show_media {
-                self.media_panel(ctx);
+                self.media_panel(ui);
             } else if self.show_channels {
-                self.channels_panel(ctx);
+                self.channels_panel(ui);
             } else if self.show_communities {
-                self.communities_panel(ctx);
+                self.communities_panel(ui);
             } else if self.show_meta_ai {
-                self.meta_ai_panel(ctx);
+                self.meta_ai_panel(ui);
             } else if self.show_calls {
-                self.calls_panel(ctx);
-                self.conversation(ctx);
+                self.calls_panel(ui);
+                self.conversation(ui);
             } else if self.show_status {
-                self.status_panel(ctx);
+                self.status_panel(ui);
             } else {
-                self.conversation(ctx);
+                self.conversation(ui);
                 self.emoji_window(ctx);
                 self.attach_window(ctx);
                 self.poll_window(ctx);

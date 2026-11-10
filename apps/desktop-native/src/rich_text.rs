@@ -137,7 +137,7 @@ pub(crate) fn layout_body(
 
     let font = egui::FontId::proportional(14.0);
     let mono = egui::FontId::monospace(14.0);
-    let base_row = ui.fonts(|fonts| fonts.row_height(&font).max(fonts.row_height(&mono)));
+    let base_row = ui.fonts_mut(|fonts| fonts.row_height(&font).max(fonts.row_height(&mono)));
     let emoji_size = emoji_px as f32;
     // Every line is at least as tall as an emoji cell: with a shorter row the
     // 19 px cells overlapped the line above, which made mixed text look like it

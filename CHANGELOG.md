@@ -9,6 +9,36 @@ and the roadmap live in [`AGENTS.md`](AGENTS.md).
 The last eight releases are kept in full. Older ones are condensed to one line each;
 `git log` and the annotated tags carry the full text.
 
+## [0.2.3-rc.1] - 2026-11-10
+
+- **egui 0.32 -> 0.37 (eframe 0.37).** The toolkit moved through five breaking releases; the window
+  code is unchanged in shape, but its wiring is not:
+  - `eframe::App::update(&mut self, ctx, frame)` is now `App::ui(&mut self, ui, frame)`: the root `Ui`
+    is the window, and the app keeps an owned `Context` for areas, overlays and textures.
+  - `SidePanel`/`TopBottomPanel` were removed in 0.35. Every panel is now
+    `egui::Panel::{left,right}(id).show(ui, ...)`, with `exact_width` -> `exact_size`,
+    `default_width` -> `default_size` and `width_range` -> `size_range`.
+  - `ctx.screen_rect()` -> `ctx.content_rect()` (14 sites, including the viewer's screen-anchored
+    prev/next discs), `ctx.style()` -> `global_style()`, `Id::new` -> `Id::unique`,
+    `TextEdit::frame(false)` -> `Frame::NONE`, and `ScrollArea`'s `State::offset()` ->
+    `clamped_offset()`.
+  - Screenshots use `Context::request_screenshot(callback)`. `ViewportCommand::Screenshot` carries a
+    callback in 0.37 and `Event::Screenshot` is gone, so `--screenshot` saves and exits from the
+    callback.
+  - `default_fonts` is no longer a default feature; eframe still enables it here and `install_fonts`
+    is unchanged.
+  - Verified against rc.16 on the same live chat (`target/real_old_top.png` vs
+    `target/real_egui37_top.png`) and on the preview screens (chat, Calls, Status, Channels,
+    Communities, Media, Group info, Settings, viewer); the layout is identical.
+- **A video with only its inline poster showed no play control.** The missing-file branch painted the
+  embedded JPEG and stopped, so the bubble read as a photo until a tap opened the viewer. It now paints
+  the same 48 px play disc as a downloaded video. GIFs are `kind == "video"` too and loop inline, so
+  the disc is skipped when `message.gif` is set. The disc's icon box is 30 px so the triangle matches
+  the official weight.
+- Captures: `target/video_disc.png` (`WA_DESK_DEMO_VIDEO=1`) and `target/gif_no_disc.png` (a real GIF
+  through `WA_DESK_GIFS`).
+- Tests: 132 native + 43 wa-core + 232 wa-ui + 7 installer/other, clippy `-D warnings` clean.
+
 ## [0.2.2-rc.16] - 2026-11-05
 
 - **Opening a video could freeze the window.** The frame-texture sweep pushed every "protected" key
@@ -106,22 +136,9 @@ The last eight releases are kept in full. Older ones are condensed to one line e
     frames and the scrubber advance at that rate too.
 - Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
 
-## [0.2.2-rc.9] - 2026-11-05
-
-- **Video in the media viewer, focused fixes** (reported: scrubbing flickered "Loading frame.", prev/next
-  did nothing on a video, the caption ran over the filmstrip):
-  - **The stage swallowed the arrows' clicks.** The full-frame click target was registered *after* the
-    prev/next discs, and egui gives a click to the last widget under the pointer, so the discs never
-    fired - most visible on video, where the stage is the entire frame. The stage is registered first now.
-  - **Scrubbing paints the nearest decoded frame** in either direction instead of only eight frames
-    behind the playhead. A drag lands where nothing is decoded yet, so the fallback used to miss and the
-    stage showed "Loading frame."; it now always has something to paint where any frame near the target
-    is cached.
-  - **The caption is measured before the stage** and the stage's bottom is raised by its height, so a
-    long caption (the PKWT "Materi: 1. Forging ..." list) no longer paints over the filmstrip.
-- Tests: 132 native + 43 wa-core + 232 wa-ui, clippy `-D warnings` clean.
-
 ## Earlier releases (condensed)
+
+- 0.2.2-rc.9 (2026-11-05) Video viewer: the stage no longer swallows prev/next clicks, scrubbing paints the nearest decoded frame, and captions no longer cover the filmstrip.
 
 - 0.2.2-rc.8 (2026-11-05) Viewer filmstrip: the strip now spans the stage width (centring only when the items fit)...
 - 0.2.2-rc.7 (2026-11-05) The media viewer toolbar and zoom now follow the live client.

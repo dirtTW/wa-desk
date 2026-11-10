@@ -10,15 +10,15 @@ use crate::widgets::{avatar_color, fit_text, initials, paint_avatar, single_line
 
 impl WaDesk {
     /// The rail plus the Chats panel: search, filters, list.
-    pub(crate) fn sidebar(&mut self, ctx: &egui::Context) {
+    pub(crate) fn sidebar(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette.clone();
 
         // The navigation rail, like the official client.
-        egui::SidePanel::left("rail")
+        egui::Panel::left("rail")
             .resizable(false)
-            .exact_width(58.0)
+            .exact_size(58.0)
             .frame(egui::Frame::new().fill(palette.rail))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.add_space(10.0);
                 ui.vertical_centered(|ui| {
                     let chats = !self.show_status && !self.show_channels && !self.show_settings;
@@ -141,10 +141,10 @@ impl WaDesk {
             return;
         }
 
-        egui::SidePanel::left("chats")
+        egui::Panel::left("chats")
             .resizable(true)
-            .default_width(368.0)
-            .show(ctx, |ui| {
+            .default_size(368.0)
+            .show(ui, |ui| {
                 let palette = self.palette.clone();
                 // The official list header is a 64 px bar in the rail colour
                 // with the avatar and title inset by 12 px (measured on
@@ -206,7 +206,7 @@ impl WaDesk {
                             let edit = ui.add(
                                 egui::TextEdit::singleline(&mut self.model.search)
                                     .hint_text("Search or start a new chat")
-                                    .frame(false)
+                                    .frame(egui::Frame::NONE)
                                     .desired_width(f32::INFINITY),
                             );
                             if self.focus_search {

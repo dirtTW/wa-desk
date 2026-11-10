@@ -6,15 +6,15 @@ use crate::widgets::{avatar_color, fit_text, initials, status_share_tile};
 
 impl WaDesk {
     /// The Communities screen.
-    pub(crate) fn communities_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn communities_panel(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette.clone();
         // The right pane first (panels reserve space in order): the live
-        egui::SidePanel::left("communities")
+        egui::Panel::left("communities")
             .resizable(true)
-            .default_width(420.0)
-            .width_range(320.0..=560.0)
+            .default_size(420.0)
+            .size_range(320.0..=560.0)
             .frame(egui::Frame::new().fill(palette.elevated))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::Frame::new()
                     .inner_margin(egui::Margin::symmetric(12, 10))
                     .show(ui, |ui| {
@@ -358,7 +358,7 @@ impl WaDesk {
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.panel))
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space((ui.available_height() * 0.28).clamp(24.0, 240.0));
                     let (icon, _) =

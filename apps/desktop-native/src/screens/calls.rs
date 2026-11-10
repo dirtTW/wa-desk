@@ -10,13 +10,13 @@ use crate::widgets::{avatar_color, fit_text, initials};
 impl WaDesk {
     /// The Calls drawer, in the same column as the chat list, so the messages
     /// pane stays beside it like the official client.
-    pub(crate) fn calls_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn calls_panel(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette.clone();
-        egui::SidePanel::left("calls")
+        egui::Panel::left("calls")
             .resizable(true)
-            .default_width(368.0)
-            .width_range(300.0..=460.0)
-            .show(ctx, |ui| {
+            .default_size(368.0)
+            .size_range(300.0..=460.0)
+            .show(ui, |ui| {
                 // Header: "Calls", the kebab and the green new-call button.
                 egui::Frame::new()
                     .fill(palette.elevated)
@@ -66,7 +66,7 @@ impl WaDesk {
                                 draw_icon(ui, rect, Icon::Search, palette.secondary);
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.calls_query)
-                                        .frame(false)
+                                        .frame(egui::Frame::NONE)
                                         .hint_text("Search name, number or @username")
                                         .desired_width(ui.available_width() - 8.0),
                                 );
@@ -304,7 +304,7 @@ pub(crate) fn call_row(
         );
         let hit = ui.interact(
             button,
-            ui.id().with(("call", &entry.jid)),
+            ui.scope_id().with(("call", &entry.jid)),
             egui::Sense::click(),
         );
         if hit.hovered() {

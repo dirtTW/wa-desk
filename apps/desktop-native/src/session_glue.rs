@@ -200,22 +200,22 @@ impl WaDesk {
                 .unwrap_or(14);
             if started.elapsed() >= std::time::Duration::from_secs(delay) {
                 *requested = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-            }
-        }
-        let events = ctx.input(|input| input.events.clone());
-        for event in events {
-            if let egui::Event::Screenshot { image, .. } = event {
-                let size = [image.width() as u32, image.height() as u32];
-                let rgba: Vec<u8> = image
-                    .pixels
-                    .iter()
-                    .flat_map(|pixel| pixel.to_array())
-                    .collect();
-                if let Some(buffer) = image::RgbaImage::from_raw(size[0], size[1], rgba) {
-                    let _ = buffer.save(&*path);
-                }
-                std::process::exit(0);
+                // 0.37 hands the pixels to a callback instead of an event: the
+                // integration may deliver them after this frame, so the save
+                // and exit live in the closure.
+                let path = path.clone();
+                ctx.request_screenshot(move |image| {
+                    let size = [image.width() as u32, image.height() as u32];
+                    let rgba: Vec<u8> = image
+                        .pixels
+                        .iter()
+                        .flat_map(|pixel| pixel.to_array())
+                        .collect();
+                    if let Some(buffer) = image::RgbaImage::from_raw(size[0], size[1], rgba) {
+                        let _ = buffer.save(&path);
+                    }
+                    std::process::exit(0);
+                });
             }
         }
         ctx.request_repaint();
