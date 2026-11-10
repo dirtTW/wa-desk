@@ -14,7 +14,7 @@ string/label/plan, `apps/desktop-native` paints an `eframe`/`egui` window. No We
 | `crates/wa-ui` | pure decisions: text/labels/emoji/icons, merge plans, HTML renderers + tests |
 | `crates/wa-core` | protocol session (`whatsapp-rust`): messages, media, groups, status, calls |
 | `apps/desktop-native` | the shipped window (`wa-desk-native`) |
-| `vendor/whatsapp-rust`, `vendor/wacore-appstate` | patched dependencies |
+| `vendor/whatsapp-rust`, `vendor/wacore-appstate`, `vendor/diesel`, `vendor/whatsapp-rust-sqlite-storage` | patched dependencies |
 
 One-way dependency: `wa-core` knows nothing about the UI, `wa-ui` knows nothing about the session.
 

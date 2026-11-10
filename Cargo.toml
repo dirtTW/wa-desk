@@ -9,6 +9,14 @@ exclude = ["vendor/wacore-appstate"]
 [patch.crates-io]
 whatsapp-rust = { path = "vendor/whatsapp-rust" }
 wacore-appstate = { path = "vendor/wacore-appstate" }
+# Diesel 2.3.14 caps libsqlite3-sys at <0.39.0. 0.39.0 is the first release that
+# bundles SQLite 3.54.0, which fixes RUSTSEC-2026-0459 (CVE-2026-119375); Diesel
+# master already widened the same range to <0.40.0, so this is that one-line
+# change until 2.4 ships.
+diesel = { path = "vendor/diesel" }
+# The storage crate pinned libsqlite3-sys to 0.37 and enabled `bundled` itself,
+# so it has to move with Diesel or Cargo sees two `links = "sqlite3"` crates.
+whatsapp-rust-sqlite-storage = { path = "vendor/whatsapp-rust-sqlite-storage" }
 
 [workspace.package]
 version = "0.2.3-rc.1"

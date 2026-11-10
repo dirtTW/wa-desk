@@ -37,6 +37,12 @@ The last eight releases are kept in full. Older ones are condensed to one line e
   the official weight.
 - Captures: `target/video_disc.png` (`WA_DESK_DEMO_VIDEO=1`) and `target/gif_no_disc.png` (a real GIF
   through `WA_DESK_GIFS`).
+- **SQLite 3.54.1 for RUSTSEC-2026-0459 (CVE-2026-119375).** `cargo audit` found the bundled SQLite
+  in `libsqlite3-sys` 0.37 vulnerable to uninitialised page-cache memory when a crafted `-wal`
+  sibling is opened. Diesel 2.3.14 caps the crate at `<0.39.0` although its master allows `<0.40.0`;
+  `vendor/diesel` carries that one-line widening and `vendor/whatsapp-rust-sqlite-storage` moves its
+  own pin to 0.39. The lock resolves `libsqlite3-sys` 0.39.1 (SQLite 3.54.1); a live session opens
+  the existing database and replays history.
 - Tests: 132 native + 43 wa-core + 232 wa-ui + 7 installer/other, clippy `-D warnings` clean.
 
 ## [0.2.2-rc.16] - 2026-11-05

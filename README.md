@@ -149,7 +149,8 @@ you to all of them.
 - **[whatsmeow](https://github.com/tulir/whatsmeow)** and
   **[Baileys](https://github.com/WhiskeySockets/Baileys)** — the reference implementations
   `whatsapp-rust` checks itself against.
-- **[SQLite](https://sqlite.org/)** through `rusqlite` — where the linked session lives.
+- **[SQLite](https://sqlite.org/)** through **[Diesel](https://diesel.rs/)** and `libsqlite3-sys` - where
+  the linked session lives (vendored with the SQLite 3.54.1 security fix).
 
 **Window, text and pictures**
 - **[eframe](https://github.com/emilk/egui) / [egui](https://github.com/emilk/egui)** by
