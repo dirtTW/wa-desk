@@ -452,11 +452,12 @@ impl WaDesk {
                                         message.timestamp,
                                         message.from_me
                                     );
-                                    for look in index..(index + 3).min(row.messages.len()) {
-                                        let item = &row.messages[look];
+                                    for (look, near) in
+                                        row.messages.iter().enumerate().skip(index).take(3)
+                                    {
                                         note.push_str(&format!(
                                             " || {look} {} s={:?} ts={} me={}",
-                                            item.kind, item.sender, item.timestamp, item.from_me
+                                            near.kind, near.sender, near.timestamp, near.from_me
                                         ));
                                     }
                                     diag(&note);

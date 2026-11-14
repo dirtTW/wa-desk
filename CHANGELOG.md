@@ -22,6 +22,10 @@ The last eight releases are kept in full. Older ones are condensed to one line e
   - `flate2` 1.1.11, `ureq` 3.5.1 (+`ureq-proto` 0.7.1) and `zip` 9.4.1: `Cargo.lock` only, behind the
     updater (`ureq`) and the installer pack path (`zip`).
   - CI: `actions/cache` 4 -> 6 in all three jobs of `.github/workflows/build.yml`.
+- **`clippy -D warnings` on the 1.100 toolchain** (stable moved to 1.100.0 on 2026-11-12) flagged
+  `needless_range_loop` in `conversation.rs`'s `WA_DESK_DIAG` media note, which the 1.99 lint set had
+  accepted. The loop is now `row.messages.iter().enumerate().skip(index).take(3)` - the same three
+  neighbours, with no `#[allow]`.
 - Verified by the `build` workflow dispatched on the batch branch before it reached `main`:
   `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`, the headless `--selftest`, and
   both release builds plus the Windows installer.
