@@ -19,7 +19,7 @@ diesel = { path = "vendor/diesel" }
 whatsapp-rust-sqlite-storage = { path = "vendor/whatsapp-rust-sqlite-storage" }
 
 [workspace.package]
-version = "0.2.3-rc.1"
+version = "0.2.3-rc.2"
 edition = "2024"
 rust-version = "1.94"
 # The distributed binary statically links `wacore-libsignal`, whose files carry

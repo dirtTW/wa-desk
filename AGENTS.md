@@ -20,7 +20,7 @@ One-way dependency: `wa-core` knows nothing about the UI, `wa-ui` knows nothing 
 
 ## Current state
 
-**Version `0.2.3-rc.1`.** Releases are `<core>-rc.N`, N stops at 99 then the patch rolls
+**Version `0.2.3-rc.2`.** Releases are `<core>-rc.N`, N stops at 99 then the patch rolls
 (`0.2.1-rc.99` -> `0.2.2-rc.1`); `updates::tests::prereleases_compare_in_order` pins the order.
 
 `app.rs` is **~1,340 lines**; the rest is split into:
