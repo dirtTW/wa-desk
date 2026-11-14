@@ -26,9 +26,10 @@ The last eight releases are kept in full. Older ones are condensed to one line e
   `needless_range_loop` in `conversation.rs`'s `WA_DESK_DIAG` media note, which the 1.99 lint set had
   accepted. The loop is now `row.messages.iter().enumerate().skip(index).take(3)` - the same three
   neighbours, with no `#[allow]`.
-- Verified by the `build` workflow dispatched on the batch branch before it reached `main`:
-  `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`, the headless `--selftest`, and
-  both release builds plus the Windows installer.
+- Verified by `build` run 43544532034 on `aa1f960`, whose tree is byte-identical to `main`'s `141de37`:
+  `cargo fmt --check`, `clippy -D warnings` on 1.100, `cargo audit`, `cargo test --workspace` plus the
+  headless `--selftest`, and both release builds with the Windows installer. The run before it, on the
+  tree without the lint fix, passed everything except `lint`.
 
 ## [0.2.3-rc.1] - 2026-11-10
 
