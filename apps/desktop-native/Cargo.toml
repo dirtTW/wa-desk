@@ -22,7 +22,7 @@ serde_json = { workspace = true }
 ureq = "3"
 base64 = { workspace = true }
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
-rodio = "0.20"
+rodio = "0.22"
 ogg = "0.9"
 audiopus = "0.2"
 resvg = "0.49"
